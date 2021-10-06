@@ -1,12 +1,14 @@
 ﻿using System;
+using System.Threading;
+using ShowControl.Host;
 
-namespace DMXController
+namespace ShowControl
 {
     class Program
     {
-        static void Main(string[] args)
+        static async System.Threading.Tasks.Task Main(string[] args)
         {
-            Console.WriteLine("Hello World!");
+            await Host.Host.Main(args);
         }
     }
 }

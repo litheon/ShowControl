@@ -1,0 +1,45 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>netcoreapp3.1</TargetFramework>
+    <Platforms>AnyCPU;x64;x86</Platforms>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="DMXController.Animation\**" />
+    <Compile Remove="DMXController.Devices.Audio\**" />
+    <Compile Remove="DMXController.Devices.DMX\**" />
+    <Compile Remove="DMXController.Devices.Input\**" />
+    <Compile Remove="DMXController.Devices.Output\**" />
+    <Compile Remove="DMXController.Host\**" />
+    <Compile Remove="DMXController\DMXController.Rendering\**" />
+    <EmbeddedResource Remove="DMXController.Animation\**" />
+    <EmbeddedResource Remove="DMXController.Devices.Audio\**" />
+    <EmbeddedResource Remove="DMXController.Devices.DMX\**" />
+    <EmbeddedResource Remove="DMXController.Devices.Input\**" />
+    <EmbeddedResource Remove="DMXController.Devices.Output\**" />
+    <EmbeddedResource Remove="DMXController.Host\**" />
+    <EmbeddedResource Remove="DMXController\DMXController.Rendering\**" />
+    <None Remove="DMXController.Animation\**" />
+    <None Remove="DMXController.Devices.Audio\**" />
+    <None Remove="DMXController.Devices.DMX\**" />
+    <None Remove="DMXController.Devices.Input\**" />
+    <None Remove="DMXController.Devices.Output\**" />
+    <None Remove="DMXController.Host\**" />
+    <None Remove="DMXController\DMXController.Rendering\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="DMXController.Host\ShowControl.Host.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="DMXController\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="5.0.0" />
+  </ItemGroup>
+
+</Project>
