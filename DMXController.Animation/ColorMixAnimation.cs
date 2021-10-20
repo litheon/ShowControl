@@ -13,6 +13,8 @@ namespace ShowControl.Animation
         byte B;
         Pixel[] _rootFrame;
 
+        object _colorLock = new object();
+
         public override event EventHandler<DeviceOutputEventArgs> MidiAware_DeviceOutputMessage;
 
         public override bool IsActive { get; set; }
@@ -24,9 +26,12 @@ namespace ShowControl.Animation
 
         public override Pixel[] GetNextFrame()
         {
-            for (int i = 0; i < _rootFrame.Length; i++)
+            lock(_colorLock)
             {
-                _rootFrame[i] = new Pixel(System.Drawing.Color.FromArgb(0xFF, R, G, B), 0x00, 0x00);
+                for (int i = 0; i < _rootFrame.Length; i++)
+                {
+                    _rootFrame[i] = new Pixel(System.Drawing.Color.FromArgb(0xFF, R, G, B), 0x00, 0x00);
+                }
             }
             return _rootFrame;
         }
@@ -35,17 +40,20 @@ namespace ShowControl.Animation
         {
             if (e.EventType == DeviceInputEventType.RotaryEncoder)
             {
-                switch (e.RotaryNumber)
+                lock (_colorLock)
                 {
-                    case 14:
-                        R = (byte)(e.RotaryDirection == RotaryDirection.Up ? (R + 1) % 255 : (R - 1) % 255);
-                        break;
-                    case 15:
-                        G = (byte)(e.RotaryDirection == RotaryDirection.Up ? (G + 1) % 255 : (G - 1) % 255);
-                        break;
-                    case 16:
-                        B = (byte)(e.RotaryDirection == RotaryDirection.Up ? (B + 1) % 255 : (B - 1) % 255);
-                        break;
+                    switch (e.RotaryNumber)
+                    {
+                        case 14:
+                            R = (byte)(e.RotaryDirection == RotaryDirection.Up ? (R + 1) % 255 : (R - 1) % 255);
+                            break;
+                        case 15:
+                            G = (byte)(e.RotaryDirection == RotaryDirection.Up ? (G + 1) % 255 : (G - 1) % 255);
+                            break;
+                        case 16:
+                            B = (byte)(e.RotaryDirection == RotaryDirection.Up ? (B + 1) % 255 : (B - 1) % 255);
+                            break;
+                    }
                 }
             }
         }

@@ -13,6 +13,7 @@ namespace ShowControl.Devices.DMX
 
         public DmxDeviceMode Mode { get; set; }
         public Color Color { get; set; }
+        public byte SoundReactivitySensitivity { get; set; }
         public JLPow()
         {
             Mode = DmxDeviceMode.RGB;
@@ -27,7 +28,7 @@ namespace ShowControl.Devices.DMX
             }
             else if (Mode == DmxDeviceMode.SoundReactive)
             {
-                return new byte[] { Color.A, Color.R, Color.G, Color.B, 0x00, 0xFF };
+                return new byte[] { Color.A, Color.R, Color.G, Color.B, 0x00, SoundReactivitySensitivity };
             }
             else if (Mode == DmxDeviceMode.Off)
             {

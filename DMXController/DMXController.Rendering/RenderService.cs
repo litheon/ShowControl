@@ -1,4 +1,5 @@
 ﻿using ShowControl.Animation;
+using ShowControl.Devices.Audio;
 using ShowControl.Devices.DMX;
 using ShowControl.Devices.Input;
 using ShowControl.Devices.Output;
@@ -30,7 +31,8 @@ namespace ShowControl.Rendering
         private MidiAwareAnimation[] _animations;
         public RenderService(
             IDmxDeviceEnumerator deviceEnumerator,
-            IInputService inputService)
+            IInputService inputService,
+            IAudioService audioService)
         {
             _deviceEnumerator = deviceEnumerator;
             _inputService = inputService;
@@ -191,7 +193,11 @@ namespace ShowControl.Rendering
                         {
                             var device = _devices[i];
                             device.Color = frame[i].Color;
-                            device.Mode = DmxDeviceMode.RGB;
+                            device.Mode = frame[i].SoundReactivity > 0 ? DmxDeviceMode.SoundReactive : DmxDeviceMode.RGB;
+                            if (device.Mode == DmxDeviceMode.SoundReactive)
+                            {
+                                device.SoundReactivitySensitivity = frame[i].SoundReactivity;
+                            }
                             bytes.AddRange(device.GetDMXVector());
                             expectedFrameLength += device.ChannelCount;
                             if (bytes.Count != expectedFrameLength)
@@ -203,7 +209,7 @@ namespace ShowControl.Rendering
 
                     outputDevice.Write(bytes.ToArray());
                 }
-                Thread.Sleep(1);
+                Thread.Sleep(3);
             }
             _tcs.SetResult(true);
         }

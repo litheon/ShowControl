@@ -90,10 +90,11 @@ namespace ShowControl.Animation
         private System.Drawing.Color[] GetPadColors(int count)
         {
             System.Drawing.Color[] colors = new System.Drawing.Color[count];
-            for (int i = 0; i < count - 1; i++)
+            for (int i = 0; i < count - 2; i++)
             {
                 colors[i] = _colors[i % _colors.Length];
             }
+            colors[count - 2] = System.Drawing.Color.FromArgb(0x00, 0x00, 0x00, 0x00);
             colors[count - 1] = System.Drawing.Color.FromArgb(0x00, 0x00, 0x00, 0x00);
             return colors;
         }
@@ -104,21 +105,25 @@ namespace ShowControl.Animation
             if (e.EventType == DeviceInputEventType.RotaryEncoder)
             {
                 SetMode(RainbowAnimationMode.Manual);
-                if (e.RotaryDirection == RotaryDirection.Up)
+                if (e.RotaryNumber == 14)
                 {
-                    var existingFrameStart = Interlocked.CompareExchange(ref _frameStart, -1, -1);
-                    Interlocked.Exchange(ref _frameStart, (existingFrameStart + 1) % _rootFrame.Length);
-                }
-                else if (e.RotaryDirection == RotaryDirection.Down)
-                {
-                    int newFrameStart = Interlocked.CompareExchange(ref _frameStart, -1, -1);
-                    newFrameStart = newFrameStart - 1;
-                    if (newFrameStart < 0)
+                    if (e.RotaryDirection == RotaryDirection.Up)
                     {
-                        newFrameStart = _rootFrame.Length - 1;
+                        var existingFrameStart = Interlocked.CompareExchange(ref _frameStart, -1, -1);
+                        Interlocked.Exchange(ref _frameStart, (existingFrameStart + 1) % _rootFrame.Length);
                     }
-                    Interlocked.Exchange(ref _frameStart, newFrameStart);
+                    else if (e.RotaryDirection == RotaryDirection.Down)
+                    {
+                        int newFrameStart = Interlocked.CompareExchange(ref _frameStart, -1, -1);
+                        newFrameStart = newFrameStart - 1;
+                        if (newFrameStart < 0)
+                        {
+                            newFrameStart = _rootFrame.Length - 1;
+                        }
+                        Interlocked.Exchange(ref _frameStart, newFrameStart);
+                    }
                 }
+
                 var frameStart = Interlocked.CompareExchange(ref _frameStart, -1, -1);
                 _frame = _rootFrame.Skip(frameStart).Concat(_rootFrame.Take(frameStart)).ToArray();
             }
@@ -128,11 +133,29 @@ namespace ShowControl.Animation
                 {
                     SetMode(RainbowAnimationMode.Manual);
                     device.SetPadColor(e.PadNumber.Value, System.Drawing.Color.White);
-                    var color = e.PadNumber.Value == e.Source.PadCount - 1 ? System.Drawing.Color.FromArgb(0x00, 0x00, 0x00, 0x00) : _colors[e.PadNumber.Value % _colors.Length];
                     Pixel[] colors = new Pixel[_rootFrame.Length];
-                    for (int i = 0; i < colors.Length; i++)
+                    if (e.PadNumber.Value == e.Source.PadCount - 1)
                     {
-                        colors[i] = new Pixel(color, 0x00, 0x00);
+                        var color = System.Drawing.Color.FromArgb(0x00, 0x00, 0x00, 0x00);
+                        for (int i = 0; i < colors.Length; i++)
+                        {
+                            colors[i] = new Pixel(color, 0x00, 0x00);
+                        }
+                    }
+                    else if (e.PadNumber.Value == e.Source.PadCount - 2)
+                    {
+                        for (int i = 0; i < colors.Length; i++)
+                        {
+                            colors[i] = new Pixel(System.Drawing.Color.FromArgb(0xFF, 0x00, 0x00, 0x00), 0x00, 0xFF);
+                        }
+                    }
+                    else
+                    {
+                        var color = _colors[e.PadNumber.Value % _colors.Length];
+                        for (int i = 0; i < colors.Length; i++)
+                        {
+                            colors[i] = new Pixel(color, 0x00, 0x00);
+                        }
                     }
                     SetFrame(colors);
                 }

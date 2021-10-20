@@ -6,9 +6,10 @@ namespace ShowControl
 {
     class Program
     {
-        static async System.Threading.Tasks.Task Main(string[] args)
+        [STAThread]
+        public static void Main(string[] args)
         {
-            await Host.Host.Main(args);
+           Host.Host.Main(args).Wait();
         }
     }
 }

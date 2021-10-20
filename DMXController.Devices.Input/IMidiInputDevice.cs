@@ -21,6 +21,7 @@ namespace ShowControl.Devices.Input
         public int PadCount { get; }
         public int RotaryEncoderCount { get; }
         public void SetPadColor(int index, System.Drawing.Color color);
+        public void SetPadColors(System.Drawing.Color[] color);
         public void SetButtonIllumination(Button button, LightState state);
         public void ClearInterface();
         public event EventHandler<DeviceInputEventArgs> OnInputReceived;

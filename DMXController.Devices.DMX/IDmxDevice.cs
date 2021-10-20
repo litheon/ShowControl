@@ -12,5 +12,6 @@ namespace ShowControl.Devices.DMX
         public DmxDeviceMode Mode { get; set; }
         public byte[] GetDMXVector();
         public Color Color { get; set; }
+        public byte SoundReactivitySensitivity { get; set; }
     }
 }

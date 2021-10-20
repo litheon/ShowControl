@@ -111,10 +111,35 @@ namespace ShowControl.Devices.Input
             int red = Convert.ToInt32(((double)color.R) / 255 * 127);
             int green = Convert.ToInt32(((double)color.G) / 255 * 127);
             int blue = Convert.ToInt32(((double)color.B) / 255 * 127);
-            _midiOut.Send(new NoteOnEvent(absoluteTime: 0, channel: 1, noteNumber: padNote, velocity: 2, duration: 0).GetAsShortMessage());
-            _midiOut.Send(new NoteOnEvent(absoluteTime: 0, channel: 2, noteNumber: padNote, velocity: red, duration: 0).GetAsShortMessage());
-            _midiOut.Send(new NoteOnEvent(absoluteTime: 0, channel: 3, noteNumber: padNote, velocity: green, duration: 0).GetAsShortMessage());
-            _midiOut.Send(new NoteOnEvent(absoluteTime: 0, channel: 4, noteNumber: padNote, velocity: blue, duration: 0).GetAsShortMessage());
+            List<byte> bytes = new List<byte>();
+            bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 1, noteNumber: padNote, velocity: 2, duration: 0).GetMidiMessageAsByteArray());
+            bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 2, noteNumber: padNote, velocity: red, duration: 0).GetMidiMessageAsByteArray());
+            bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 3, noteNumber: padNote, velocity: green, duration: 0).GetMidiMessageAsByteArray());
+            bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 4, noteNumber: padNote, velocity: blue, duration: 0).GetMidiMessageAsByteArray());
+            _midiOut.SendBuffer(bytes.ToArray());
+        }
+
+        public void SetPadColors(System.Drawing.Color[] colors)
+        {
+            if (colors.Length != PadCount)
+            {
+                throw new ArgumentOutOfRangeException("Pad index is out of range");
+            }
+            List<byte> bytes = new List<byte>();
+            for (int i = 0; i < colors.Length; i++)
+            {
+                int padNote = i + 36;
+                var color = colors[i];
+                int red = Convert.ToInt32(((double)color.R) / 255 * 127);
+                int green = Convert.ToInt32(((double)color.G) / 255 * 127);
+                int blue = Convert.ToInt32(((double)color.B) / 255 * 127);
+
+                bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 1, noteNumber: padNote, velocity: 2, duration: 0).GetMidiMessageAsByteArray());
+                bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 2, noteNumber: padNote, velocity: red, duration: 0).GetMidiMessageAsByteArray());
+                bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 3, noteNumber: padNote, velocity: green, duration: 0).GetMidiMessageAsByteArray());
+                bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 4, noteNumber: padNote, velocity: blue, duration: 0).GetMidiMessageAsByteArray());
+            }
+            _midiOut.SendBuffer(bytes.ToArray());
         }
 
         internal override void MidiIn_MessageReceived(object sender, MidiInMessageEventArgs e)

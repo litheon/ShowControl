@@ -13,29 +13,28 @@
     <Compile Remove="DMXController.Devices.Input\**" />
     <Compile Remove="DMXController.Devices.Output\**" />
     <Compile Remove="DMXController.Host\**" />
-    <Compile Remove="DMXController\DMXController.Rendering\**" />
+    <Compile Remove="DMXController\**" />
+    <Compile Remove="ShowControl.ControlPanel\**" />
     <EmbeddedResource Remove="DMXController.Animation\**" />
     <EmbeddedResource Remove="DMXController.Devices.Audio\**" />
     <EmbeddedResource Remove="DMXController.Devices.DMX\**" />
     <EmbeddedResource Remove="DMXController.Devices.Input\**" />
     <EmbeddedResource Remove="DMXController.Devices.Output\**" />
     <EmbeddedResource Remove="DMXController.Host\**" />
-    <EmbeddedResource Remove="DMXController\DMXController.Rendering\**" />
+    <EmbeddedResource Remove="DMXController\**" />
+    <EmbeddedResource Remove="ShowControl.ControlPanel\**" />
     <None Remove="DMXController.Animation\**" />
     <None Remove="DMXController.Devices.Audio\**" />
     <None Remove="DMXController.Devices.DMX\**" />
     <None Remove="DMXController.Devices.Input\**" />
     <None Remove="DMXController.Devices.Output\**" />
     <None Remove="DMXController.Host\**" />
-    <None Remove="DMXController\DMXController.Rendering\**" />
+    <None Remove="DMXController\**" />
+    <None Remove="ShowControl.ControlPanel\**" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="DMXController.Host\ShowControl.Host.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="DMXController\" />
   </ItemGroup>
 
   <ItemGroup>
