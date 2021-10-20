@@ -8,6 +8,6 @@ namespace ShowControl.Devices.Input
     {
         public void MidiAware_OnMessageReceived(object sender, DeviceInputEventArgs e);
 
-        public event EventHandler<DeviceOutputEventArgs> MidiAware_DeviceOutputMessage;
+        public event EventHandler<DeviceInitializationState> MidiAware_DeviceOutputMessage;
     }
 }

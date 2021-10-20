@@ -93,10 +93,12 @@ namespace ShowControl.Devices.Input
 
         public void ClearInterface()
         {
-            for (int i = 0; i < PadCount; i++)
+            var padColors = new System.Drawing.Color[PadCount];
+            for (int i = 0; i < padColors.Length; i++)
             {
-                SetPadColor(i, Color.FromArgb(0x00, 0x00, 0x00, 0x00));
+                padColors[i] = Color.FromArgb(0x00, 0x00, 0x00, 0x00);
             }
+            SetPadColors(padColors);
             _midiOut.Send(new ControlChangeEvent(absoluteTime: 0, channel: 1, controller: (MidiController)PresonusAtomButton.Up, 0).GetAsShortMessage());
             _midiOut.Send(new ControlChangeEvent(absoluteTime: 0, channel: 1, controller: (MidiController)PresonusAtomButton.Play, 0).GetAsShortMessage());
         }

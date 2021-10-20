@@ -79,16 +79,9 @@ namespace ShowControl.Rendering
                 {
                     return;
                 }
-                if (_activeAnimation > -1)
-                {
-                    var existingAnimation = _animations[_activeAnimation];
-                    existingAnimation.MidiAware_DeviceOutputMessage -= MidiAware_DeviceOutputMessage;
-                }
                 _activeAnimation = index;
                 animation = _animations[_activeAnimation];
             }
-            animation.MidiAware_DeviceOutputMessage += MidiAware_DeviceOutputMessage;
-            animation.MidiAware_OnMessageReceived(this, new DeviceInputEventArgs(_inputDevice));
         }
 
         private void SetNavigationLevel(NavigationLevel navigationLevel)
@@ -97,10 +90,10 @@ namespace ShowControl.Rendering
             lock (_navigationAnimationLock)
             {
                 _navigationLevel = navigationLevel;
-                _inputDevice.ClearInterface();
 
                 if (navigationLevel == NavigationLevel.Root)
                 {
+                    _inputDevice.ClearInterface();
                     _inputDevice.SetButtonIllumination(Button.Up, LightState.On);
                     for (int i = 0; i < _animations.Length; i++)
                     {
@@ -112,7 +105,18 @@ namespace ShowControl.Rendering
                     animation = _animations[_activeAnimation];
                 }
             }
-            animation?.MidiAware_OnMessageReceived(this, new DeviceInputEventArgs(_inputDevice));
+            var deviceInitializationState = animation?.GetDeviceInitializationState(_inputDevice);
+            if (deviceInitializationState?.PadColors != null && deviceInitializationState.PadColors.Length > 0)
+            {
+                _inputDevice.SetPadColors(deviceInitializationState.PadColors);
+            }
+            if (deviceInitializationState?.ButtonLightStates != null)
+            {
+                foreach (var buttonLightState in deviceInitializationState.ButtonLightStates)
+                {
+                    _inputDevice.SetButtonIllumination(buttonLightState.Button, buttonLightState.LightState);
+                }
+            }
         }
 
         private void InputService_OnInputReceived(object sender, DeviceInputEventArgs e)
@@ -145,7 +149,6 @@ namespace ShowControl.Rendering
                 {
                     animation = _activeAnimation > -1 ? _animations[_activeAnimation] : null;
                 }
-                animation?.MidiAware_OnMessageReceived(sender, e);
             }
         }
 
@@ -214,19 +217,9 @@ namespace ShowControl.Rendering
             _tcs.SetResult(true);
         }
 
-        private void MidiAware_DeviceOutputMessage(object sender, DeviceOutputEventArgs e)
+        private void MidiAware_DeviceOutputMessage(object sender, DeviceInitializationState e)
         {
-            if (e.PadColors != null)
-            {
-                _inputDevice.SetPadColors(e.PadColors);
-            }
-            if (e.ButtonLightStates != null)
-            {
-                foreach (var buttonLightState in e.ButtonLightStates)
-                {
-                    _inputDevice.SetButtonIllumination(buttonLightState.Button, buttonLightState.LightState);
-                }
-            }
+
         }
     }
 }

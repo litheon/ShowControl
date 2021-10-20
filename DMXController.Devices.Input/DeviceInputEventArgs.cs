@@ -4,11 +4,11 @@ using System.Text;
 
 namespace ShowControl.Devices.Input
 {
-    public enum DeviceInputEventType { Init, Pad, Navigation, Transport, RotaryEncoder};
+    public enum DeviceInputEventType { Pad, Navigation, Transport, RotaryEncoder};
     public enum RotaryDirection {None, Up, Down};
     public enum ButtonDirection { None, Press, Release};
     public enum NavigationButton { None, Up, Down, Left, Right};
-    public enum TransportButton { Play, Stop };
+    public enum TransportButton { None, Play, Stop };
     public class DeviceInputEventArgs
     {
         public DeviceInputEventType EventType { get; private set; }
@@ -20,11 +20,6 @@ namespace ShowControl.Devices.Input
         public byte? RotaryValue { get; private set; }
         public byte? RotaryNumber { get; private set; }
         public byte? PadNumber { get; private set; }
-        public DeviceInputEventArgs(IMidiInputDevice source)
-        {
-            EventType = DeviceInputEventType.Init;
-            Source = source;
-        }
         public DeviceInputEventArgs(IMidiInputDevice source, RotaryDirection rotaryDirection, byte? rotaryNumber, byte? rotaryValue)
         {
             Source = source;

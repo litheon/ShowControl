@@ -1,14 +1,27 @@
-﻿using System;
+﻿using ShowControl.Devices.Input;
+using System;
 using System.Collections.Generic;
 using System.Text;
 
 namespace ShowControl.Animation
 {
-    class VibrantAnimation : IAnimation
+    public class VibrantAnimation : MidiAwareAnimation
     {
-        bool IAnimation.IsActive { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+        public override bool IsActive { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
 
-        Pixel[] IAnimation.GetNextFrame()
+        public override event EventHandler<DeviceInitializationState> MidiAware_DeviceOutputMessage;
+
+        public override Pixel[] GetNextFrame()
+        {
+            throw new NotImplementedException();
+        }
+
+        public override void MidiAware_OnMessageReceived(object sender, DeviceInputEventArgs e)
+        {
+            throw new NotImplementedException();
+        }
+
+        public override DeviceInitializationState GetDeviceInitializationState(IMidiInputDevice inputDevice)
         {
             throw new NotImplementedException();
         }

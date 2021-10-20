@@ -15,7 +15,7 @@ namespace ShowControl.Animation
 
         object _colorLock = new object();
 
-        public override event EventHandler<DeviceOutputEventArgs> MidiAware_DeviceOutputMessage;
+        public override event EventHandler<DeviceInitializationState> MidiAware_DeviceOutputMessage;
 
         public override bool IsActive { get; set; }
 
@@ -56,6 +56,17 @@ namespace ShowControl.Animation
                     }
                 }
             }
+        }
+
+        public override DeviceInitializationState GetDeviceInitializationState(IMidiInputDevice inputDevice)
+        {
+            return new DeviceInitializationState(
+                new System.Drawing.Color[0],
+                new ButtonLightState[1]
+                {
+                    new ButtonLightState(Button.Up, LightState.On)
+                }
+            );
         }
     }
 }

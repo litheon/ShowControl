@@ -40,7 +40,7 @@ namespace ShowControl.Animation
             }
         }
 
-        public override event EventHandler<DeviceOutputEventArgs> MidiAware_DeviceOutputMessage;
+        public override event EventHandler<DeviceInitializationState> MidiAware_DeviceOutputMessage;
 
         public RainbowAnimation(int pixelCount)
         {
@@ -165,26 +165,6 @@ namespace ShowControl.Animation
                     device.SetPadColor(e.PadNumber.Value, color);
                 }
             }
-            else if (e.EventType == DeviceInputEventType.Init)
-            {
-                var padCount = e.Source.PadCount;
-                System.Drawing.Color[] padColors = null;
-                if (e.Source.Capabilities.HasFlag(DeviceCapabilities.Pads))
-                {
-                    padColors = GetPadColors(padCount);
-                    MidiAware_DeviceOutputMessage?.Invoke(this, new DeviceOutputEventArgs(padColors));
-                }
-                ButtonLightState[] buttonLightStates = null;
-                if (e.Source.Capabilities.HasFlag(DeviceCapabilities.ButtonIllumination))
-                {
-                    buttonLightStates = new ButtonLightState[2]
-                    {
-                        new ButtonLightState(Button.Up, LightState.On),
-                        new ButtonLightState(Button.Play, LightState.On)
-                    };
-                    MidiAware_DeviceOutputMessage?.Invoke(this, new DeviceOutputEventArgs(buttonLightStates));
-                }
-            }
             else if (e.EventType == DeviceInputEventType.Transport)
             {
                 if (e.TransportButton == TransportButton.Play && e.ButtonDirection == ButtonDirection.Press)
@@ -192,6 +172,27 @@ namespace ShowControl.Animation
                     SetMode(RainbowAnimationMode.Automated);
                 }
             }
+        }
+
+        public override DeviceInitializationState GetDeviceInitializationState(IMidiInputDevice inputDevice)
+        {
+            var device = inputDevice;
+
+            System.Drawing.Color[] padColors = new System.Drawing.Color[0];
+            if (device.Capabilities.HasFlag(DeviceCapabilities.Pads))
+            {
+                padColors = GetPadColors(device.PadCount);
+            }
+            ButtonLightState[] buttonLightStates = new ButtonLightState[0];
+            if (device.Capabilities.HasFlag(DeviceCapabilities.ButtonIllumination))
+            {
+                buttonLightStates = new ButtonLightState[2]
+                {
+                        new ButtonLightState(Button.Up, LightState.On),
+                        new ButtonLightState(Button.Play, LightState.On)
+                };
+            }
+            return new DeviceInitializationState(padColors, buttonLightStates);
         }
 
         public override Pixel[] GetNextFrame()

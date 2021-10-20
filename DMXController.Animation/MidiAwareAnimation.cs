@@ -9,9 +9,10 @@ namespace ShowControl.Animation
     {
         public abstract bool IsActive { get; set; }
 
-        public abstract event EventHandler<DeviceOutputEventArgs> MidiAware_DeviceOutputMessage;
+        public abstract event EventHandler<DeviceInitializationState> MidiAware_DeviceOutputMessage;
 
         public abstract Pixel[] GetNextFrame();
         public abstract void MidiAware_OnMessageReceived(object sender, DeviceInputEventArgs e);
+        public abstract DeviceInitializationState GetDeviceInitializationState(IMidiInputDevice inputDevice);
     }
 }

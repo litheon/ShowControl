@@ -15,19 +15,11 @@ namespace ShowControl.Devices.Input
             Button = button;
         }
     }
-    public class DeviceOutputEventArgs
+    public class DeviceInitializationState
     {
         public ButtonLightState[] ButtonLightStates { get; private set; }
         public System.Drawing.Color[] PadColors { get; private set; }
-        public DeviceOutputEventArgs(System.Drawing.Color[] padColors)
-        {
-            PadColors = padColors;
-        }
-        public DeviceOutputEventArgs(ButtonLightState[] buttonLightStates)
-        {
-            ButtonLightStates = buttonLightStates;
-        }
-        public DeviceOutputEventArgs(System.Drawing.Color[] padColors, ButtonLightState[] buttonLightStates)
+        public DeviceInitializationState(System.Drawing.Color[] padColors, ButtonLightState[] buttonLightStates)
         {
             PadColors = padColors;
             ButtonLightStates = buttonLightStates;
