@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading;
+using ShowControl.Utilities;
 
 namespace ShowControl.Animation
 {
@@ -39,8 +40,6 @@ namespace ShowControl.Animation
                 _isActive = value;
             }
         }
-
-        public override event EventHandler<DeviceInitializationState> MidiAware_DeviceOutputMessage;
 
         public RainbowAnimation(int pixelCount)
         {
@@ -105,7 +104,7 @@ namespace ShowControl.Animation
             if (e.EventType == DeviceInputEventType.RotaryEncoder)
             {
                 SetMode(RainbowAnimationMode.Manual);
-                if (e.RotaryNumber == 14)
+                if (e.RotaryNumber == 1)
                 {
                     if (e.RotaryDirection == RotaryDirection.Up)
                     {
@@ -199,7 +198,7 @@ namespace ShowControl.Animation
         {
             if (_mode == RainbowAnimationMode.Automated)
             {
-                var frameStart = Interlocked.CompareExchange(ref _frameStart, -1, -1);
+                var frameStart = _frameStart.InterlockedGet();
                 _frame = _rootFrame.Skip(frameStart).Concat(_rootFrame.Take(frameStart)).ToArray();
             }
             return _frame;

@@ -159,12 +159,23 @@ namespace ShowControl.Devices.Output
         private const byte PURGE_RX = 1;
         private const byte PURGE_TX = 2;
 
+        private const int MinimumDelayBetweenFtdiFrameRenders = 20;
+
+        private long _writeLoopLastTicks;
+        private const int MinimumMillisecondsBetweenFrames = 3;
         private void writeLoop()
         {
             while(Interlocked.Read(ref _writeLoopContinue) == 1 && !_cancellationToken.IsCancellationRequested)
             {
                 _waitHandle.WaitOne();
                 _ftdiFrameTimer.Change(Timeout.Infinite, Timeout.Infinite);
+                var now = DateTime.Now.Ticks;
+                var delta = now - _writeLoopLastTicks;
+                if (delta < MinimumMillisecondsBetweenFrames * TimeSpan.TicksPerMillisecond)
+                {
+                    var waitTimeSpan = Math.Round(((double)MinimumMillisecondsBetweenFrames * TimeSpan.TicksPerMillisecond - delta) / TimeSpan.TicksPerMillisecond);
+                    Thread.Sleep(Convert.ToInt32(waitTimeSpan));
+                }
                 uint bytesWritten = 0;
                 lock (_dmxBuffer)
                 {
@@ -174,7 +185,8 @@ namespace ShowControl.Devices.Output
                 HandleFTDIOperation(FT_SetBreakOff(_handle), nameof(FT_SetBreakOff));
                 HandleFTDIOperation(FT_Write(_handle, _ftdiDmxBuffer, BufferSize, ref bytesWritten), nameof(FT_Write));
                 _waitHandle.Reset();
-                _ftdiFrameTimer.Change(20, Timeout.Infinite);
+                _ftdiFrameTimer.Change(MinimumDelayBetweenFtdiFrameRenders, Timeout.Infinite);
+                _writeLoopLastTicks = DateTime.Now.Ticks;
             }
         }
 

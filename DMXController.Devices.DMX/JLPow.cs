@@ -14,6 +14,8 @@ namespace ShowControl.Devices.DMX
         public DmxDeviceMode Mode { get; set; }
         public Color Color { get; set; }
         public byte SoundReactivitySensitivity { get; set; }
+        public byte StrobeIntensity { get; set; }
+
         public JLPow()
         {
             Mode = DmxDeviceMode.RGB;

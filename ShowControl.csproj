@@ -15,6 +15,7 @@
     <Compile Remove="DMXController.Host\**" />
     <Compile Remove="DMXController\**" />
     <Compile Remove="ShowControl.ControlPanel\**" />
+    <Compile Remove="ShowControl.Utilities\**" />
     <EmbeddedResource Remove="DMXController.Animation\**" />
     <EmbeddedResource Remove="DMXController.Devices.Audio\**" />
     <EmbeddedResource Remove="DMXController.Devices.DMX\**" />
@@ -23,6 +24,7 @@
     <EmbeddedResource Remove="DMXController.Host\**" />
     <EmbeddedResource Remove="DMXController\**" />
     <EmbeddedResource Remove="ShowControl.ControlPanel\**" />
+    <EmbeddedResource Remove="ShowControl.Utilities\**" />
     <None Remove="DMXController.Animation\**" />
     <None Remove="DMXController.Devices.Audio\**" />
     <None Remove="DMXController.Devices.DMX\**" />
@@ -31,6 +33,7 @@
     <None Remove="DMXController.Host\**" />
     <None Remove="DMXController\**" />
     <None Remove="ShowControl.ControlPanel\**" />
+    <None Remove="ShowControl.Utilities\**" />
   </ItemGroup>
 
   <ItemGroup>

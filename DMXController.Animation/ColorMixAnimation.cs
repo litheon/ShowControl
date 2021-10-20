@@ -2,36 +2,43 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
+using ShowControl.Utilities;
 
 namespace ShowControl.Animation
 {
     public class ColorMixAnimation : MidiAwareAnimation
     {
-        IMidiInputDevice _device;
-        byte R;
-        byte G;
-        byte B;
+        int R;
+        int G;
+        int B;
         Pixel[] _rootFrame;
 
-        object _colorLock = new object();
-
-        public override event EventHandler<DeviceInitializationState> MidiAware_DeviceOutputMessage;
 
         public override bool IsActive { get; set; }
 
         public ColorMixAnimation(int pixelCount)
         {
             _rootFrame = new Pixel[pixelCount];
+            for (int i = 0; i < _rootFrame.Length; i++)
+            {
+                _rootFrame[i] = new Pixel(System.Drawing.Color.FromArgb(0x00, 0x00, 0x00, 0x00), 0x00, 0x00);
+            }
         }
 
         public override Pixel[] GetNextFrame()
         {
-            lock(_colorLock)
+            int r;
+            int g;
+            int b;
             {
-                for (int i = 0; i < _rootFrame.Length; i++)
-                {
-                    _rootFrame[i] = new Pixel(System.Drawing.Color.FromArgb(0xFF, R, G, B), 0x00, 0x00);
-                }
+                r = R.InterlockedGet();
+                g = G.InterlockedGet();
+                b = B.InterlockedGet();
+            }
+            for (int i = 0; i < _rootFrame.Length; i++)
+            {
+                _rootFrame[i].Color = System.Drawing.Color.FromArgb(0xFF, r, g, b);
             }
             return _rootFrame;
         }
@@ -40,20 +47,17 @@ namespace ShowControl.Animation
         {
             if (e.EventType == DeviceInputEventType.RotaryEncoder)
             {
-                lock (_colorLock)
+                switch (e.RotaryNumber)
                 {
-                    switch (e.RotaryNumber)
-                    {
-                        case 14:
-                            R = (byte)(e.RotaryDirection == RotaryDirection.Up ? (R + 1) % 255 : (R - 1) % 255);
-                            break;
-                        case 15:
-                            G = (byte)(e.RotaryDirection == RotaryDirection.Up ? (G + 1) % 255 : (G - 1) % 255);
-                            break;
-                        case 16:
-                            B = (byte)(e.RotaryDirection == RotaryDirection.Up ? (B + 1) % 255 : (B - 1) % 255);
-                            break;
-                    }
+                    case 1:
+                        _ = e.RotaryDirection == RotaryDirection.Up ? R.InterlockedIncrement(byte.MinValue, byte.MaxValue) : R.InterlockedDecrement(byte.MinValue, byte.MaxValue);
+                        break;
+                    case 2:
+                        _ = e.RotaryDirection == RotaryDirection.Up ? G.InterlockedIncrement(byte.MinValue, byte.MaxValue) : G.InterlockedDecrement(byte.MinValue, byte.MaxValue);
+                        break;
+                    case 3:
+                        _ = e.RotaryDirection == RotaryDirection.Up ? B.InterlockedIncrement(byte.MinValue, byte.MaxValue) : B.InterlockedDecrement(byte.MinValue, byte.MaxValue);
+                        break;
                 }
             }
         }

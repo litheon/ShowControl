@@ -9,8 +9,6 @@ namespace ShowControl.Animation
     {
         public override bool IsActive { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
 
-        public override event EventHandler<DeviceInitializationState> MidiAware_DeviceOutputMessage;
-
         public override Pixel[] GetNextFrame()
         {
             throw new NotImplementedException();

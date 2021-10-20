@@ -41,14 +41,14 @@ namespace ShowControl.Rendering
             _tokenSource = new CancellationTokenSource();
             _devices = new IDmxDevice[]
             {
-                new BetopperDJ(),
-                new BetopperDJ(),
-                new BetopperDJ(),
-                new BetopperDJ(),
-                new BetopperDJ(),
-                new BetopperDJ(),
-                new BetopperDJ(),
-                new BetopperDJ(),
+                new Missyee(),
+                new Missyee(),
+                new Missyee(),
+                new Missyee(),
+                new Missyee(),
+                new Missyee(),
+                new Missyee(),
+                new Missyee(),
                 new JLPow(),
                 new JLPow(),
                 new JLPow(),
@@ -149,6 +149,7 @@ namespace ShowControl.Rendering
                 {
                     animation = _activeAnimation > -1 ? _animations[_activeAnimation] : null;
                 }
+                animation?.MidiAware_OnMessageReceived(sender, e);
             }
         }
 
@@ -184,7 +185,7 @@ namespace ShowControl.Rendering
                 {
                     List<byte> bytes = new List<byte>(512);
                     int expectedFrameLength = 0;
-                    MidiAwareAnimation animation = null;
+                    IAnimation animation = null;
                     lock (_navigationAnimationLock)
                     {
                         animation = _activeAnimation > -1 ? _animations[_activeAnimation] : null;
@@ -212,14 +213,9 @@ namespace ShowControl.Rendering
 
                     outputDevice.Write(bytes.ToArray());
                 }
-                Thread.Sleep(3);
+                Thread.Sleep(1);
             }
             _tcs.SetResult(true);
-        }
-
-        private void MidiAware_DeviceOutputMessage(object sender, DeviceInitializationState e)
-        {
-
         }
     }
 }

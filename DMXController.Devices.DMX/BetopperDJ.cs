@@ -14,6 +14,7 @@ namespace ShowControl.Devices.DMX
         public DmxDeviceMode Mode { get; set; }
         public Color Color { get; set; }
         public byte SoundReactivitySensitivity { get; set; }
+        public byte StrobeIntensity { get; set; }
 
         public BetopperDJ()
         {
@@ -29,7 +30,11 @@ namespace ShowControl.Devices.DMX
             }
             else if(Mode == DmxDeviceMode.SoundReactive)
             {
-                return new byte[] { Color.A, Color.R, Color.G, Color.B, 0x00, 0xFF, SoundReactivitySensitivity };
+                return new byte[] { Color.A, Color.R, Color.G, Color.B, 0x00, 0xFF, 0xFF };
+            }
+            else if (Mode == DmxDeviceMode.Strobe)
+            {
+                return new byte[] { Color.A, Color.R, Color.G, Color.B, StrobeIntensity, 0xFF, 0x00 };
             }
             else if (Mode == DmxDeviceMode.Off)
             {
