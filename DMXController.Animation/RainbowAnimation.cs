@@ -17,8 +17,11 @@ namespace ShowControl.Animation
         private Pixel[] _frame;
         private object _modeLock = new object();
         private RainbowAnimationMode _mode;
-        private bool _isActive;
         private Timer _automationTimer;
+        private Timer _navigationColorTimer;
+        private System.Drawing.Color[] _padColors;
+        int navigationColorIndex = 0;
+
         System.Drawing.Color[] _colors = new System.Drawing.Color[6]
         {
                 System.Drawing.Color.FromArgb(0xFF, 0xFF, 0x00, 0x00),
@@ -29,24 +32,13 @@ namespace ShowControl.Animation
                 System.Drawing.Color.FromArgb(0xFF, 0xFF, 0x00, 0xFF)
         };
 
-        public override bool IsActive
-        {
-            get
-            {
-                return _isActive;
-            }
-            set
-            {
-                _isActive = value;
-            }
-        }
-
         public RainbowAnimation(int pixelCount)
         {
             _frameStart = 0;
             _rootFrame = new Pixel[pixelCount];
             _mode = RainbowAnimationMode.Automated;
-            _automationTimer = new Timer(automaticModeFrameTick, null, 500, 500);
+            _automationTimer = new Timer(automaticModeFrameTick, null, Timeout.Infinite, Timeout.Infinite);
+            _navigationColorTimer = new Timer(navigationTimerTick, null, 1000, 1000);
 
             int j = 0;
             for (int i = 0; i < _rootFrame.Length; i++)
@@ -58,8 +50,23 @@ namespace ShowControl.Animation
 
         private void automaticModeFrameTick(object state)
         {
-            var existingFrameStart = Interlocked.CompareExchange(ref _frameStart, -1, -1);
-            Interlocked.Exchange(ref _frameStart, (existingFrameStart + 1) % _rootFrame.Length);
+            _frameStart.InterlockedIncrement(0, _rootFrame.Length - 1);
+        }
+
+        private void navigationTimerTick(object state)
+        {
+            navigationColorIndex = (navigationColorIndex + 1) % _colors.Length;
+            SetNavigationColor(_colors[navigationColorIndex]);
+        }
+
+        private void StartTimers()
+        {
+            _automationTimer.Change(500, 500);
+        }
+
+        private void StopTimers()
+        {
+            _automationTimer.Change(Timeout.Infinite, Timeout.Infinite);
         }
 
         private void SetMode(RainbowAnimationMode mode)
@@ -88,15 +95,10 @@ namespace ShowControl.Animation
 
         private System.Drawing.Color[] GetPadColors(int count)
         {
-            System.Drawing.Color[] colors = new System.Drawing.Color[count];
-            for (int i = 0; i < count - 2; i++)
-            {
-                colors[i] = _colors[i % _colors.Length];
-            }
-            colors[count - 2] = System.Drawing.Color.FromArgb(0x00, 0x00, 0x00, 0x00);
-            colors[count - 1] = System.Drawing.Color.FromArgb(0x00, 0x00, 0x00, 0x00);
-            return colors;
+            return _padColors;
         }
+
+
 
         public override void MidiAware_OnMessageReceived(object sender, DeviceInputEventArgs e)
         {
@@ -108,22 +110,15 @@ namespace ShowControl.Animation
                 {
                     if (e.RotaryDirection == RotaryDirection.Up)
                     {
-                        var existingFrameStart = Interlocked.CompareExchange(ref _frameStart, -1, -1);
-                        Interlocked.Exchange(ref _frameStart, (existingFrameStart + 1) % _rootFrame.Length);
+                        _frameStart.InterlockedIncrement(0, _rootFrame.Length - 1);
                     }
                     else if (e.RotaryDirection == RotaryDirection.Down)
                     {
-                        int newFrameStart = Interlocked.CompareExchange(ref _frameStart, -1, -1);
-                        newFrameStart = newFrameStart - 1;
-                        if (newFrameStart < 0)
-                        {
-                            newFrameStart = _rootFrame.Length - 1;
-                        }
-                        Interlocked.Exchange(ref _frameStart, newFrameStart);
+                        _frameStart.InterlockedDecrement(0, _rootFrame.Length - 1);
                     }
                 }
 
-                var frameStart = Interlocked.CompareExchange(ref _frameStart, -1, -1);
+                var frameStart = _frameStart.InterlockedGet();
                 _frame = _rootFrame.Skip(frameStart).Concat(_rootFrame.Take(frameStart)).ToArray();
             }
             else if (e.EventType == DeviceInputEventType.Pad)
@@ -131,10 +126,10 @@ namespace ShowControl.Animation
                 if (e.ButtonDirection == ButtonDirection.Press)
                 {
                     SetMode(RainbowAnimationMode.Manual);
-                    device.SetPadColor(e.PadNumber.Value, System.Drawing.Color.White);
                     Pixel[] colors = new Pixel[_rootFrame.Length];
                     if (e.PadNumber.Value == e.Source.PadCount - 1)
                     {
+                        SetPadColor(e.PadNumber.Value, System.Drawing.Color.Silver);
                         var color = System.Drawing.Color.FromArgb(0x00, 0x00, 0x00, 0x00);
                         for (int i = 0; i < colors.Length; i++)
                         {
@@ -143,6 +138,7 @@ namespace ShowControl.Animation
                     }
                     else if (e.PadNumber.Value == e.Source.PadCount - 2)
                     {
+                        SetPadColor(e.PadNumber.Value, System.Drawing.Color.White);
                         for (int i = 0; i < colors.Length; i++)
                         {
                             colors[i] = new Pixel(System.Drawing.Color.FromArgb(0xFF, 0x00, 0x00, 0x00), 0x00, 0xFF);
@@ -150,6 +146,7 @@ namespace ShowControl.Animation
                     }
                     else
                     {
+                        SetPadColor(e.PadNumber.Value, System.Drawing.Color.White);
                         var color = _colors[e.PadNumber.Value % _colors.Length];
                         for (int i = 0; i < colors.Length; i++)
                         {
@@ -160,8 +157,8 @@ namespace ShowControl.Animation
                 }
                 else if (e.ButtonDirection == ButtonDirection.Release)
                 {
-                    var color = e.PadNumber.Value == e.Source.PadCount - 1 ? System.Drawing.Color.FromArgb(0x00, 0x00, 0x00, 0x00) : _colors[e.PadNumber.Value % _colors.Length];
-                    device.SetPadColor(e.PadNumber.Value, color);
+                    var color = _padColors[e.PadNumber.Value];
+                    SetPadColor(e.PadNumber.Value, color);
                 }
             }
             else if (e.EventType == DeviceInputEventType.Transport)
@@ -173,25 +170,39 @@ namespace ShowControl.Animation
             }
         }
 
-        public override DeviceInitializationState GetDeviceInitializationState(IMidiInputDevice inputDevice)
+        public override DeviceState Start(IReadOnlyMidiInputDevice inputDevice)
         {
-            var device = inputDevice;
+            _padColors = new System.Drawing.Color[inputDevice.PadCount];
+
+            for (int i = 0; i < _padColors.Length - 2; i++)
+            {
+                _padColors[i] = _colors[i % _colors.Length];
+            }
+            _padColors[_padColors.Length - 2] = System.Drawing.Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF);
+            _padColors[_padColors.Length - 1] = System.Drawing.Color.FromArgb(0x00, 0x00, 0x00, 0x00);
 
             System.Drawing.Color[] padColors = new System.Drawing.Color[0];
-            if (device.Capabilities.HasFlag(DeviceCapabilities.Pads))
+            if (inputDevice.Capabilities.HasFlag(DeviceCapabilities.Pads))
             {
-                padColors = GetPadColors(device.PadCount);
+                padColors = GetPadColors(inputDevice.PadCount);
             }
             ButtonLightState[] buttonLightStates = new ButtonLightState[0];
-            if (device.Capabilities.HasFlag(DeviceCapabilities.ButtonIllumination))
+            if (inputDevice.Capabilities.HasFlag(DeviceCapabilities.ButtonIllumination))
             {
                 buttonLightStates = new ButtonLightState[2]
                 {
-                        new ButtonLightState(Button.Up, LightState.On),
-                        new ButtonLightState(Button.Play, LightState.On)
+                    new ButtonLightState(Button.Up, LightState.On),
+                    new ButtonLightState(Button.Play, LightState.On)
                 };
             }
-            return new DeviceInitializationState(padColors, buttonLightStates);
+
+            StartTimers();
+            return new DeviceState(padColors, buttonLightStates);
+        }
+
+        public override void Stop()
+        {
+            StopTimers();
         }
 
         public override Pixel[] GetNextFrame()

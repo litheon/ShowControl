@@ -7,8 +7,6 @@ namespace ShowControl.Animation
 {
     public class VibrantAnimation : MidiAwareAnimation
     {
-        public override bool IsActive { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-
         public override Pixel[] GetNextFrame()
         {
             throw new NotImplementedException();
@@ -19,7 +17,12 @@ namespace ShowControl.Animation
             throw new NotImplementedException();
         }
 
-        public override DeviceInitializationState GetDeviceInitializationState(IMidiInputDevice inputDevice)
+        public override DeviceState Start(IReadOnlyMidiInputDevice inputDevice)
+        {
+            throw new NotImplementedException();
+        }
+
+        public override void Stop()
         {
             throw new NotImplementedException();
         }

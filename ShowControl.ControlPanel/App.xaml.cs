@@ -13,5 +13,6 @@ namespace ShowControl.ControlPanel
     /// </summary>
     public partial class App : Application
     {
+
     }
 }

@@ -5,7 +5,8 @@ namespace ShowControl.Animation
 {
     public interface IAnimation
     {
-        public DeviceInitializationState GetDeviceInitializationState(IMidiInputDevice inputDevice);
+        public void Stop();
+        public DeviceState Start(IReadOnlyMidiInputDevice inputDevice);
         public Pixel[] GetNextFrame();
     }
 }

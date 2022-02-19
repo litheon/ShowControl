@@ -7,5 +7,6 @@ namespace ShowControl.Devices.Input
     public interface IMidiAware
     {
         public void MidiAware_OnMessageReceived(object sender, DeviceInputEventArgs e);
+        public event EventHandler<DeviceStateChangeEventArgs> MidiAware_DeviceStateChangeEvent;
     }
 }

@@ -13,13 +13,17 @@ namespace ShowControl.Devices.Input
         Stop
     };
 
-    public interface IMidiInputDevice
+    public interface IReadOnlyMidiInputDevice
     {
         public int DeviceId { get; }
         public DeviceType Type { get; }
-        public DeviceCapabilities Capabilities { get;}
+        public DeviceCapabilities Capabilities { get; }
         public int PadCount { get; }
         public int RotaryEncoderCount { get; }
+    }
+
+    public interface IMidiInputDevice : IReadOnlyMidiInputDevice
+    {
         public void SetPadColor(int index, System.Drawing.Color color);
         public void SetPadColors(System.Drawing.Color[] color);
         public void SetButtonIllumination(Button button, LightState state);

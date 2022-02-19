@@ -2,6 +2,7 @@
 using ShowControl.Devices.Audio;
 using ShowControl.Devices.DMX;
 using ShowControl.Devices.Input;
+using ShowControl.Devices.Input.Extensions;
 using ShowControl.Devices.Output;
 using System;
 using System.Collections.Generic;
@@ -29,10 +30,11 @@ namespace ShowControl.Rendering
         private NavigationLevel _navigationLevel;
         private int _activeAnimation = -1;
         private MidiAwareAnimation[] _animations;
+        private System.Drawing.Color[] _padColors;
         public RenderService(
             IDmxDeviceEnumerator deviceEnumerator,
-            IInputService inputService,
-            IAudioService audioService)
+            IInputService inputService
+            /*IAudioService audioService*/)
         {
             _deviceEnumerator = deviceEnumerator;
             _inputService = inputService;
@@ -79,6 +81,11 @@ namespace ShowControl.Rendering
                 {
                     return;
                 }
+                if (_activeAnimation > -1)
+                {
+                    var existingAnimation = _animations[_activeAnimation];
+                    existingAnimation.Stop();
+                }
                 _activeAnimation = index;
                 animation = _animations[_activeAnimation];
             }
@@ -97,7 +104,7 @@ namespace ShowControl.Rendering
                     _inputDevice.SetButtonIllumination(Button.Up, LightState.On);
                     for (int i = 0; i < _animations.Length; i++)
                     {
-                        _inputDevice.SetPadColor(i, System.Drawing.Color.FromArgb(0xFF, 0xFF, 0x00, 0x00));
+                        _inputDevice.SetPadColor(i, _padColors[i]);
                     }
                 }
                 else if (_activeAnimation > -1)
@@ -105,7 +112,7 @@ namespace ShowControl.Rendering
                     animation = _animations[_activeAnimation];
                 }
             }
-            var deviceInitializationState = animation?.GetDeviceInitializationState(_inputDevice);
+            var deviceInitializationState = animation?.Start(_inputDevice.AsReadOnly());
             if (deviceInitializationState?.PadColors != null && deviceInitializationState.PadColors.Length > 0)
             {
                 _inputDevice.SetPadColors(deviceInitializationState.PadColors);
@@ -174,7 +181,16 @@ namespace ShowControl.Rendering
                 new ColorMixAnimation(_devices.Length)
             };
 
+            _padColors = new System.Drawing.Color[_animations.Length];
+            Array.Fill(_padColors, System.Drawing.Color.Red);
+
             SetNavigationLevel(NavigationLevel.Root);
+
+            for (int i = 0; i < _animations.Length; i++)
+            {
+                var animation = _animations[i];
+                animation.MidiAware_DeviceStateChangeEvent += MidiAware_OnDeviceStateChange;
+            }
         }
 
         private void RenderThreadLoop()
@@ -216,6 +232,43 @@ namespace ShowControl.Rendering
                 Thread.Sleep(1);
             }
             _tcs.SetResult(true);
+        }
+
+        private void MidiAware_OnDeviceStateChange(object sender, DeviceStateChangeEventArgs e)
+        {
+            MidiAwareAnimation activeAnimation = null;
+            NavigationLevel navigationLevel;
+            int sourceAnimationIndex = -1;
+            lock (_navigationAnimationLock)
+            {
+                if (_activeAnimation > -1)
+                {
+                    activeAnimation = _animations[_activeAnimation];
+                }
+                for (int i = 0; i < _animations.Length; i++)
+                {
+                    if (sender == _animations[i])
+                    {
+                        sourceAnimationIndex = i;
+                    }
+                }
+                navigationLevel = _navigationLevel;
+            }
+            if (sender == activeAnimation && e.EventType == DeviceStateChangeEventType.PadColor)
+            {
+                _inputDevice.SetPadColor(e.PadNumber, e.PadColor);
+            }
+            else if (e.EventType == DeviceStateChangeEventType.NavigationColor)
+            {
+                if (sourceAnimationIndex > -1)
+                {
+                    _padColors[sourceAnimationIndex] = e.NavigationColor;
+                    if (navigationLevel == NavigationLevel.Root)
+                    {
+                        _inputDevice.SetPadColor(sourceAnimationIndex, _padColors[sourceAnimationIndex]);
+                    }
+                }
+            }
         }
     }
 }

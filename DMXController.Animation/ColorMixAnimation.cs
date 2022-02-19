@@ -14,9 +14,6 @@ namespace ShowControl.Animation
         int B;
         Pixel[] _rootFrame;
 
-
-        public override bool IsActive { get; set; }
-
         public ColorMixAnimation(int pixelCount)
         {
             _rootFrame = new Pixel[pixelCount];
@@ -62,9 +59,9 @@ namespace ShowControl.Animation
             }
         }
 
-        public override DeviceInitializationState GetDeviceInitializationState(IMidiInputDevice inputDevice)
+        public override DeviceState Start(IReadOnlyMidiInputDevice inputDevice)
         {
-            return new DeviceInitializationState(
+            return new DeviceState(
                 new System.Drawing.Color[0],
                 new ButtonLightState[1]
                 {
@@ -72,5 +69,7 @@ namespace ShowControl.Animation
                 }
             );
         }
+
+        public override void Stop() { }
     }
 }

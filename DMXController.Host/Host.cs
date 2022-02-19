@@ -36,7 +36,7 @@ namespace ShowControl.Host
                         .AddSingleton<IEnttecDmxUsbDeviceEnumerator, EnttecDmxUsbDeviceEnumerator>()
                         .AddSingleton<IDmxDeviceEnumerator, DmxDeviceEnumerator>()
                         .AddSingleton<IInputService, InputService>()
-                        .AddSingleton<IAudioService, AudioService>()
+                        //.AddSingleton<IAudioService, AudioService>()
                         .AddHostedService<RenderService>());
 
         static IHostBuilder CreateHostBuilder(string[] args, Action<object, Complex[]> fftCallback) =>
@@ -46,7 +46,7 @@ namespace ShowControl.Host
                         .AddSingleton<IEnttecDmxUsbDeviceEnumerator, EnttecDmxUsbDeviceEnumerator>()
                         .AddSingleton<IDmxDeviceEnumerator, DmxDeviceEnumerator>()
                         .AddSingleton<IInputService, InputService>()
-                        .AddSingleton<IAudioService, AudioService>((_) => new AudioService(fftCallback))
+                        //.AddSingleton<IAudioService, AudioService>((_) => new AudioService(fftCallback))
                         .AddHostedService<RenderService>());
 
 
