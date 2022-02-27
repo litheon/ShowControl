@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using ShowControl.Utilities;
+using ShowControl.Devices.Audio;
 
 namespace ShowControl.Animation
 {
@@ -22,6 +23,11 @@ namespace ShowControl.Animation
         private System.Drawing.Color[] _padColors;
         int navigationColorIndex = 0;
 
+        private IAudioService _audioService;
+        private double _lastFft = double.NegativeInfinity;
+        private const int defaultFrameCooldown = AudioService.SampleRate / AudioService.FftLength / 6;
+        private int frameCoolDown = 1;
+
         System.Drawing.Color[] _colors = new System.Drawing.Color[6]
         {
                 System.Drawing.Color.FromArgb(0xFF, 0xFF, 0x00, 0x00),
@@ -32,13 +38,14 @@ namespace ShowControl.Animation
                 System.Drawing.Color.FromArgb(0xFF, 0xFF, 0x00, 0xFF)
         };
 
-        public RainbowAnimation(int pixelCount)
+        public RainbowAnimation(int pixelCount, IAudioService audioService)
         {
             _frameStart = 0;
             _rootFrame = new Pixel[pixelCount];
             _mode = RainbowAnimationMode.Automated;
             _automationTimer = new Timer(automaticModeFrameTick, null, Timeout.Infinite, Timeout.Infinite);
             _navigationColorTimer = new Timer(navigationTimerTick, null, 1000, 1000);
+            _audioService = audioService;
 
             int j = 0;
             for (int i = 0; i < _rootFrame.Length; i++)
@@ -98,7 +105,33 @@ namespace ShowControl.Animation
             return _padColors;
         }
 
+        private void _audioService_OnFftCalculated(object sender, AudioFrameProcessedEventArgs e)
+        {
+            var spectrum = e.AudioSpectrum;
 
+            var one = e.AudioSpectrum[1].Y;
+            var two = e.AudioSpectrum[2].Y;
+            var three = e.AudioSpectrum[3].Y;
+
+            var current = (one + two + three) / 3;
+
+            if (current > _lastFft * 1.2 && current > -25 && frameCoolDown <= 0)
+            {
+                _frameStart.InterlockedIncrement(0, _rootFrame.Length - 1);
+                var frameStart = _frameStart.InterlockedGet();
+                _frame = _rootFrame.Skip(frameStart).Concat(_rootFrame.Take(frameStart)).ToArray();
+                frameCoolDown = defaultFrameCooldown;
+            }
+            else if (frameCoolDown >= 1)
+            {
+                frameCoolDown--;
+            }
+            else if (frameCoolDown == 0)
+            {
+                frameCoolDown = -1;
+            }
+            _lastFft = current;
+        }
 
         public override void MidiAware_OnMessageReceived(object sender, DeviceInputEventArgs e)
         {
@@ -172,6 +205,7 @@ namespace ShowControl.Animation
 
         public override DeviceState Start(IReadOnlyMidiInputDevice inputDevice)
         {
+            _audioService.AudioFrameProcessed += _audioService_OnFftCalculated;
             _padColors = new System.Drawing.Color[inputDevice.PadCount];
 
             for (int i = 0; i < _padColors.Length - 2; i++)
@@ -202,6 +236,7 @@ namespace ShowControl.Animation
 
         public override void Stop()
         {
+            _audioService.AudioFrameProcessed -= _audioService_OnFftCalculated;
             StopTimers();
         }
 

@@ -7,6 +7,6 @@ namespace ShowControl.Devices.Audio
 {
     public interface IAudioService
     {
-        public event EventHandler<Complex[]> OnFftCalculated;
+        public event EventHandler<AudioFrameProcessedEventArgs> AudioFrameProcessed;
     }
 }

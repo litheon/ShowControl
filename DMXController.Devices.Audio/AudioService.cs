@@ -1,63 +1,122 @@
 ﻿using System;
+using System.Drawing;
 using System.Linq;
+using System.Threading.Tasks;
 using NAudio.CoreAudioApi;
 using NAudio.Dsp;
 using NAudio.Wave;
+using ShowControl.Utilities;
 
 namespace ShowControl.Devices.Audio
 {
     public class AudioService : IAudioService
     {
-        public event EventHandler<Complex[]> OnFftCalculated;
+        public event EventHandler<AudioFrameProcessedEventArgs> AudioFrameProcessed;
+
 
         private AsioOut _asioOut;
-        private static float[] _samples = new float[512];
-        private const int _fftLength = 2048;
-        private Complex[] _fftBuffer = new Complex[_fftLength];
+        public const int SampleRate = 192000;
+        private const int channelCount = 2;
+        private static float[] _samples1;
+        private static float[] _samples2;
+        private static float[] _samples3;
+        private static float[] _samples4;
+        private static float[] _activeSamples;
+        public const int FftLength = 4096;
+        private Complex[] _fftBuffer1 = new Complex[FftLength];
+        private Complex[] _activeBuffer;
+        private Complex[] _fftBuffer2 = new Complex[FftLength];
+        private Complex[] _fftBuffer3 = new Complex[FftLength];
+        int _copyBufferIndex;
+        private Point[][] _copyBuffer = new Point[4][];
         private int _fftPos;
-        private int _m = (int)Math.Log(_fftLength, 2.0);
+        private int _m = (int)Math.Log(FftLength, 2.0);
         public AudioService()
         {
+            _activeBuffer = _fftBuffer1;
             var drivers = AsioOut.GetDriverNames();
             var driver = drivers.FirstOrDefault(d => d.Contains("Focusrite USB"));
             if (driver != null)
             {
                 _asioOut = new AsioOut(driver);
-                _asioOut.InputChannelOffset = 8;
-                var inputChannelCount = 2;
-                var sampleRate = 48000;
-                _asioOut.InitRecordAndPlayback(null, inputChannelCount, sampleRate);
+                _asioOut.InputChannelOffset = 2;
+                var sampleRate = AudioService.SampleRate;
+                _asioOut.InitRecordAndPlayback(null, channelCount, sampleRate);
                 _asioOut.AudioAvailable += AsioOut_AudioAvailable;
                 _asioOut.Play();
             }
+
+            for (int i = 0; i < _copyBuffer.Length; i++)
+            {
+                _copyBuffer[i] = new Point[FftLength];
+            }
         }
 
-        public AudioService(Action<object, Complex[]> fftCallback) : this()
+        public AudioService(EventHandler<AudioFrameProcessedEventArgs> audioFrameProcessedEventHandler) : this()
         {
-            OnFftCalculated += (sender, e) => fftCallback(sender, e);
+            AudioFrameProcessed += audioFrameProcessedEventHandler;
         }
 
         private void AsioOut_AudioAvailable(object sender, AsioAudioAvailableEventArgs e)
         {
-            e.GetAsInterleavedSamples(_samples);
-            foreach (var sample in _samples.Take(e.SamplesPerBuffer))
+            if (_activeSamples == null || _activeSamples.Length != e.SamplesPerBuffer * channelCount)
+            {
+                _samples1 = new float[e.SamplesPerBuffer * 2];
+                _samples2 = new float[e.SamplesPerBuffer * 2];
+                _samples3 = new float[e.SamplesPerBuffer * 2];
+                _samples4 = new float[e.SamplesPerBuffer * 2];
+                _activeSamples = _samples1;
+            }
+            e.GetAsInterleavedSamples(_activeSamples);
+            for (int i = 0; i < _activeSamples.Length / channelCount; i++)
             {
                 // This is all really hacky
-                _fftBuffer[_fftPos].X = (float)(sample * FastFourierTransform.HammingWindow(_fftPos, _fftBuffer.Length));
-                _fftBuffer[_fftPos].Y = 0;
+                var sample = (_activeSamples[i] + _activeSamples[e.SamplesPerBuffer + i]) / 2;
+                _activeBuffer[_fftPos].X = (float)(sample * FastFourierTransform.HammingWindow(_fftPos, _activeBuffer.Length));
+                _activeBuffer[_fftPos].Y = 0;
                 _fftPos++;
-                if (_fftPos >= _fftBuffer.Length)
+                if (_fftPos >= _activeBuffer.Length)
                 {
-                    _fftPos = 0;
-                    // 1024 = 2^10
-                    FastFourierTransform.FFT(true, _m, _fftBuffer);
-                    var maxY = _fftBuffer.Max(b => b.Y);
-                    var minY = _fftBuffer.Min(b => b.Y);
-                    var maxX = _fftBuffer.Max(b => b.X);
-                    var minX = _fftBuffer.Min(b => b.X);
-                    OnFftCalculated?.Invoke(this, _fftBuffer);
+                    FftProcessed();
                 }
             }
+            if (_activeSamples == _samples1)
+            {
+                _activeSamples = _samples2;
+            }
+            else if (_activeSamples == _samples2)
+            {
+                _activeSamples = _samples3;
+            }
+            else if (_activeSamples == _samples3)
+            {
+                _activeSamples = _samples4;
+            }
+            else
+            {
+                _activeSamples = _samples1;
+            }
+        }
+
+        private void FftProcessed()
+        {
+            //https://www.dsprelated.com/freebooks/sasp/Short_Time_Fourier_Transform.html
+            _fftPos = 0;
+            FastFourierTransform.FFT(true, _m, _activeBuffer);
+            double width = SampleRate / _activeBuffer.Length;
+            double Hz = 0;
+            int copyBufferIndex = _copyBufferIndex.InterlockedGet();
+            for (int j = 0; j < _activeBuffer.Length; j++)
+            {
+                _copyBuffer[copyBufferIndex][j].X = Hz == 0 ? Math.Log10(5) / Math.Log10(20000) : Math.Log10(Hz) / Math.Log10(20000);
+                _copyBuffer[copyBufferIndex][j].Y = 20 * Math.Log10(Math.Abs(Math.Sqrt(Math.Pow(_activeBuffer[j].Y, 2) + Math.Pow(_activeBuffer[j].X, 2)))) / -140.0d;
+                Hz += width;
+            }
+
+
+            var audioFrameProcessedEventArgs = new AudioFrameProcessedEventArgs(_copyBuffer[copyBufferIndex], width);
+            Task.Run(() => AudioFrameProcessed?.Invoke(this, audioFrameProcessedEventArgs));
+            _copyBufferIndex.InterlockedIncrement(0, _copyBuffer.Length - 1);
         }
     }
 }

@@ -22,10 +22,10 @@ namespace ShowControl.Host
         }
 
         [STAThread]
-        public static Task Main(string[] args, Action<object, Complex[]> fftCallback)
+        public static Task Main(string[] args, EventHandler<AudioFrameProcessedEventArgs> audioFrameProcessedEventHandler)
         {
 
-            var builder = CreateHostBuilder(args, fftCallback);
+            var builder = CreateHostBuilder(args, audioFrameProcessedEventHandler);
             return builder.RunConsoleAsync();
         }
 
@@ -36,17 +36,17 @@ namespace ShowControl.Host
                         .AddSingleton<IEnttecDmxUsbDeviceEnumerator, EnttecDmxUsbDeviceEnumerator>()
                         .AddSingleton<IDmxDeviceEnumerator, DmxDeviceEnumerator>()
                         .AddSingleton<IInputService, InputService>()
-                        //.AddSingleton<IAudioService, AudioService>()
+                        .AddSingleton<IAudioService, AudioService>()
                         .AddHostedService<RenderService>());
 
-        static IHostBuilder CreateHostBuilder(string[] args, Action<object, Complex[]> fftCallback) =>
+        static IHostBuilder CreateHostBuilder(string[] args, EventHandler<AudioFrameProcessedEventArgs> audioFrameProcessedEventHandler) =>
             Microsoft.Extensions.Hosting.Host.CreateDefaultBuilder(args)
                 .ConfigureServices((_, services) =>
                     services
                         .AddSingleton<IEnttecDmxUsbDeviceEnumerator, EnttecDmxUsbDeviceEnumerator>()
                         .AddSingleton<IDmxDeviceEnumerator, DmxDeviceEnumerator>()
                         .AddSingleton<IInputService, InputService>()
-                        //.AddSingleton<IAudioService, AudioService>((_) => new AudioService(fftCallback))
+                        .AddSingleton<IAudioService, AudioService>((_) => new AudioService(audioFrameProcessedEventHandler))
                         .AddHostedService<RenderService>());
 
 

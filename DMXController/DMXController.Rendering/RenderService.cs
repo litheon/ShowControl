@@ -23,6 +23,7 @@ namespace ShowControl.Rendering
         private readonly TaskCompletionSource<bool> _tcs;
         private IDmxDeviceEnumerator _deviceEnumerator;
         private IInputService _inputService;
+        private IAudioService _audioService;
         IDmxDevice[] _devices;
 
         private readonly object _navigationAnimationLock = new object();
@@ -33,11 +34,12 @@ namespace ShowControl.Rendering
         private System.Drawing.Color[] _padColors;
         public RenderService(
             IDmxDeviceEnumerator deviceEnumerator,
-            IInputService inputService
-            /*IAudioService audioService*/)
+            IInputService inputService,
+            IAudioService audioService)
         {
             _deviceEnumerator = deviceEnumerator;
             _inputService = inputService;
+            _audioService = audioService;
             _renderThread = new Thread(RenderThreadLoop);
             _tcs = new TaskCompletionSource<bool>();
             _tokenSource = new CancellationTokenSource();
@@ -177,8 +179,9 @@ namespace ShowControl.Rendering
             }
 
             _animations = new MidiAwareAnimation[] {
-                new RainbowAnimation(_devices.Length),
-                new ColorMixAnimation(_devices.Length)
+                new RainbowAnimation(_devices.Length, _audioService),
+                new ColorMixAnimation(_devices.Length),
+                new VibrantAnimation(_devices.Length, _audioService)
             };
 
             _padColors = new System.Drawing.Color[_animations.Length];

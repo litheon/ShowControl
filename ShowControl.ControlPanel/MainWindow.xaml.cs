@@ -1,4 +1,5 @@
 ﻿using NAudio.Dsp;
+using ShowControl.Devices.Audio;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -14,6 +15,9 @@ using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
 
+using Point = ShowControl.Devices.Audio.Point;
+using WindowsPoint = System.Windows.Point;
+
 namespace ShowControl.ControlPanel
 {
     /// <summary>
@@ -21,84 +25,84 @@ namespace ShowControl.ControlPanel
     /// </summary>
     public partial class MainWindow : Window
     {
-        int fftCount = 0;
-        int sampleAverageWindowSize = 5;
+        private const double sampleRate = 44100;
+        private static readonly double Limit = 1;
         Dictionary<double, List<double>> decibels = new Dictionary<double, List<double>>();
         HashSet<double> seen = new HashSet<double>();
+        Point[] fftChartPoints;
+        PointCollection points1;
+        PointCollection points2;
+        PointCollection activePoints;
         public MainWindow()
         {
             InitializeComponent();
-            Host.Host.Main(new string[] { }, FftCallback);
+            Host.Host.Main(new string[] { }, OnAudioFrameProcessed);
         }
 
-        private void FftCallback(object sender, Complex[] fftPoints)
+        private void OnAudioFrameProcessed(object sender, AudioFrameProcessedEventArgs e)
         {
-            double width = 48000.0d / fftPoints.Length;
-            double Hz = 0;
-            var points = fftPoints.Take(20000 / Convert.ToInt32(width));
-            var seen = new HashSet<double>();
-            foreach (var point in points)
+            if (fftChartPoints == null || fftChartPoints.Length != e.AudioSpectrum.Length)
             {
-                if (point.Y > 0 && Hz > 0)
+                fftChartPoints = new Point[e.AudioSpectrum.Length];
+            }
+
+            Array.Copy(e.AudioSpectrum, fftChartPoints, fftChartPoints.Length);
+            
+            Dispatcher.Invoke(() => {
+                double previous = 0;
+                WindowsPoint point1;
+                WindowsPoint point2;
+
+                if (points1 == null)
                 {
-                    if (decibels.ContainsKey(Hz))
+                    points1 = new PointCollection(2 * fftChartPoints.Length);
+                    points2 = new PointCollection(2 * fftChartPoints.Length);
+                    activePoints = points1;
+                }
+
+                if (polyline.Points == points1)
+                {
+                    activePoints = points2;
+                }
+                else if (activePoints == points2)
+                {
+                    activePoints = points1;
+                }
+
+                activePoints.Clear();
+                for (int i = 0; i < fftChartPoints.Length; i++)
+                {
+                    var X = fftChartPoints[i].X * polyline.Width;
+                    var Y = fftChartPoints[i].Y * polyline.Height;
+
+                    if (fftChartPoints[i].X <= Limit)
                     {
-                        decibels[Hz].Insert(0, Math.Sqrt(Math.Pow(point.Y, 2) + Math.Pow(point.X, 2)));
-                        if (decibels[Hz].Count > sampleAverageWindowSize)
+                        point1.X = previous;
+                        point1.Y = Y;
+                        
+                        point2.X = X;
+                        point2.Y = Y;
+
+                        if (activePoints.Count < fftChartPoints.Length * 2 + 1)
                         {
-                            decibels[Hz].RemoveAt(decibels[Hz].Count - 1);
+                            activePoints.Add(point1);
+                            activePoints.Add(point2);
                         }
-                    }
-                    else
-                    {
-                        decibels[Hz] = new List<double>(sampleAverageWindowSize);
-                        decibels[Hz].Add(Math.Sqrt(Math.Pow(point.Y, 2) + Math.Pow(point.X, 2)));
-                    }
-                    seen.Add(Hz);
-                }
-                Hz += width;
-            }
-            foreach (var key in decibels.Keys.ToArray())
-            {
-                if (!seen.Contains(key))
-                {
-                    decibels[key].Insert(0, 1e-7);
-                    decibels[key].RemoveAt(decibels[key].Count - 1);
-                }
-            }
-            seen.Clear();
-            foreach (var kvPair in decibels.OrderBy(db => db.Key).ToArray())
-            {
-                var dB = 20*Math.Log10(Math.Abs(kvPair.Value.Average()));
-                var dbScaled = Convert.ToInt32(Math.Round(dB / -100.0d * 1000.0d));
-            }
+                        else
+                        {
+                            activePoints[2 * i] = point1;
+                            activePoints[2 * i + 1] = point2;
+                        }
 
-            fftCount++;
-            if (fftCount == 10)
-            {
-                polyline.Dispatcher.Invoke(() => {
-                    polyline.Points.Clear();
-
-                    foreach (var kvPair in decibels.OrderBy(db => db.Key).ToArray())
-                    {
-                        var dB = 20*Math.Log10(Math.Abs(kvPair.Value.Average()));
-                        var dbScaled = Convert.ToInt32(Math.Round(dB / -100.0d * 1000.0d));
-                        polyline.Points.Add(new Point(kvPair.Key / 24000.0d * 2000.0d, dbScaled));
+                        previous = X;
                     }
-                });
-                fftCount = 0;
-                StringBuilder sb = new StringBuilder();
-                foreach (var kvPair in decibels.OrderBy(db => db.Key).ToArray())
-                {
-                    var dB = 20*Math.Log10(Math.Abs(kvPair.Value.Average()));
-                    var dbScaled = Convert.ToInt32(Math.Round(dB / -100.0d * 10000.0d));
-                    sb.AppendLine(string.Format("{0} Hz: {1} dB", kvPair.Key, dB));
+                    else if (fftChartPoints[i].X > Limit)
+                    {
+                        break;
+                    }
                 }
-                FrequencyOutput.Dispatcher.Invoke(() =>
-                {
-                    FrequencyOutput.Text = sb.ToString();
-                });
-            }
+                polyline.Points = activePoints;
+            });
         }
     }
 }

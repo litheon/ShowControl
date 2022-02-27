@@ -5,13 +5,20 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:ShowControl.ControlPanel"
         mc:Ignorable="d"
-        Title="MainWindow" Height="1000" Width="2000">
+        Title="MainWindow" Height="1400" Width="2400">
     <Grid>
-        <Canvas x:Name="FftCanvas" HorizontalAlignment="Right">
-            <Polyline x:Name="polyline" Stroke="DarkGreen" StrokeThickness="3" Height="1000" Width="2000"/>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <Canvas x:Name="FftCanvas" HorizontalAlignment="Right" Margin="0">
+            <Border BorderThickness="2" BorderBrush="Red">
+                <Polyline x:Name="polyline" Stroke="DarkBlue" StrokeThickness="3" Height="1000" Width="2000" />
+            </Border>
+            
         </Canvas>
-        <ScrollViewer HorizontalAlignment="Left">
-            <TextBlock x:Name="FrequencyOutput" Height="3600" Width="300" ></TextBlock>
+        <ScrollViewer HorizontalAlignment="Left" Height="Auto">
+            <TextBlock x:Name="FrequencyOutput" Width="300"></TextBlock>
         </ScrollViewer>
     </Grid>
 </Window>
