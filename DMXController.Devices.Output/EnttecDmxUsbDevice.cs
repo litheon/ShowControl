@@ -14,15 +14,15 @@ namespace ShowControl.Devices.Output
 #endif
         public uint Id { get; private set; }
 
-        private Timer _ftdiFrameTimer;
-        private EventWaitHandle _waitHandle = new EventWaitHandle(false, EventResetMode.AutoReset);
-        private IntPtr _ftdiDmxBuffer;
+        private readonly Timer _ftdiFrameTimer;
+        private readonly EventWaitHandle _waitHandle = new EventWaitHandle(false, EventResetMode.AutoReset);
+        private readonly IntPtr _ftdiDmxBuffer;
         private const int BufferSize = 513;
-        private byte[] _dmxBuffer = new byte[BufferSize];
-        private Thread _writeThread;
+        private readonly byte[] _dmxBuffer = new byte[BufferSize];
+        private readonly Thread _writeThread;
         private long _writeLoopContinue = 1;
-        private CancellationToken _cancellationToken;
-        private AutoResetEvent _workWaitEvent;
+        private readonly CancellationToken _cancellationToken;
+        private readonly AutoResetEvent _workWaitEvent;
         internal EnttecDmxUsbDevice(uint deviceId, CancellationToken token)
         {
             Id = deviceId;
@@ -37,7 +37,7 @@ namespace ShowControl.Devices.Output
             HandleFTDIOperation(FT_Purge(_handle, PURGE_RX), nameof(FT_Purge));
             _workWaitEvent = new AutoResetEvent(false);
             _ftdiDmxBuffer = Marshal.AllocHGlobal(BufferSize);
-            _writeThread = new Thread(writeLoop);
+            _writeThread = new Thread(WriteLoop);
             _writeThread.Start();
             _ftdiFrameTimer = new Timer(FtdiFrameTimerTick, null, 0, Timeout.Infinite);
         }
@@ -163,7 +163,7 @@ namespace ShowControl.Devices.Output
 
         private long _writeLoopLastTicks;
         private const int MinimumMillisecondsBetweenFrames = 3;
-        private void writeLoop()
+        private void WriteLoop()
         {
             while(Interlocked.Read(ref _writeLoopContinue) == 1 && !_cancellationToken.IsCancellationRequested)
             {
@@ -173,7 +173,7 @@ namespace ShowControl.Devices.Output
                 var delta = now - _writeLoopLastTicks;
                 if (delta < MinimumMillisecondsBetweenFrames * TimeSpan.TicksPerMillisecond)
                 {
-                    var waitTimeSpan = Math.Round(((double)MinimumMillisecondsBetweenFrames * TimeSpan.TicksPerMillisecond - delta) / TimeSpan.TicksPerMillisecond);
+                    var waitTimeSpan = Math.Ceiling(((double)MinimumMillisecondsBetweenFrames * TimeSpan.TicksPerMillisecond - delta) / TimeSpan.TicksPerMillisecond);
                     Thread.Sleep(Convert.ToInt32(waitTimeSpan));
                 }
                 uint bytesWritten = 0;

@@ -15,10 +15,8 @@
             <Border BorderThickness="2" BorderBrush="Red">
                 <Polyline x:Name="polyline" Stroke="DarkBlue" StrokeThickness="3" Height="1000" Width="2000" />
             </Border>
-            
+
         </Canvas>
-        <ScrollViewer HorizontalAlignment="Left" Height="Auto">
-            <TextBlock x:Name="FrequencyOutput" Width="300"></TextBlock>
-        </ScrollViewer>
+        <TextBlock x:Name="Bpm" Width="200"></TextBlock>
     </Grid>
 </Window>

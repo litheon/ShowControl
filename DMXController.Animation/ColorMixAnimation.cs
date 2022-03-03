@@ -9,10 +9,10 @@ namespace ShowControl.Animation
 {
     public class ColorMixAnimation : MidiAwareAnimation
     {
-        int R;
-        int G;
-        int B;
-        Pixel[] _rootFrame;
+        private int R;
+        private int G;
+        private int B;
+        private readonly Pixel[] _rootFrame;
 
         public ColorMixAnimation(int pixelCount)
         {
@@ -40,7 +40,7 @@ namespace ShowControl.Animation
             return _rootFrame;
         }
 
-        public override void MidiAware_OnMessageReceived(object sender, DeviceInputEventArgs e)
+        public override void OnMessageReceived(object sender, DeviceInputEventArgs e)
         {
             if (e.EventType == DeviceInputEventType.RotaryEncoder)
             {
@@ -57,6 +57,16 @@ namespace ShowControl.Animation
                         break;
                 }
             }
+        }
+
+        public override void PadPressed(ButtonDirection direction, byte padNumber, int padCount)
+        {
+            
+        }
+
+        public override void RotaryTurned(RotaryDirection direction, byte rotaryNumber, byte? value)
+        {
+            
         }
 
         public override DeviceState Start(IReadOnlyMidiInputDevice inputDevice)

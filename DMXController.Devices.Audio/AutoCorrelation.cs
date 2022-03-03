@@ -7,18 +7,18 @@ namespace ShowControl.Devices.Audio
 {
     public class AutoCorrelation
     {
-        public static double GetAverage(Point[] data)
+        public static double GetAverage(double[] data)
         {
             int len = data.Length;
             double sum = 0;
 
             for (int i = 0; i < len; i++)
-                sum += data[i].Y;
+                sum += data[i];
 
             return sum / len;
         }
 
-        public static double GetVariance(Point[] data)
+        public static double GetVariance(double[] data)
         {
             int len = data.Length;
             double avg = GetAverage(data);
@@ -26,16 +26,16 @@ namespace ShowControl.Devices.Audio
 
             for (int i = 0; i < data.Length; i++)
             {
-                sum += Math.Pow((data[i].Y - avg), 2);
+                sum += Math.Pow((data[i] - avg), 2);
             }
             return sum / len;
         }
-        public static double GetStdev(Point[] data)
+        public static double GetStdev(double[] data)
         {
             return Math.Sqrt(GetVariance(data));
         }
 
-        public static double GetCorrelation(Point[] x, Point[] y)
+        public static double GetCorrelation(double[] x, double[] y)
         {
             if (x.Length != y.Length)
                 throw new Exception("Length of sources is different");
@@ -48,19 +48,19 @@ namespace ShowControl.Devices.Audio
             int len = x.Length;
             for (int i = 0; i < len; i++)
             {
-                covXY += (x[i].Y - avgX) * (y[i].Y - avgY);
+                covXY += (x[i] - avgX) * (y[i] - avgY);
             }
             covXY /= len;
             pearson = covXY / (stdevX * stdevY);
             return pearson;
         }
 
-        public static double[] GetAutoCorrelationOfSeries(Point[] x)
+        public static double[] GetAutoCorrelationOfSeries(double[] x)
         {
             int half = (int)x.Length / 2;
             double[] autoCorrelation = new double[half];
-            Point[] a = new Point[half];
-            Point[] b = new Point[half];
+            double[] a = new double[half];
+            double[] b = new double[half];
             for (int i = 0; i < half; i++)
             {
                 a[i] = x[i];
@@ -70,13 +70,13 @@ namespace ShowControl.Devices.Audio
             return autoCorrelation;
         }
 
-        public static async Task<double[]> GetAutoCorrelationOfSeriesAsync(Point[] x)
+        public static async Task<double[]> GetAutoCorrelationOfSeriesAsync(double[] x)
         {
             int half = (int)x.Length / 2;
             Task[] tasks = new Task[half];
             double[] autoCorrelation = new double[half];
-            Point[] a = new Point[half];
-            Point[] b = new Point[half];
+            double[] a = new double[half];
+            double[] b = new double[half];
             for (int i = 0; i < half; i++)
             {
 
@@ -91,7 +91,7 @@ namespace ShowControl.Devices.Audio
             return autoCorrelation;
         }
 
-        public static double DoSomeWork(Point[] a, Point[] b)
+        public static double DoSomeWork(double[] a, double[] b)
         {
             return GetCorrelation(a, b);
         }

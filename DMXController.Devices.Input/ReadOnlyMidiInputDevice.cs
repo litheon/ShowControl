@@ -6,7 +6,7 @@ namespace ShowControl.Devices.Input
 {
     public class ReadOnlyMidiInputDevice : IReadOnlyMidiInputDevice
     {
-        private IReadOnlyMidiInputDevice _inputDevice;
+        private readonly IReadOnlyMidiInputDevice _inputDevice;
         public ReadOnlyMidiInputDevice(IReadOnlyMidiInputDevice inputDevice)
         {
             _inputDevice = inputDevice;

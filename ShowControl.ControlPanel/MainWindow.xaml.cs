@@ -25,10 +25,7 @@ namespace ShowControl.ControlPanel
     /// </summary>
     public partial class MainWindow : Window
     {
-        private const double sampleRate = 44100;
         private static readonly double Limit = 1;
-        Dictionary<double, List<double>> decibels = new Dictionary<double, List<double>>();
-        HashSet<double> seen = new HashSet<double>();
         Point[] fftChartPoints;
         PointCollection points1;
         PointCollection points2;
@@ -49,6 +46,7 @@ namespace ShowControl.ControlPanel
             Array.Copy(e.AudioSpectrum, fftChartPoints, fftChartPoints.Length);
             
             Dispatcher.Invoke(() => {
+                Bpm.Text = string.Format("BPM: {0}", e.Bpm);
                 double previous = 0;
                 WindowsPoint point1;
                 WindowsPoint point2;
@@ -73,7 +71,7 @@ namespace ShowControl.ControlPanel
                 for (int i = 0; i < fftChartPoints.Length; i++)
                 {
                     var X = fftChartPoints[i].X * polyline.Width;
-                    var Y = fftChartPoints[i].Y * polyline.Height;
+                    var Y = (fftChartPoints[i].Y / -140.0d) * polyline.Height;
 
                     if (fftChartPoints[i].X <= Limit)
                     {

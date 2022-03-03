@@ -6,31 +6,34 @@ using System.Text;
 using System.Threading;
 using ShowControl.Utilities;
 using ShowControl.Devices.Audio;
+using System.Drawing;
 
 namespace ShowControl.Animation
 {
     public class RainbowAnimation : MidiAwareAnimation
     {
-        private enum RainbowAnimationMode { Manual, StaticColor, Automated };
         private int _frameStart;
-        private Pixel[] _rootFrame;
-        private object _frameLock = new object();
+        private readonly Pixel[] _rootFrame;
+        private readonly object _frameLock = new object();
         private Pixel[] _frame;
-        private object _modeLock = new object();
-        private RainbowAnimationMode _mode;
-        private Timer _automationTimer;
-        private Timer _navigationColorTimer;
-        private System.Drawing.Color[] _padColors;
+        private readonly object _modeLock = new object();
+        private AnimationMode _lastMode;
+        private AnimationMode _mode;
+        private readonly Timer _automationTimer;
+#pragma warning disable IDE0052 // Remove unread private members
+        private readonly Timer _navigationColorTimer;
+#pragma warning restore IDE0052 // Remove unread private members
         int navigationColorIndex = 0;
 
-        private IAudioService _audioService;
+        private readonly IAudioService _audioService;
         private double _lastFft = double.NegativeInfinity;
         private const int defaultFrameCooldown = AudioService.SampleRate / AudioService.FftLength / 6;
         private int frameCoolDown = 1;
+        private readonly List<int> _pressedPads;
 
-        System.Drawing.Color[] _colors = new System.Drawing.Color[6]
+        private readonly System.Drawing.Color[] _colors = new System.Drawing.Color[6]
         {
-                System.Drawing.Color.FromArgb(0xFF, 0xFF, 0x00, 0x00),
+                Color.FromArgb(0xFF, 0xFF, 0x00, 0x00),
                 System.Drawing.Color.FromArgb(0xFF, 0xFF, 0x80, 0x00),
                 System.Drawing.Color.FromArgb(0xFF, 0xFF, 0xFF, 0x00),
                 System.Drawing.Color.FromArgb(0xFF, 0x00, 0xFF, 0x00),
@@ -42,10 +45,11 @@ namespace ShowControl.Animation
         {
             _frameStart = 0;
             _rootFrame = new Pixel[pixelCount];
-            _mode = RainbowAnimationMode.Automated;
-            _automationTimer = new Timer(automaticModeFrameTick, null, Timeout.Infinite, Timeout.Infinite);
-            _navigationColorTimer = new Timer(navigationTimerTick, null, 1000, 1000);
+            _mode = AnimationMode.Automatic;
+            _automationTimer = new Timer(AutomaticModeFrameTick, null, Timeout.Infinite, Timeout.Infinite);
+            _navigationColorTimer = new Timer(NavigationTimerTick, null, 1000, 1000);
             _audioService = audioService;
+            _pressedPads = new List<int>();
 
             int j = 0;
             for (int i = 0; i < _rootFrame.Length; i++)
@@ -55,12 +59,12 @@ namespace ShowControl.Animation
             }
         }
 
-        private void automaticModeFrameTick(object state)
+        private void AutomaticModeFrameTick(object state)
         {
             _frameStart.InterlockedIncrement(0, _rootFrame.Length - 1);
         }
 
-        private void navigationTimerTick(object state)
+        private void NavigationTimerTick(object state)
         {
             navigationColorIndex = (navigationColorIndex + 1) % _colors.Length;
             SetNavigationColor(_colors[navigationColorIndex]);
@@ -76,12 +80,16 @@ namespace ShowControl.Animation
             _automationTimer.Change(Timeout.Infinite, Timeout.Infinite);
         }
 
-        private void SetMode(RainbowAnimationMode mode)
+        private void SetMode(AnimationMode mode)
         {
             lock(_modeLock)
             {
+                if (_mode != mode)
+                {
+                    _lastMode = _mode;
+                }
                 _mode = mode;
-                if (_mode == RainbowAnimationMode.Automated)
+                if (_mode == AnimationMode.Automatic)
                 {
                     _automationTimer.Change(500, 500);
                 }
@@ -89,6 +97,14 @@ namespace ShowControl.Animation
                 {
                     _automationTimer.Change(Timeout.Infinite, Timeout.Infinite);
                 }
+            }
+        }
+
+        private void RestoreMode()
+        {
+            lock(_modeLock)
+            {
+                SetMode(_lastMode);
             }
         }
 
@@ -102,123 +118,128 @@ namespace ShowControl.Animation
 
         private System.Drawing.Color[] GetPadColors(int count)
         {
-            return _padColors;
+            var padColors = new System.Drawing.Color[count];
+            for (int i = 0; i < padColors.Length - 2; i++)
+            {
+                padColors[i] = _colors[i % _colors.Length];
+            }
+            padColors[^2] = System.Drawing.Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF);
+            padColors[^1] = System.Drawing.Color.FromArgb(0x00, 0x00, 0x00, 0x00);
+            return padColors;
         }
 
-        private void _audioService_OnFftCalculated(object sender, AudioFrameProcessedEventArgs e)
+        private void AudioService_OnFftCalculated(object sender, AudioFrameProcessedEventArgs e)
         {
-            var spectrum = e.AudioSpectrum;
-
-            var one = e.AudioSpectrum[1].Y;
-            var two = e.AudioSpectrum[2].Y;
-            var three = e.AudioSpectrum[3].Y;
-
-            var current = (one + two + three) / 3;
-
-            if (current > _lastFft * 1.2 && current > -25 && frameCoolDown <= 0)
+            //add a gradient mode that animates from red->orange->yellow->green->blue, and adds colors between two key colors
+            //if there are enough lights to do so
+            //support a continous animation from one color to the next color
+            //add a mode that grabs a window into a large continous gradient that music/the user/a timer will automatically scroll through
+            if (_mode == AnimationMode.SoundReactive)
             {
-                _frameStart.InterlockedIncrement(0, _rootFrame.Length - 1);
-                var frameStart = _frameStart.InterlockedGet();
-                _frame = _rootFrame.Skip(frameStart).Concat(_rootFrame.Take(frameStart)).ToArray();
-                frameCoolDown = defaultFrameCooldown;
+                var spectrum = e.AudioSpectrum;
+
+                var one = e.AudioSpectrum[1].Y;
+                var two = e.AudioSpectrum[2].Y;
+                var three = e.AudioSpectrum[3].Y;
+
+                var current = (one + two + three) / 3;
+
+                if (current > _lastFft * 1.2 && current > -25 && frameCoolDown <= 0)
+                {
+                    _frameStart.InterlockedIncrement(0, _rootFrame.Length - 1);
+                    frameCoolDown = defaultFrameCooldown;
+                }
+                else if (frameCoolDown >= 1)
+                {
+                    frameCoolDown--;
+                }
+                else if (frameCoolDown == 0)
+                {
+                    frameCoolDown = -1;
+                }
+                _lastFft = current;
             }
-            else if (frameCoolDown >= 1)
-            {
-                frameCoolDown--;
-            }
-            else if (frameCoolDown == 0)
-            {
-                frameCoolDown = -1;
-            }
-            _lastFft = current;
         }
 
-        public override void MidiAware_OnMessageReceived(object sender, DeviceInputEventArgs e)
+        public override void OnMessageReceived(object sender, DeviceInputEventArgs e)
         {
-            var device = e.Source;
-            if (e.EventType == DeviceInputEventType.RotaryEncoder)
-            {
-                SetMode(RainbowAnimationMode.Manual);
-                if (e.RotaryNumber == 1)
-                {
-                    if (e.RotaryDirection == RotaryDirection.Up)
-                    {
-                        _frameStart.InterlockedIncrement(0, _rootFrame.Length - 1);
-                    }
-                    else if (e.RotaryDirection == RotaryDirection.Down)
-                    {
-                        _frameStart.InterlockedDecrement(0, _rootFrame.Length - 1);
-                    }
-                }
-
-                var frameStart = _frameStart.InterlockedGet();
-                _frame = _rootFrame.Skip(frameStart).Concat(_rootFrame.Take(frameStart)).ToArray();
-            }
-            else if (e.EventType == DeviceInputEventType.Pad)
-            {
-                if (e.ButtonDirection == ButtonDirection.Press)
-                {
-                    SetMode(RainbowAnimationMode.Manual);
-                    Pixel[] colors = new Pixel[_rootFrame.Length];
-                    if (e.PadNumber.Value == e.Source.PadCount - 1)
-                    {
-                        SetPadColor(e.PadNumber.Value, System.Drawing.Color.Silver);
-                        var color = System.Drawing.Color.FromArgb(0x00, 0x00, 0x00, 0x00);
-                        for (int i = 0; i < colors.Length; i++)
-                        {
-                            colors[i] = new Pixel(color, 0x00, 0x00);
-                        }
-                    }
-                    else if (e.PadNumber.Value == e.Source.PadCount - 2)
-                    {
-                        SetPadColor(e.PadNumber.Value, System.Drawing.Color.White);
-                        for (int i = 0; i < colors.Length; i++)
-                        {
-                            colors[i] = new Pixel(System.Drawing.Color.FromArgb(0xFF, 0x00, 0x00, 0x00), 0x00, 0xFF);
-                        }
-                    }
-                    else
-                    {
-                        SetPadColor(e.PadNumber.Value, System.Drawing.Color.White);
-                        var color = _colors[e.PadNumber.Value % _colors.Length];
-                        for (int i = 0; i < colors.Length; i++)
-                        {
-                            colors[i] = new Pixel(color, 0x00, 0x00);
-                        }
-                    }
-                    SetFrame(colors);
-                }
-                else if (e.ButtonDirection == ButtonDirection.Release)
-                {
-                    var color = _padColors[e.PadNumber.Value];
-                    SetPadColor(e.PadNumber.Value, color);
-                }
-            }
-            else if (e.EventType == DeviceInputEventType.Transport)
+            if (e.EventType == DeviceInputEventType.Transport)
             {
                 if (e.TransportButton == TransportButton.Play && e.ButtonDirection == ButtonDirection.Press)
                 {
-                    SetMode(RainbowAnimationMode.Automated);
+                    SetMode(AnimationMode.Automatic);
                 }
+            }
+        }
+
+        public override void PadPressed(ButtonDirection direction, byte padNumber, int padCount)
+        {
+            if (direction == ButtonDirection.Press)
+            {
+                if (padNumber == padCount - 1)
+                {
+                    SetMode(AnimationMode.Manual);
+                    var color = System.Drawing.Color.FromArgb(0x00, 0x00, 0x00, 0x00);
+                    SetFrameWithSingleColor(color);
+                }
+                else if (padNumber == padCount - 2)
+                {
+                    SetMode(AnimationMode.SoundReactive);
+                }
+                else
+                {
+                    SetMode(AnimationMode.Manual);
+                    var color = _colors[padNumber % _colors.Length];
+                    SetFrameWithSingleColor(color);
+                    _pressedPads.Add(padNumber);
+                }
+            }
+            else if (direction == ButtonDirection.Release)
+            {
+                if (padNumber < padCount - 2)
+                {
+                    _pressedPads.Remove(padNumber);
+                    if (_pressedPads.Count == 0)
+                    {
+                        RestoreMode();
+                    }
+                    else
+                    {
+
+                        var recentColor = _colors[_pressedPads.Last() % _colors.Length];
+                        SetFrameWithSingleColor(recentColor);
+                    }
+                }
+            }
+        }
+
+        public override void RotaryTurned(RotaryDirection direction, byte rotaryNumber, byte? value)
+        {
+            if (rotaryNumber == 1)
+            {
+                SetMode(AnimationMode.Manual);
+                if (direction == RotaryDirection.Up)
+                {
+                    _frameStart.InterlockedIncrement(0, _rootFrame.Length - 1);
+                }
+                else if (direction == RotaryDirection.Down)
+                {
+                    _frameStart.InterlockedDecrement(0, _rootFrame.Length - 1);
+                }
+                var frameStart = _frameStart.InterlockedGet();
+                _frame = _rootFrame.Skip(frameStart).Concat(_rootFrame.Take(frameStart)).ToArray();
             }
         }
 
         public override DeviceState Start(IReadOnlyMidiInputDevice inputDevice)
         {
-            _audioService.AudioFrameProcessed += _audioService_OnFftCalculated;
-            _padColors = new System.Drawing.Color[inputDevice.PadCount];
-
-            for (int i = 0; i < _padColors.Length - 2; i++)
-            {
-                _padColors[i] = _colors[i % _colors.Length];
-            }
-            _padColors[_padColors.Length - 2] = System.Drawing.Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF);
-            _padColors[_padColors.Length - 1] = System.Drawing.Color.FromArgb(0x00, 0x00, 0x00, 0x00);
+            _audioService.AudioFrameProcessed += AudioService_OnFftCalculated;
 
             System.Drawing.Color[] padColors = new System.Drawing.Color[0];
             if (inputDevice.Capabilities.HasFlag(DeviceCapabilities.Pads))
             {
                 padColors = GetPadColors(inputDevice.PadCount);
+                AssignPadColors(padColors);
             }
             ButtonLightState[] buttonLightStates = new ButtonLightState[0];
             if (inputDevice.Capabilities.HasFlag(DeviceCapabilities.ButtonIllumination))
@@ -236,18 +257,29 @@ namespace ShowControl.Animation
 
         public override void Stop()
         {
-            _audioService.AudioFrameProcessed -= _audioService_OnFftCalculated;
+            _pressedPads.Clear();
+            _audioService.AudioFrameProcessed -= AudioService_OnFftCalculated;
             StopTimers();
         }
 
         public override Pixel[] GetNextFrame()
         {
-            if (_mode == RainbowAnimationMode.Automated)
+            if (_mode == AnimationMode.SoundReactive || _mode == AnimationMode.Automatic)
             {
                 var frameStart = _frameStart.InterlockedGet();
                 _frame = _rootFrame.Skip(frameStart).Concat(_rootFrame.Take(frameStart)).ToArray();
             }
             return _frame;
+        }
+
+        private void SetFrameWithSingleColor(Color color)
+        {
+            Pixel[] colors = new Pixel[_rootFrame.Length];
+            for (int i = 0; i < colors.Length; i++)
+            {
+                colors[i] = new Pixel(color, 0x00, 0x00);
+            }
+            SetFrame(colors);
         }
     }
 }

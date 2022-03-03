@@ -17,14 +17,14 @@ namespace ShowControl.Rendering
     {
         private enum NavigationLevel { Root, Animation};
         private IDmxOutputDevice[] _outputDevices;
-        private Thread _renderThread;
+        private readonly Thread _renderThread;
         private long _renderLoopContinue = 1;
-        private CancellationTokenSource _tokenSource;
+        private readonly CancellationTokenSource _tokenSource;
         private readonly TaskCompletionSource<bool> _tcs;
-        private IDmxDeviceEnumerator _deviceEnumerator;
-        private IInputService _inputService;
-        private IAudioService _audioService;
-        IDmxDevice[] _devices;
+        private readonly IDmxDeviceEnumerator _deviceEnumerator;
+        private readonly IInputService _inputService;
+        private readonly IAudioService _audioService;
+        private readonly IDmxDevice[] _devices;
 
         private readonly object _navigationAnimationLock = new object();
         private IMidiInputDevice _inputDevice;
@@ -222,6 +222,15 @@ namespace ShowControl.Rendering
                                 device.SoundReactivitySensitivity = frame[i].SoundReactivity;
                             }
                             bytes.AddRange(device.GetDMXVector());
+                            //should add transformations that can modify an existing animation, for example
+                            //mirroring it
+                            //animating it to bounce left/right
+                            //slowly animating in lights or animating them out
+                            //continuously animating in more lights
+                            //multiple streaks of light
+                            //pulsed waves of peak brightness with troughs that have a lower brightness
+                            //transformation that samples from an existing animation, and manipulates it in some way
+                            //ultimately fading in the current sample of the original animation
                             expectedFrameLength += device.ChannelCount;
                             if (bytes.Count != expectedFrameLength)
                             {
@@ -232,7 +241,6 @@ namespace ShowControl.Rendering
 
                     outputDevice.Write(bytes.ToArray());
                 }
-                Thread.Sleep(1);
             }
             _tcs.SetResult(true);
         }
