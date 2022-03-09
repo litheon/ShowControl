@@ -1,9 +1,11 @@
-﻿using NAudio.Dsp;
+﻿using Microsoft.Extensions.Hosting;
+using NAudio.Dsp;
 using ShowControl.Devices.Audio;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -30,10 +32,25 @@ namespace ShowControl.ControlPanel
         PointCollection points1;
         PointCollection points2;
         PointCollection activePoints;
+        private readonly Task<IHost> _hostTask;
         public MainWindow()
         {
             InitializeComponent();
-            Host.Host.Main(new string[] { }, OnAudioFrameProcessed);
+            _hostTask = Host.Host.Main(new string[] { }, OnAudioFrameProcessed);
+            Initialize();
+        }
+
+        private async void Initialize()
+        {
+            var result = await _hostTask;
+            Closing += MainWindow_Closing;
+        }
+
+        private async void MainWindow_Closing(object sender, EventArgs e)
+        {
+            var result = await _hostTask;
+            await result.StopAsync();
+            result.Dispose();
         }
 
         private void OnAudioFrameProcessed(object sender, AudioFrameProcessedEventArgs e)

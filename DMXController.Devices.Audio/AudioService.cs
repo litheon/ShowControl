@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using NAudio.CoreAudioApi;
 using NAudio.Dsp;
@@ -17,26 +18,38 @@ namespace ShowControl.Devices.Audio
 
         private readonly AsioOut _asioOut;
         public const int SampleRate = 192000;
-        private const int channelCount = 2;
+        private const int ChannelCount = 2;
+
         private static float[] _samples1;
         private static float[] _samples2;
         private static float[] _samples3;
         private static float[] _samples4;
         private static float[] _activeSamples;
-        public const int FftLength = 4096;
-        private readonly Complex[] _fftBuffer1 = new Complex[FftLength];
-        private readonly Complex[] _activeBuffer;
-        int _copyBufferIndex;
+
+        private int _copyBufferIndex;
         private readonly Point[][] _copyBuffer = new Point[4][];
+
+        public const int FftLength = 4096;
         private int _fftPos;
         private readonly int _m = (int)Math.Log(FftLength, 2.0);
+        private readonly Complex[] _fftBuffer = new Complex[FftLength];
+        private readonly Complex[] _activeBuffer;
+
         private readonly BpmDetect _bpmDetect;
 
+        private readonly object _disposalLock = new object();
+        private bool _stopped;
 
         public AudioService()
         {
-            _bpmDetect = new BpmDetect(channelCount, SampleRate);
-            _activeBuffer = _fftBuffer1;
+            _bpmDetect = new BpmDetect(ChannelCount, SampleRate);
+            _activeBuffer = _fftBuffer;
+
+            for (int i = 0; i < _copyBuffer.Length; i++)
+            {
+                _copyBuffer[i] = new Point[FftLength];
+            }
+
             var drivers = AsioOut.GetDriverNames();
             var driver = drivers.FirstOrDefault(d => d.Contains("Focusrite USB"));
             if (driver != null)
@@ -45,15 +58,9 @@ namespace ShowControl.Devices.Audio
                 {
                     InputChannelOffset = 2
                 };
-                var sampleRate = AudioService.SampleRate;
-                _asioOut.InitRecordAndPlayback(null, channelCount, sampleRate);
+                _asioOut.InitRecordAndPlayback(null, ChannelCount, SampleRate);
                 _asioOut.AudioAvailable += AsioOut_AudioAvailable;
                 _asioOut.Play();
-            }
-
-            for (int i = 0; i < _copyBuffer.Length; i++)
-            {
-                _copyBuffer[i] = new Point[FftLength];
             }
         }
 
@@ -64,7 +71,7 @@ namespace ShowControl.Devices.Audio
 
         private void AsioOut_AudioAvailable(object sender, AsioAudioAvailableEventArgs e)
         {
-            if (_activeSamples == null || _activeSamples.Length != e.SamplesPerBuffer * channelCount)
+            if (_activeSamples == null || _activeSamples.Length != e.SamplesPerBuffer * ChannelCount)
             {
                 _samples1 = new float[e.SamplesPerBuffer * 2];
                 _samples2 = new float[e.SamplesPerBuffer * 2];
@@ -73,9 +80,8 @@ namespace ShowControl.Devices.Audio
                 _activeSamples = _samples1;
             }
             e.GetAsInterleavedSamples(_activeSamples);
-            for (int i = 0; i < _activeSamples.Length / channelCount; i++)
+            for (int i = 0; i < _activeSamples.Length / ChannelCount; i++)
             {
-                // This is all really hacky
                 var sample = (_activeSamples[i] + _activeSamples[e.SamplesPerBuffer + i]) / 2;
                 _activeBuffer[_fftPos].X = (float)(sample * FastFourierTransform.HammingWindow(_fftPos, _activeBuffer.Length));
                 _activeBuffer[_fftPos].Y = 0;
@@ -121,6 +127,23 @@ namespace ShowControl.Devices.Audio
             var audioFrameProcessedEventArgs = new AudioFrameProcessedEventArgs(_copyBuffer[copyBufferIndex], width, bpm);
             Task.Run(() => AudioFrameProcessed?.Invoke(this, audioFrameProcessedEventArgs));
             _copyBufferIndex.InterlockedIncrement(0, _copyBuffer.Length - 1);
+        }
+
+        public void Stop()
+        {
+            lock(_disposalLock)
+            {
+                if (!_stopped)
+                {
+                    _asioOut.Stop();
+                    _asioOut.Dispose();
+                    _stopped = true;
+                }
+            }
+        }
+        public void Dispose()
+        {
+            Stop();
         }
     }
 }

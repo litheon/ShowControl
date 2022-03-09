@@ -27,18 +27,18 @@ namespace ShowControl.Animation
 
         private readonly IAudioService _audioService;
         private double _lastFft = double.NegativeInfinity;
-        private const int defaultFrameCooldown = AudioService.SampleRate / AudioService.FftLength / 6;
-        private int frameCoolDown = 1;
+        private const int DefaultFrameCooldown = AudioService.SampleRate / AudioService.FftLength / 6;
+        private int _frameCoolDown = 1;
         private readonly List<int> _pressedPads;
 
-        private readonly System.Drawing.Color[] _colors = new System.Drawing.Color[6]
+        private readonly Color[] _colors = new Color[6]
         {
                 Color.FromArgb(0xFF, 0xFF, 0x00, 0x00),
-                System.Drawing.Color.FromArgb(0xFF, 0xFF, 0x80, 0x00),
-                System.Drawing.Color.FromArgb(0xFF, 0xFF, 0xFF, 0x00),
-                System.Drawing.Color.FromArgb(0xFF, 0x00, 0xFF, 0x00),
-                System.Drawing.Color.FromArgb(0xFF, 0x00, 0x00, 0xFF),
-                System.Drawing.Color.FromArgb(0xFF, 0xFF, 0x00, 0xFF)
+                Color.FromArgb(0xFF, 0xFF, 0x80, 0x00),
+                Color.FromArgb(0xFF, 0xFF, 0xFF, 0x00),
+                Color.FromArgb(0xFF, 0x00, 0xFF, 0x00),
+                Color.FromArgb(0xFF, 0x00, 0x00, 0xFF),
+                Color.FromArgb(0xFF, 0xFF, 0x00, 0xFF)
         };
 
         public RainbowAnimation(int pixelCount, IAudioService audioService)
@@ -57,6 +57,12 @@ namespace ShowControl.Animation
                 _rootFrame[i] = new Pixel(_colors[j], 0, 0);
                 j = (j + 1) % _colors.Length;
             }
+        }
+
+        ~RainbowAnimation()
+        {
+            _navigationColorTimer.Dispose();
+            _automationTimer.Dispose();
         }
 
         private void AutomaticModeFrameTick(object state)
@@ -116,15 +122,15 @@ namespace ShowControl.Animation
             }
         }
 
-        private System.Drawing.Color[] GetPadColors(int count)
+        private Color[] GetPadColors(int count)
         {
-            var padColors = new System.Drawing.Color[count];
+            var padColors = new Color[count];
             for (int i = 0; i < padColors.Length - 2; i++)
             {
                 padColors[i] = _colors[i % _colors.Length];
             }
-            padColors[^2] = System.Drawing.Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF);
-            padColors[^1] = System.Drawing.Color.FromArgb(0x00, 0x00, 0x00, 0x00);
+            padColors[^2] = Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF);
+            padColors[^1] = Color.FromArgb(0x00, 0x00, 0x00, 0x00);
             return padColors;
         }
 
@@ -144,18 +150,18 @@ namespace ShowControl.Animation
 
                 var current = (one + two + three) / 3;
 
-                if (current > _lastFft * 1.2 && current > -25 && frameCoolDown <= 0)
+                if (current > _lastFft * 1.2 && current > -25 && _frameCoolDown <= 0)
                 {
                     _frameStart.InterlockedIncrement(0, _rootFrame.Length - 1);
-                    frameCoolDown = defaultFrameCooldown;
+                    _frameCoolDown = DefaultFrameCooldown;
                 }
-                else if (frameCoolDown >= 1)
+                else if (_frameCoolDown >= 1)
                 {
-                    frameCoolDown--;
+                    _frameCoolDown--;
                 }
-                else if (frameCoolDown == 0)
+                else if (_frameCoolDown == 0)
                 {
-                    frameCoolDown = -1;
+                    _frameCoolDown = -1;
                 }
                 _lastFft = current;
             }
@@ -179,7 +185,7 @@ namespace ShowControl.Animation
                 if (padNumber == padCount - 1)
                 {
                     SetMode(AnimationMode.Manual);
-                    var color = System.Drawing.Color.FromArgb(0x00, 0x00, 0x00, 0x00);
+                    var color = Color.FromArgb(0x00, 0x00, 0x00, 0x00);
                     SetFrameWithSingleColor(color);
                 }
                 else if (padNumber == padCount - 2)
@@ -220,11 +226,11 @@ namespace ShowControl.Animation
                 SetMode(AnimationMode.Manual);
                 if (direction == RotaryDirection.Up)
                 {
-                    _frameStart.InterlockedIncrement(0, _rootFrame.Length - 1);
+                    _frameStart.InterlockedDecrement(0, _rootFrame.Length - 1);
                 }
                 else if (direction == RotaryDirection.Down)
                 {
-                    _frameStart.InterlockedDecrement(0, _rootFrame.Length - 1);
+                    _frameStart.InterlockedIncrement(0, _rootFrame.Length - 1);
                 }
                 var frameStart = _frameStart.InterlockedGet();
                 _frame = _rootFrame.Skip(frameStart).Concat(_rootFrame.Take(frameStart)).ToArray();
@@ -235,13 +241,17 @@ namespace ShowControl.Animation
         {
             _audioService.AudioFrameProcessed += AudioService_OnFftCalculated;
 
-            System.Drawing.Color[] padColors = new System.Drawing.Color[0];
+            Color[] padColors;
             if (inputDevice.Capabilities.HasFlag(DeviceCapabilities.Pads))
             {
                 padColors = GetPadColors(inputDevice.PadCount);
                 AssignPadColors(padColors);
             }
-            ButtonLightState[] buttonLightStates = new ButtonLightState[0];
+            else
+            {
+                padColors = new Color[0];
+            }
+            ButtonLightState[] buttonLightStates;
             if (inputDevice.Capabilities.HasFlag(DeviceCapabilities.ButtonIllumination))
             {
                 buttonLightStates = new ButtonLightState[2]
@@ -249,6 +259,10 @@ namespace ShowControl.Animation
                     new ButtonLightState(Button.Up, LightState.On),
                     new ButtonLightState(Button.Play, LightState.On)
                 };
+            }
+            else
+            {
+                buttonLightStates = new ButtonLightState[0];
             }
 
             StartTimers();

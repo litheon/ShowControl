@@ -13,7 +13,7 @@ namespace ShowControl.Animation
     public class VibrantAnimation : MidiAwareAnimation
     {
         private readonly IAudioService _audioService;
-        private const int defaultFrameCooldown = AudioService.SampleRate / AudioService.FftLength / 6;
+        private const int DefaultFrameCooldown = AudioService.SampleRate / AudioService.FftLength / 6;
         private readonly int _pixelCount = 0;
         private readonly object _currentFrameLock = new object();
         private Pixel[] _currentFrame;
@@ -25,8 +25,9 @@ namespace ShowControl.Animation
         private double _lastFft;
         public int _frameCoolDown;
 
+        private readonly CancellationToken _cancellationToken;
         private readonly Thread _animationThread;
-        int navigationColorIndex = 0;
+        private int _navigationColorIndex = 0;
         private int _frameCountAnimationThreshold = 0;
         private int _currentFrameCountAnimationThreshold = 0;
         private readonly int AnimationFrameCountMaximum = 12;
@@ -47,8 +48,9 @@ namespace ShowControl.Animation
             Color.FromArgb(255, 74, 0),
             Color.FromArgb(9, 254, 182)
         };
-        public VibrantAnimation(int pixelCount, IAudioService audioService)
+        public VibrantAnimation(int pixelCount, IAudioService audioService, CancellationToken cancellationToken)
         {
+            _cancellationToken = cancellationToken;
             _mode = AnimationMode.Automatic;
             _pixelCount = pixelCount;
             _audioService = audioService;
@@ -70,9 +72,15 @@ namespace ShowControl.Animation
             }
         }
 
+        ~VibrantAnimation()
+        {
+            _animationThread.Abort();
+            _navigationColorTimer.Dispose();
+        }
+
         private void AnimationTimerTick(object state)
         {
-            while(true)
+            while(!_cancellationToken.IsCancellationRequested)
             {
                 if (_mode == AnimationMode.Automatic)
                 {
@@ -136,7 +144,7 @@ namespace ShowControl.Animation
             if (current > _lastFft * 1.2 && current > -25 && _frameCoolDown <= 0)
             {
                 SetNextFrameWithSingleColor(_vibrantColors[_random.Next() % _vibrantColors.Length]);
-                _frameCoolDown = defaultFrameCooldown;
+                _frameCoolDown = DefaultFrameCooldown;
             }
             else if (_frameCoolDown >= 1)
             {
@@ -205,21 +213,21 @@ namespace ShowControl.Animation
                 {
                     R++;
                 }
-                if (R > targetColor.R)
-                {
-                    R--;
-                }
                 else if (B < targetColor.B)
                 {
                     B++;
                 }
-                else if (B > targetColor.B)
-                {
-                    B--;
-                }
                 else if (G < targetColor.G)
                 {
                     G++;
+                }
+                else if (R > targetColor.R)
+                {
+                    R--;
+                }
+                else if (B > targetColor.B)
+                {
+                    B--;
                 }
                 else if (G > targetColor.G)
                 {
@@ -229,7 +237,7 @@ namespace ShowControl.Animation
                 {
                     lock(_targetFrameLock)
                     {
-                        this._targetFrame[i] = _vibrantColors[_random.Next() % _vibrantColors.Length];
+                        _targetFrame[i] = _vibrantColors[_random.Next() % _vibrantColors.Length];
                     }
                 }
 
@@ -242,8 +250,8 @@ namespace ShowControl.Animation
 
         private void NavigationTimerTick(object state)
         {
-            navigationColorIndex = (navigationColorIndex + 1) % _vibrantColors.Length;
-            SetNavigationColor(_vibrantColors[navigationColorIndex]);
+            _navigationColorIndex = (_navigationColorIndex + 1) % _vibrantColors.Length;
+            SetNavigationColor(_vibrantColors[_navigationColorIndex]);
         }
 
         public override void OnMessageReceived(object sender, DeviceInputEventArgs e)
@@ -251,15 +259,15 @@ namespace ShowControl.Animation
             //throw new NotImplementedException();
         }
 
-        private System.Drawing.Color[] GetPadColors(int count)
+        private Color[] GetPadColors(int count)
         {
-            var padColors = new System.Drawing.Color[count];
+            var padColors = new Color[count];
             for (int i = 0; i < padColors.Length - 2; i++)
             {
                 padColors[i] = _vibrantColors[i % _vibrantColors.Length];
             }
             padColors[^2] = Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF);
-            padColors[^1] = System.Drawing.Color.FromArgb(0x00, 0x00, 0x00, 0x00);
+            padColors[^1] = Color.FromArgb(0x00, 0x00, 0x00, 0x00);
             return padColors;
         }
 
@@ -323,16 +331,6 @@ namespace ShowControl.Animation
             }
         }
 
-        private void SetFrameWithSingleColor(Color color)
-        {
-            Pixel[] colors = new Pixel[_pixelCount];
-            for (int i = 0; i < colors.Length; i++)
-            {
-                colors[i] = new Pixel(color, 0x00, 0x00);
-            }
-            SetFrame(colors);
-        }
-
         private void SetNextFrameWithSingleColor(Color color)
         {
             Color[] colors = new Color[_pixelCount];
@@ -352,19 +350,11 @@ namespace ShowControl.Animation
             for (int i = 0; i < colors.Length; i++)
             {
                 var padNumber = _pressedPads[i % _pressedPads.Count];
-                colors[i] = _vibrantColors[padNumber % _vibrantColors.Length]; //new Pixel(_vibrantColors[padNumber % _vibrantColors.Length], 0x00, 0x00);
+                colors[i] = _vibrantColors[padNumber % _vibrantColors.Length];
             }
             lock (_targetFrameLock)
             {
                 _targetFrame = colors;
-            }
-        }
-
-        private void SetFrame(Pixel[] frame)
-        {
-            lock(_currentFrameLock)
-            {
-                _currentFrame = frame;
             }
         }
     }

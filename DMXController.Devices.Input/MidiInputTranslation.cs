@@ -18,7 +18,7 @@ namespace ShowControl.Devices.Input
 
     public class MidiInputTranslation
     {
-        private Dictionary<byte, Dictionary<int, Func<ControlChangeEvent, DeviceInputEventArgs>>> _controlChangeTranslation;
+        private readonly Dictionary<byte, Dictionary<int, Func<ControlChangeEvent, DeviceInputEventArgs>>> _controlChangeTranslation;
         public MidiInputTranslation(params MidiInputMapping[] midiInputMappings)
         {
             _controlChangeTranslation = new Dictionary<byte, Dictionary<int, Func<ControlChangeEvent, DeviceInputEventArgs>>>();
@@ -40,8 +40,7 @@ namespace ShowControl.Devices.Input
         public DeviceInputEventArgs Translate(ControlChangeEvent controlChangeEvent)
         {
             Func<ControlChangeEvent, DeviceInputEventArgs> returnFunc = null;
-            Dictionary<int, Func<ControlChangeEvent, DeviceInputEventArgs>> valueMapping = null;
-            if (_controlChangeTranslation.TryGetValue((byte)controlChangeEvent.Controller, out valueMapping))
+            if (_controlChangeTranslation.TryGetValue((byte)controlChangeEvent.Controller, out Dictionary<int, Func<ControlChangeEvent, DeviceInputEventArgs>> valueMapping))
             {
                 valueMapping.TryGetValue(controlChangeEvent.ControllerValue, out returnFunc);
             }

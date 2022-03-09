@@ -22,11 +22,11 @@ namespace ShowControl.Host
         }
 
         [STAThread]
-        public static Task Main(string[] args, EventHandler<AudioFrameProcessedEventArgs> audioFrameProcessedEventHandler)
+        public static Task<IHost> Main(string[] args, EventHandler<AudioFrameProcessedEventArgs> audioFrameProcessedEventHandler)
         {
 
             var builder = CreateHostBuilder(args, audioFrameProcessedEventHandler);
-            return builder.RunConsoleAsync();
+            return builder.StartAsync();
         }
 
         static IHostBuilder CreateHostBuilder(string[] args) =>

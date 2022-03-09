@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Text;
+using System.Threading;
 
 namespace ShowControl.Devices.Input
 {
@@ -177,7 +178,7 @@ namespace ShowControl.Devices.Input
                 {
                     // Pad press event
                     byte padIndex = (byte)(noteOnEvent.NoteNumber - FirstPadNoteNumber);
-                    OnInputReceived?.Invoke(this, new DeviceInputEventArgs(this, ButtonDirection.Press, padIndex));
+                    OnInputReceived?.Invoke(this, new DeviceInputEventArgs(this, ButtonDirection.Press, padIndex, noteOnEvent.Velocity));
                 }
             }
             else if (e.MidiEvent.CommandCode == MidiCommandCode.NoteOff)
@@ -187,7 +188,7 @@ namespace ShowControl.Devices.Input
                 {
                     // Pad press event
                     byte padIndex = (byte)(noteOnEvent.NoteNumber - FirstPadNoteNumber);
-                    OnInputReceived?.Invoke(this, new DeviceInputEventArgs(this, ButtonDirection.Release, padIndex));
+                    OnInputReceived?.Invoke(this, new DeviceInputEventArgs(this, ButtonDirection.Release, padIndex, noteOnEvent.Velocity));
                 }
             }
         }

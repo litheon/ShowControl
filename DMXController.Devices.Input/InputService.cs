@@ -8,7 +8,7 @@ namespace ShowControl.Devices.Input
     {
         public event EventHandler<DeviceInputEventArgs> OnInputReceived;
 
-        private Dictionary<string, Func<int, int, int, IMidiInputDevice>> _supportedDevices = new Dictionary<string, Func<int, int, int, IMidiInputDevice>>() {
+        private readonly Dictionary<string, Func<int, int, int, IMidiInputDevice>> _supportedDevices = new Dictionary<string, Func<int, int, int, IMidiInputDevice>>() {
             { "ATOM", (dId, iId, oId) => new PresonusAtom(dId, iId, oId) }
         };
 
@@ -39,6 +39,14 @@ namespace ShowControl.Devices.Input
         private void ConstructedDevice_OnInputReceived(object sender, DeviceInputEventArgs e)
         {
             OnInputReceived?.Invoke(e.Source, e);
+        }
+
+        public void Stop()
+        {
+            foreach (var device in Devices)
+            {
+                device.Stop();
+            }
         }
     }
 }

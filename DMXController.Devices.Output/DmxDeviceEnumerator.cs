@@ -7,7 +7,7 @@ namespace ShowControl.Devices.Output
 {
     public class DmxDeviceEnumerator : IDmxDeviceEnumerator
     {
-        private IEnttecDmxUsbDeviceEnumerator _enttecDmxUsbDeviceEnumerator;
+        private readonly IEnttecDmxUsbDeviceEnumerator _enttecDmxUsbDeviceEnumerator;
         public DmxDeviceEnumerator(IEnttecDmxUsbDeviceEnumerator enttecDmxUsbDeviceEnumerator)
         {
             _enttecDmxUsbDeviceEnumerator = enttecDmxUsbDeviceEnumerator;

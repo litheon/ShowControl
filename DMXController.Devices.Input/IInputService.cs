@@ -8,5 +8,6 @@ namespace ShowControl.Devices.Input
     {
         public event EventHandler<DeviceInputEventArgs> OnInputReceived;
         public List<IMidiInputDevice> Devices { get; }
+        public void Stop();
     }
 }

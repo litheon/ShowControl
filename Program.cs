@@ -9,7 +9,7 @@ namespace ShowControl
         [STAThread]
         public static void Main(string[] args)
         {
-           Host.Host.Main(args).Wait();
+            Host.Host.Main(args).Wait();
         }
     }
 }

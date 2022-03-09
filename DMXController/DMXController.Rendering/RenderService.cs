@@ -18,8 +18,7 @@ namespace ShowControl.Rendering
         private enum NavigationLevel { Root, Animation};
         private IDmxOutputDevice[] _outputDevices;
         private readonly Thread _renderThread;
-        private long _renderLoopContinue = 1;
-        private readonly CancellationTokenSource _tokenSource;
+        private readonly CancellationTokenSource _cts;
         private readonly TaskCompletionSource<bool> _tcs;
         private readonly IDmxDeviceEnumerator _deviceEnumerator;
         private readonly IInputService _inputService;
@@ -32,6 +31,7 @@ namespace ShowControl.Rendering
         private int _activeAnimation = -1;
         private MidiAwareAnimation[] _animations;
         private System.Drawing.Color[] _padColors;
+
         public RenderService(
             IDmxDeviceEnumerator deviceEnumerator,
             IInputService inputService,
@@ -42,7 +42,7 @@ namespace ShowControl.Rendering
             _audioService = audioService;
             _renderThread = new Thread(RenderThreadLoop);
             _tcs = new TaskCompletionSource<bool>();
-            _tokenSource = new CancellationTokenSource();
+            _cts = new CancellationTokenSource();
             _devices = new IDmxDevice[]
             {
                 new Missyee(),
@@ -68,7 +68,7 @@ namespace ShowControl.Rendering
         {
             _inputService.OnInputReceived += InputService_OnInputReceived;
             _inputDevice = _inputService.Devices.FirstOrDefault();
-            _outputDevices = _deviceEnumerator.GetDmxDevices(_tokenSource.Token);
+            _outputDevices = _deviceEnumerator.GetDmxDevices(_cts.Token);
             _renderThread.Start();
             Initialize();
             return Task.CompletedTask;
@@ -164,8 +164,9 @@ namespace ShowControl.Rendering
 
         public Task StopAsync(CancellationToken cancellationToken)
         {
-            Interlocked.Exchange(ref _renderLoopContinue, 0);
-            _tokenSource.Cancel();
+            _cts.Cancel();
+            _inputService.Stop();
+            _audioService.Dispose();
             return _tcs.Task;
         }
 
@@ -181,7 +182,7 @@ namespace ShowControl.Rendering
             _animations = new MidiAwareAnimation[] {
                 new RainbowAnimation(_devices.Length, _audioService),
                 new ColorMixAnimation(_devices.Length),
-                new VibrantAnimation(_devices.Length, _audioService)
+                new VibrantAnimation(_devices.Length, _audioService, _cts.Token)
             };
 
             _padColors = new System.Drawing.Color[_animations.Length];
@@ -198,7 +199,7 @@ namespace ShowControl.Rendering
 
         private void RenderThreadLoop()
         {
-            while (Interlocked.Read(ref _renderLoopContinue) == 1 && !_tokenSource.Token.IsCancellationRequested)
+            while (!_cts.Token.IsCancellationRequested)
             {
                 foreach (IDmxOutputDevice outputDevice in _outputDevices)
                 {

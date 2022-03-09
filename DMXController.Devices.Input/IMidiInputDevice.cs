@@ -28,6 +28,7 @@ namespace ShowControl.Devices.Input
         public void SetPadColors(System.Drawing.Color[] color);
         public void SetButtonIllumination(Button button, LightState state);
         public void ClearInterface();
+        public void Stop();
         public event EventHandler<DeviceInputEventArgs> OnInputReceived;
     }
 }

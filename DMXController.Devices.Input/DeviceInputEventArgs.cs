@@ -21,6 +21,7 @@ namespace ShowControl.Devices.Input
         public byte? RotaryValue { get; private set; }
         public byte? RotaryNumber { get; private set; }
         public byte? PadNumber { get; private set; }
+        public int? Velocity { get; private set; }
         public DeviceInputEventArgs(IMidiInputDevice source, RotaryDirection rotaryDirection, byte? rotaryNumber, byte? rotaryValue)
         {
             Source = source.AsReadOnly();
@@ -30,11 +31,12 @@ namespace ShowControl.Devices.Input
             EventType = DeviceInputEventType.RotaryEncoder;
 
         }
-        public DeviceInputEventArgs(IMidiInputDevice source, ButtonDirection buttonDirection, byte? padNumber)
+        public DeviceInputEventArgs(IMidiInputDevice source, ButtonDirection buttonDirection, byte? padNumber, int? velocity)
         {
             Source = source.AsReadOnly();
             ButtonDirection = buttonDirection;
             PadNumber = padNumber;
+            Velocity = velocity;
             EventType = DeviceInputEventType.Pad;
         }
         public DeviceInputEventArgs(IMidiInputDevice source, NavigationButton navigationDirection, ButtonDirection buttonDirection)
