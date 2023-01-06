@@ -20,6 +20,14 @@ namespace ShowControl.Devices.Audio
         public const int SampleRate = 192000;
         private const int ChannelCount = 2;
 
+        private const int SampleLevelWindowSeconds = 30;
+        private const int SampleQueueLength = SampleLevelWindowSeconds * SampleLevelWindowSeconds;
+
+        private const double BassCutOffHz = 250.0d;
+        private const double MidRangeCutOffHz = 5000.0d;
+        private readonly SampleAverageLevelCalculator _bassAverageLevel;
+        private readonly SampleAverageLevelCalculator _bassCurrentLevel;
+
         private static float[] _samples1;
         private static float[] _samples2;
         private static float[] _samples3;
@@ -43,6 +51,8 @@ namespace ShowControl.Devices.Audio
         public AudioService()
         {
             _bpmDetect = new BpmDetect(ChannelCount, SampleRate);
+            _bassAverageLevel = new SampleAverageLevelCalculator(0);
+            _bassCurrentLevel = new SampleAverageLevelCalculator(Convert.ToInt32(Math.Round(BassCutOffHz / (SampleRate / FftLength))) - 1);
             _activeBuffer = _fftBuffer;
 
             for (int i = 0; i < _copyBuffer.Length; i++)
@@ -57,6 +67,7 @@ namespace ShowControl.Devices.Audio
                 _asioOut = new AsioOut(driver)
                 {
                     InputChannelOffset = 2
+                    //InputChannelOffset = 8
                 };
                 _asioOut.InitRecordAndPlayback(null, ChannelCount, SampleRate);
                 _asioOut.AudioAvailable += AsioOut_AudioAvailable;
@@ -115,18 +126,34 @@ namespace ShowControl.Devices.Audio
             _fftPos = 0;
             FastFourierTransform.FFT(true, _m, _activeBuffer);
             double width = SampleRate / _activeBuffer.Length;
+            double seconds = 1 / width;
             double Hz = 0;
             int copyBufferIndex = _copyBufferIndex.InterlockedGet();
             for (int j = 0; j < _activeBuffer.Length; j++)
             {
                 _copyBuffer[copyBufferIndex][j].X = Hz == 0 ? Math.Log10(5) / Math.Log10(20000) : Math.Log10(Hz) / Math.Log10(20000);
-                _copyBuffer[copyBufferIndex][j].Y = 20 * Math.Log10(Math.Abs(Math.Sqrt(Math.Pow(_activeBuffer[j].Y, 2) + Math.Pow(_activeBuffer[j].X, 2))));
+
+                var level = Math.Abs(Math.Sqrt(Math.Pow(_activeBuffer[j].Y, 2) + Math.Pow(_activeBuffer[j].X, 2)));
+                CalculateAverageLevel(Hz, level, seconds);
+
+                _copyBuffer[copyBufferIndex][j].Y = 20 * Math.Log10(level);
                 Hz += width;
             }
             var bpm = _bpmDetect.GetBpm();
-            var audioFrameProcessedEventArgs = new AudioFrameProcessedEventArgs(_copyBuffer[copyBufferIndex], width, bpm);
+            var audioFrameProcessedEventArgs = new AudioFrameProcessedEventArgs(_copyBuffer[copyBufferIndex], width, bpm, _bassAverageLevel.SampleAverage, _bassCurrentLevel.SampleAverage);
             Task.Run(() => AudioFrameProcessed?.Invoke(this, audioFrameProcessedEventArgs));
             _copyBufferIndex.InterlockedIncrement(0, _copyBuffer.Length - 1);
+        }
+
+        private void CalculateAverageLevel(double Hz, double level, double seconds)
+        {
+            if (Hz > 0 && Hz <= BassCutOffHz)
+            {
+                var windowSampleCount = SampleLevelWindowSeconds / (seconds * BassCutOffHz / (1 / seconds));
+                _bassAverageLevel.SampleWindowSize = Convert.ToInt32(Math.Round(windowSampleCount));
+                _bassAverageLevel.Calculate(level);
+                _bassCurrentLevel.Calculate(level);
+            }
         }
 
         public void Stop()

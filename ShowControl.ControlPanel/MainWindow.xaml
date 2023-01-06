@@ -13,10 +13,13 @@
         </Grid.ColumnDefinitions>
         <Canvas x:Name="FftCanvas" HorizontalAlignment="Right" Margin="0">
             <Border BorderThickness="2" BorderBrush="Red">
-                <Polyline x:Name="polyline" Stroke="DarkBlue" StrokeThickness="3" Height="1000" Width="2000" />
+                <Polyline x:Name="polyline" Stroke="DarkBlue" StrokeThickness="3" Height="600" Width="1000" />
             </Border>
 
         </Canvas>
-        <TextBlock x:Name="Bpm" Width="200"></TextBlock>
+        <StackPanel Orientation="Vertical">
+            <TextBlock x:Name="Bpm" Width="200" Text="BPM"></TextBlock>
+            <TextBlock x:Name="Addresses" Width="300" Text="Devices"></TextBlock>
+        </StackPanel>
     </Grid>
 </Window>

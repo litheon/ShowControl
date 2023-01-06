@@ -10,10 +10,10 @@ using ShowControl.Utilities;
 
 namespace ShowControl.Animation
 {
-    public class VibrantAnimation : MidiAwareAnimation
+    public class VibrantAnimation : MidiAwareAnimation, IKeyAnimation
     {
         private readonly IAudioService _audioService;
-        private const int DefaultFrameCooldown = AudioService.SampleRate / AudioService.FftLength / 6;
+        private const int DefaultFrameCooldown = AudioService.SampleRate / AudioService.FftLength / 2;
         private readonly int _pixelCount = 0;
         private readonly object _currentFrameLock = new object();
         private Pixel[] _currentFrame;
@@ -22,8 +22,9 @@ namespace ShowControl.Animation
         private Color[] _targetFrame;
 
         private readonly Random _random;
-        private double _lastFft;
         public int _frameCoolDown;
+        private long _lastBassOverride = 0;
+        private const int BassOverrideSeconds = 10;
 
         private readonly CancellationToken _cancellationToken;
         private readonly Thread _animationThread;
@@ -109,28 +110,24 @@ namespace ShowControl.Animation
             //option 2: from left to right each frequency range is graphed on the lights, with, for example the left most
             //light being off is zero while the right most light being on is 100
             //large bands will be mapped to individual colors (e.g. RGB), and those bands' amplitude will be graphed from L to R
-            var spectrum = e.AudioSpectrum;
-            
-            var one = e.AudioSpectrum[1].Y;
-            var two = e.AudioSpectrum[2].Y;
-            var three = e.AudioSpectrum[3].Y;
+            var secondsSinceLastBassOverride = (DateTime.Now.Ticks - _lastBassOverride) / TimeSpan.TicksPerSecond;
 
-            var current = (one + two + three) / 3;
-
-            var fullSignal = e.AudioSpectrum[0].Y;
-            if (fullSignal < -100)
+            if (_lastBassOverride == 0 || secondsSinceLastBassOverride >= BassOverrideSeconds)
             {
-                Interlocked.Exchange(ref _frameCountAnimationThreshold, AnimationFrameCountMaximum);
-            }
-            else if (e.Bpm > 50)
-            {
-                var bpmMatch = 1000 / (e.Bpm / 60 * 32);
-                var result = Convert.ToInt32(Math.Round(bpmMatch));
-                Interlocked.Exchange(ref _frameCountAnimationThreshold, result);
-            }
-            else if (e.Bpm > 0)
-            {
-                Interlocked.Exchange(ref _frameCountAnimationThreshold, AnimationFrameCountMaximum);
+                if (e.CurrentLevel < 0.001d)
+                {
+                    Interlocked.Exchange(ref _frameCountAnimationThreshold, AnimationFrameCountMaximum);
+                }
+                else if (e.Bpm > 50)
+                {
+                    var bpmMatch = 1000 / (e.Bpm / 60 * 16);
+                    var result = Convert.ToInt32(Math.Round(bpmMatch));
+                    Interlocked.Exchange(ref _frameCountAnimationThreshold, result);
+                }
+                else if (e.Bpm > 0)
+                {
+                    Interlocked.Exchange(ref _frameCountAnimationThreshold, AnimationFrameCountMaximum);
+                }
             }
 
             lock (_modeLock)
@@ -141,10 +138,20 @@ namespace ShowControl.Animation
                 }
             }
 
-            if (current > _lastFft * 1.2 && current > -25 && _frameCoolDown <= 0)
+            if (e.CurrentLevel > e.AverageLevel * 2.5 && (_frameCoolDown <= 0 || secondsSinceLastBassOverride >= BassOverrideSeconds) )
             {
                 SetNextFrameWithSingleColor(_vibrantColors[_random.Next() % _vibrantColors.Length]);
-                _frameCoolDown = DefaultFrameCooldown;
+
+                if (secondsSinceLastBassOverride >= BassOverrideSeconds && _frameCoolDown > 0)
+                {
+                    Interlocked.Exchange(ref _frameCountAnimationThreshold, 1);
+                    Interlocked.Exchange(ref _currentFrameCountAnimationThreshold, 0);
+                    _lastBassOverride = DateTime.Now.Ticks;
+                }
+                else
+                {
+                    _frameCoolDown = DefaultFrameCooldown;
+                }
             }
             else if (_frameCoolDown >= 1)
             {
@@ -155,7 +162,6 @@ namespace ShowControl.Animation
             {
                 _frameCoolDown = -1;
             }
-            _lastFft = current;
         }
 
         private void SetMode(AnimationMode mode)
@@ -181,7 +187,7 @@ namespace ShowControl.Animation
             }
         }
 
-        public override Pixel[] GetNextFrame()
+        public Pixel[] GetNextFrame()
         {
             return _currentFrame;
         }
@@ -259,32 +265,30 @@ namespace ShowControl.Animation
             //throw new NotImplementedException();
         }
 
-        private Color[] GetPadColors(int count)
+        private PadState[] GetPadStates(int count)
         {
-            var padColors = new Color[count];
-            for (int i = 0; i < padColors.Length - 2; i++)
+            var padStates = new PadState[count];
+            for (int i = 0; i < padStates.Length; i++)
             {
-                padColors[i] = _vibrantColors[i % _vibrantColors.Length];
+                padStates[i] = new PadState(PadIllumination.Solid, _vibrantColors[i % _vibrantColors.Length]);
             }
-            padColors[^2] = Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF);
-            padColors[^1] = Color.FromArgb(0x00, 0x00, 0x00, 0x00);
-            return padColors;
+            return padStates;
         }
 
         public override DeviceState Start(IReadOnlyMidiInputDevice inputDevice)
         {
             _audioService.AudioFrameProcessed += OnAudioFrameProcessed;
-            Color[] padColors;
+            PadState[] padStates;
             if (inputDevice.Capabilities.HasFlag(DeviceCapabilities.Pads))
             {
-                padColors = GetPadColors(inputDevice.PadCount);
+                padStates = GetPadStates(inputDevice.PadCount);
             }
             else
             {
-                padColors = new Color[0];
+                padStates = new PadState[0];
             }
-            AssignPadColors(padColors);
-            return new DeviceState(padColors, new ButtonLightState[0]);
+            AssignPadStates(padStates);
+            return new DeviceState(padStates, new ButtonLightState[0]);
         }
 
         public override void Stop()

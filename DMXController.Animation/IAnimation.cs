@@ -7,6 +7,5 @@ namespace ShowControl.Animation
     {
         public void Stop();
         public DeviceState Start(IReadOnlyMidiInputDevice inputDevice);
-        public Pixel[] GetNextFrame();
     }
 }

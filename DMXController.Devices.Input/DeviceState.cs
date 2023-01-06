@@ -18,10 +18,10 @@ namespace ShowControl.Devices.Input
     public class DeviceState
     {
         public ButtonLightState[] ButtonLightStates { get; private set; }
-        public System.Drawing.Color[] PadColors { get; private set; }
-        public DeviceState(System.Drawing.Color[] padColors, ButtonLightState[] buttonLightStates)
+        public PadState[] PadStates { get; private set; }
+        public DeviceState(PadState[] padStates, ButtonLightState[] buttonLightStates)
         {
-            PadColors = padColors;
+            PadStates = padStates;
             ButtonLightStates = buttonLightStates;
         }
     }

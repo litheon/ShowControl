@@ -8,7 +8,7 @@ namespace ShowControl.Animation
     public enum AnimationMode { Manual, StaticColor, Automatic, SoundReactive };
     public abstract class MidiAwareAnimation : IAnimation, IMidiAware
     {
-        private System.Drawing.Color[] _padColors;
+        private PadState[] _padStates;
         public event EventHandler<DeviceStateChangeEventArgs> MidiAware_DeviceStateChangeEvent;
 
 
@@ -17,7 +17,6 @@ namespace ShowControl.Animation
             
         }
 
-        public abstract Pixel[] GetNextFrame();
         public void MidiAware_OnMessageReceived(object sender, DeviceInputEventArgs e)
         {
             if (e.EventType == DeviceInputEventType.RotaryEncoder)
@@ -28,17 +27,17 @@ namespace ShowControl.Animation
             {
                 if (e.ButtonDirection == ButtonDirection.Press)
                 {
-                    SetPadColor(e.PadNumber.Value, System.Drawing.Color.Silver);
+                    SetPadState(e.PadNumber.Value, new PadState(PadIllumination.Solid, System.Drawing.Color.Silver));
                 }
                 else if (e.ButtonDirection == ButtonDirection.Release)
                 {
-                    if (_padColors != null && _padColors.Length >= e.PadNumber.Value)
+                    if (_padStates != null && _padStates.Length >= e.PadNumber.Value)
                     {
-                        SetPadColor(e.PadNumber.Value, _padColors[e.PadNumber.Value]);
+                        SetPadState(e.PadNumber.Value, _padStates[e.PadNumber.Value]);
                     }
                     else
                     {
-                        SetPadColor(e.PadNumber.Value, System.Drawing.Color.Black);
+                        SetPadState(e.PadNumber.Value, new PadState(PadIllumination.Solid, System.Drawing.Color.Black));
                     }
                 }
                 PadPressed(e.ButtonDirection, e.PadNumber.Value, e.Source.PadCount);
@@ -55,14 +54,14 @@ namespace ShowControl.Animation
         public abstract DeviceState Start(IReadOnlyMidiInputDevice inputDevice);
         public abstract void Stop();
 
-        internal void AssignPadColors(System.Drawing.Color[] colors)
+        internal void AssignPadStates(PadState[] states)
         {
-            _padColors = colors;
+            _padStates = states;
         }
 
-        internal void SetPadColor(int index, System.Drawing.Color color)
+        internal void SetPadState(int index, PadState state)
         {
-            MidiAware_DeviceStateChangeEvent?.Invoke(this, new DeviceStateChangeEventArgs(index, color));
+            MidiAware_DeviceStateChangeEvent?.Invoke(this, new DeviceStateChangeEventArgs(index, state));
         }
 
         internal void SetNavigationColor(System.Drawing.Color navigationColor)

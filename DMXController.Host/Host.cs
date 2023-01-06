@@ -8,6 +8,7 @@ using ShowControl.Rendering;
 using ShowControl.Devices.Input;
 using ShowControl.Devices.Audio;
 using NAudio.Dsp;
+using ShowControl.Devices.DMX;
 
 namespace ShowControl.Host
 {
@@ -22,10 +23,10 @@ namespace ShowControl.Host
         }
 
         [STAThread]
-        public static Task<IHost> Main(string[] args, EventHandler<AudioFrameProcessedEventArgs> audioFrameProcessedEventHandler)
+        public static Task<IHost> Main(string[] args, EventHandler<AudioFrameProcessedEventArgs> audioFrameProcessedEventHandler, Action<IDmxDevice[]> devices)
         {
 
-            var builder = CreateHostBuilder(args, audioFrameProcessedEventHandler);
+            var builder = CreateHostBuilder(args, audioFrameProcessedEventHandler, devices);
             return builder.StartAsync();
         }
 
@@ -39,7 +40,7 @@ namespace ShowControl.Host
                         .AddSingleton<IAudioService, AudioService>()
                         .AddHostedService<RenderService>());
 
-        static IHostBuilder CreateHostBuilder(string[] args, EventHandler<AudioFrameProcessedEventArgs> audioFrameProcessedEventHandler) =>
+        static IHostBuilder CreateHostBuilder(string[] args, EventHandler<AudioFrameProcessedEventArgs> audioFrameProcessedEventHandler, Action<IDmxDevice[]> devices) =>
             Microsoft.Extensions.Hosting.Host.CreateDefaultBuilder(args)
                 .ConfigureServices((_, services) =>
                     services
@@ -47,6 +48,7 @@ namespace ShowControl.Host
                         .AddSingleton<IDmxDeviceEnumerator, DmxDeviceEnumerator>()
                         .AddSingleton<IInputService, InputService>()
                         .AddSingleton<IAudioService, AudioService>((_) => new AudioService(audioFrameProcessedEventHandler))
+                        .AddSingleton((_) => devices)
                         .AddHostedService<RenderService>());
 
 

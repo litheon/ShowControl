@@ -23,6 +23,7 @@ namespace ShowControl.Devices.Output
         private long _writeLoopContinue = 1;
         private readonly CancellationToken _cancellationToken;
         private readonly AutoResetEvent _workWaitEvent;
+        private readonly AutoResetEvent _frameWrittenEvent;
         internal EnttecDmxUsbDevice(uint deviceId, CancellationToken token)
         {
             Id = deviceId;
@@ -36,6 +37,7 @@ namespace ShowControl.Devices.Output
             HandleFTDIOperation(FT_Purge(_handle, PURGE_TX), nameof(FT_Purge));
             HandleFTDIOperation(FT_Purge(_handle, PURGE_RX), nameof(FT_Purge));
             _workWaitEvent = new AutoResetEvent(false);
+            _frameWrittenEvent = new AutoResetEvent(false);
             _ftdiDmxBuffer = Marshal.AllocHGlobal(BufferSize);
             _writeThread = new Thread(WriteLoop);
             _writeThread.Start();
@@ -187,6 +189,7 @@ namespace ShowControl.Devices.Output
                 _waitHandle.Reset();
                 _ftdiFrameTimer.Change(MinimumDelayBetweenFtdiFrameRenders, Timeout.Infinite);
                 _writeLoopLastTicks = DateTime.Now.Ticks;
+                _frameWrittenEvent.Set();
             }
         }
 
@@ -216,6 +219,7 @@ namespace ShowControl.Devices.Output
                 if (lastBuffer[i] != dmxData[i])
                 {
                     _waitHandle.Set();
+                    _frameWrittenEvent.WaitOne();
                     break;
                 }
             }

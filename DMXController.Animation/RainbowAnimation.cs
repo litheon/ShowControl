@@ -10,7 +10,7 @@ using System.Drawing;
 
 namespace ShowControl.Animation
 {
-    public class RainbowAnimation : MidiAwareAnimation
+    public class RainbowAnimation : MidiAwareAnimation, IKeyAnimation
     {
         private int _frameStart;
         private readonly Pixel[] _rootFrame;
@@ -30,6 +30,8 @@ namespace ShowControl.Animation
         private const int DefaultFrameCooldown = AudioService.SampleRate / AudioService.FftLength / 6;
         private int _frameCoolDown = 1;
         private readonly List<int> _pressedPads;
+        private long _lastRotaryTurnedTicks = 0;
+        private readonly TimeSpan _minRotaryTurnTimeSpan = TimeSpan.FromMilliseconds(50);
 
         private readonly Color[] _colors = new Color[6]
         {
@@ -78,7 +80,8 @@ namespace ShowControl.Animation
 
         private void StartTimers()
         {
-            _automationTimer.Change(500, 500);
+            //_automationTimer.Change(500, 500);
+            _automationTimer.Change(700, 700);
         }
 
         private void StopTimers()
@@ -97,7 +100,8 @@ namespace ShowControl.Animation
                 _mode = mode;
                 if (_mode == AnimationMode.Automatic)
                 {
-                    _automationTimer.Change(500, 500);
+                    //_automationTimer.Change(500, 500);
+                    _automationTimer.Change(700, 700);
                 }
                 else
                 {
@@ -122,16 +126,17 @@ namespace ShowControl.Animation
             }
         }
 
-        private Color[] GetPadColors(int count)
+        private PadState[] GetPadStates(int count)
         {
-            var padColors = new Color[count];
-            for (int i = 0; i < padColors.Length - 2; i++)
+            var padStates = new PadState[count];
+            for (int i = 0; i < padStates.Length - 2; i++)
             {
-                padColors[i] = _colors[i % _colors.Length];
+                padStates[i] = new PadState(PadIllumination.Solid, _colors[i % _colors.Length]);
             }
-            padColors[^2] = Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF);
-            padColors[^1] = Color.FromArgb(0x00, 0x00, 0x00, 0x00);
-            return padColors;
+            padStates[^2].Color = Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF);
+            padStates[^2] = new PadState(PadIllumination.Solid, Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF));
+            padStates[^1] = new PadState(PadIllumination.Solid, Color.FromArgb(0x00, 0x00, 0x00, 0x00));
+            return padStates;
         }
 
         private void AudioService_OnFftCalculated(object sender, AudioFrameProcessedEventArgs e)
@@ -142,15 +147,7 @@ namespace ShowControl.Animation
             //add a mode that grabs a window into a large continous gradient that music/the user/a timer will automatically scroll through
             if (_mode == AnimationMode.SoundReactive)
             {
-                var spectrum = e.AudioSpectrum;
-
-                var one = e.AudioSpectrum[1].Y;
-                var two = e.AudioSpectrum[2].Y;
-                var three = e.AudioSpectrum[3].Y;
-
-                var current = (one + two + three) / 3;
-
-                if (current > _lastFft * 1.2 && current > -25 && _frameCoolDown <= 0)
+                if (e.CurrentLevel > e.AverageLevel * 1.4 && e.CurrentLevel >= -50.0d && _frameCoolDown <= 0)
                 {
                     _frameStart.InterlockedIncrement(0, _rootFrame.Length - 1);
                     _frameCoolDown = DefaultFrameCooldown;
@@ -163,7 +160,6 @@ namespace ShowControl.Animation
                 {
                     _frameCoolDown = -1;
                 }
-                _lastFft = current;
             }
         }
 
@@ -221,6 +217,12 @@ namespace ShowControl.Animation
 
         public override void RotaryTurned(RotaryDirection direction, byte rotaryNumber, byte? value)
         {
+            var currentTicks = DateTime.Now.Ticks;
+            if (currentTicks < _lastRotaryTurnedTicks + _minRotaryTurnTimeSpan.Ticks)
+            {
+                return;
+            }
+            _lastRotaryTurnedTicks = currentTicks;
             if (rotaryNumber == 1)
             {
                 SetMode(AnimationMode.Manual);
@@ -241,15 +243,15 @@ namespace ShowControl.Animation
         {
             _audioService.AudioFrameProcessed += AudioService_OnFftCalculated;
 
-            Color[] padColors;
+            PadState[] padStates;
             if (inputDevice.Capabilities.HasFlag(DeviceCapabilities.Pads))
             {
-                padColors = GetPadColors(inputDevice.PadCount);
-                AssignPadColors(padColors);
+                padStates = GetPadStates(inputDevice.PadCount);
+                AssignPadStates(padStates);
             }
             else
             {
-                padColors = new Color[0];
+                padStates = new PadState[0];
             }
             ButtonLightState[] buttonLightStates;
             if (inputDevice.Capabilities.HasFlag(DeviceCapabilities.ButtonIllumination))
@@ -266,7 +268,7 @@ namespace ShowControl.Animation
             }
 
             StartTimers();
-            return new DeviceState(padColors, buttonLightStates);
+            return new DeviceState(padStates, buttonLightStates);
         }
 
         public override void Stop()
@@ -276,7 +278,7 @@ namespace ShowControl.Animation
             StopTimers();
         }
 
-        public override Pixel[] GetNextFrame()
+        public Pixel[] GetNextFrame()
         {
             if (_mode == AnimationMode.SoundReactive || _mode == AnimationMode.Automatic)
             {

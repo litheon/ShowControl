@@ -109,50 +109,53 @@ namespace ShowControl.Devices.Input
 
         public void ClearInterface()
         {
-            var padColors = new System.Drawing.Color[PadCount];
-            for (int i = 0; i < padColors.Length; i++)
+            var padStates = new PadState[PadCount];
+            for (int i = 0; i < padStates.Length; i++)
             {
-                padColors[i] = Color.FromArgb(0x00, 0x00, 0x00, 0x00);
+                padStates[i].Color = Color.FromArgb(0x00, 0x00, 0x00, 0x00);
             }
-            SetPadColors(padColors);
+            SetPadStates(padStates);
             _midiOut.Send(new ControlChangeEvent(absoluteTime: 0, channel: 1, controller: (MidiController)PresonusAtomButton.Up, 0).GetAsShortMessage());
             _midiOut.Send(new ControlChangeEvent(absoluteTime: 0, channel: 1, controller: (MidiController)PresonusAtomButton.Play, 0).GetAsShortMessage());
         }
 
-        public void SetPadColor(int index, Color color)
+        public void SetPadState(int index, PadState padState)
         {
             if (index >= PadCount)
             {
                 throw new ArgumentOutOfRangeException("Pad index is out of range");
             }
+            var color = padState.Color;
+            var illumination = ConvertIlluminationType(padState.PadIllumination);
             int padNote = index + FirstPadNoteNumber;
             int red = Convert.ToInt32(((double)color.R) / 255 * 127);
             int green = Convert.ToInt32(((double)color.G) / 255 * 127);
             int blue = Convert.ToInt32(((double)color.B) / 255 * 127);
             List<byte> bytes = new List<byte>();
-            bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 1, noteNumber: padNote, velocity: (int)PresonusAtomPadIlluminationType.Breathe, duration: 0).GetMidiMessageAsByteArray());
+            bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 1, noteNumber: padNote, velocity: (int)illumination, duration: 0).GetMidiMessageAsByteArray());
             bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 2, noteNumber: padNote, velocity: red, duration: 0).GetMidiMessageAsByteArray());
             bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 3, noteNumber: padNote, velocity: green, duration: 0).GetMidiMessageAsByteArray());
             bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 4, noteNumber: padNote, velocity: blue, duration: 0).GetMidiMessageAsByteArray());
             _midiOut.SendBuffer(bytes.ToArray());
         }
 
-        public void SetPadColors(System.Drawing.Color[] colors)
+        public void SetPadStates(PadState[] states)
         {
-            if (colors.Length != PadCount)
+            if (states.Length != PadCount)
             {
                 throw new ArgumentOutOfRangeException("Pad index is out of range");
             }
             List<byte> bytes = new List<byte>();
-            for (int i = 0; i < colors.Length; i++)
+            for (int i = 0; i < states.Length; i++)
             {
                 int padNote = i + FirstPadNoteNumber;
-                var color = colors[i];
+                var color = states[i].Color;
+                var illumination = ConvertIlluminationType(states[i].PadIllumination);
                 int red = Convert.ToInt32(((double)color.R) / 255 * 127);
                 int green = Convert.ToInt32(((double)color.G) / 255 * 127);
                 int blue = Convert.ToInt32(((double)color.B) / 255 * 127);
 
-                bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 1, noteNumber: padNote, velocity: (int)PresonusAtomPadIlluminationType.Breathe, duration: 0).GetMidiMessageAsByteArray());
+                bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 1, noteNumber: padNote, velocity: (int)illumination, duration: 0).GetMidiMessageAsByteArray());
                 bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 2, noteNumber: padNote, velocity: red, duration: 0).GetMidiMessageAsByteArray());
                 bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 3, noteNumber: padNote, velocity: green, duration: 0).GetMidiMessageAsByteArray());
                 bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 4, noteNumber: padNote, velocity: blue, duration: 0).GetMidiMessageAsByteArray());
@@ -198,6 +201,22 @@ namespace ShowControl.Devices.Input
             if (_buttonTranslation.ContainsKey(button))
             {
                 _midiOut.Send(new ControlChangeEvent(absoluteTime: 0, channel: 1, controller: (MidiController)_buttonTranslation[button], state == LightState.On ? (int)PresonusAtomPadIlluminationType.Solid : 0).GetAsShortMessage());
+            }
+        }
+
+        private PresonusAtomPadIlluminationType ConvertIlluminationType(PadIllumination illumination)
+        {
+            switch(illumination)
+            {
+                case PadIllumination.Blink:
+                    return PresonusAtomPadIlluminationType.Blink;
+                case PadIllumination.Breathe:
+                    return PresonusAtomPadIlluminationType.Breathe;
+                case PadIllumination.Off:
+                    return PresonusAtomPadIlluminationType.Off;
+                default:
+                case PadIllumination.Solid:
+                    return PresonusAtomPadIlluminationType.Solid;
             }
         }
     }

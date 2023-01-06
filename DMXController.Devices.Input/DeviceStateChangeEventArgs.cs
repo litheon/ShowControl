@@ -10,15 +10,15 @@ namespace ShowControl.Devices.Input
         public DeviceStateChangeEventType EventType { get; private set; }
 
         public int PadNumber { get; private set; }
-        public System.Drawing.Color PadColor { get; private set; }
+        public PadState PadState { get; private set; }
 
         public System.Drawing.Color NavigationColor { get; private set; }
 
-        public DeviceStateChangeEventArgs(int padNumber, System.Drawing.Color padColor)
+        public DeviceStateChangeEventArgs(int padNumber, PadState padState)
         {
             EventType = DeviceStateChangeEventType.PadColor;
             PadNumber = padNumber;
-            PadColor = padColor;
+            PadState = padState;
         }
 
         public DeviceStateChangeEventArgs(System.Drawing.Color navigationColor)

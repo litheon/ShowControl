@@ -15,7 +15,7 @@ namespace ShowControl.Rendering
 {
     public class RenderService : IRenderService
     {
-        private enum NavigationLevel { Root, Animation};
+        private enum NavigationLevel { Root, KeyAnimation, TransformAnimation};
         private IDmxOutputDevice[] _outputDevices;
         private readonly Thread _renderThread;
         private readonly CancellationTokenSource _cts;
@@ -28,14 +28,18 @@ namespace ShowControl.Rendering
         private readonly object _navigationAnimationLock = new object();
         private IMidiInputDevice _inputDevice;
         private NavigationLevel _navigationLevel;
-        private int _activeAnimation = -1;
-        private MidiAwareAnimation[] _animations;
-        private System.Drawing.Color[] _padColors;
+        private int _activeKeyAnimation = -1;
+        private IKeyAnimation[] _keyAnimations;
+        private int _activeTransformAnimation = -1;
+        private ITransformAnimation[] _transformAnimations;
+        private PadState[] _padStates;
+        private int _padTransitionStartIndex;
 
         public RenderService(
             IDmxDeviceEnumerator deviceEnumerator,
             IInputService inputService,
-            IAudioService audioService)
+            IAudioService audioService
+            )
         {
             _deviceEnumerator = deviceEnumerator;
             _inputService = inputService;
@@ -59,43 +63,79 @@ namespace ShowControl.Rendering
                 new JLPow(),
                 new JLPow(),
                 new JLPow(),
-                new BetopperDJ(),
+                new BetopperDJNew(),
                 new BetopperDJ()
             };
+        }
+        public RenderService(
+            IDmxDeviceEnumerator deviceEnumerator,
+            IInputService inputService,
+            IAudioService audioService,
+            Action<IDmxDevice[]> dmxDeviceAction
+            ) : this(deviceEnumerator, inputService, audioService)
+        {
+            dmxDeviceAction(_devices);
         }
 
         public Task StartAsync(CancellationToken cancellationToken)
         {
             _inputService.OnInputReceived += InputService_OnInputReceived;
             _inputDevice = _inputService.Devices.FirstOrDefault();
+            _padTransitionStartIndex = _inputDevice.PadCount / 2;
+
             _outputDevices = _deviceEnumerator.GetDmxDevices(_cts.Token);
             _renderThread.Start();
             Initialize();
             return Task.CompletedTask;
         }
 
-        private void SetActiveAnimation(int index)
+        private bool SetActiveKeyAnimation(int index)
         {
-            MidiAwareAnimation animation;
+            IKeyAnimation animation;
             lock (_navigationAnimationLock)
             {
-                if (index >= _animations.Length)
+                if (index >= _keyAnimations.Length)
                 {
-                    return;
+                    return false;
                 }
-                if (_activeAnimation > -1)
+                if (_activeKeyAnimation > -1)
                 {
-                    var existingAnimation = _animations[_activeAnimation];
+                    _padStates[_activeKeyAnimation].PadIllumination = PadIllumination.Solid;
+                    var existingAnimation = _keyAnimations[_activeKeyAnimation];
                     existingAnimation.Stop();
                 }
-                _activeAnimation = index;
-                animation = _animations[_activeAnimation];
+                _padStates[index].PadIllumination = PadIllumination.Blink;
+                _activeKeyAnimation = index;
+                animation = _keyAnimations[_activeKeyAnimation];
             }
+            return true;
+        }
+
+        private bool SetActiveTransformAnimation(int index)
+        {
+            ITransformAnimation animation;
+            lock (_navigationAnimationLock)
+            {
+                if (index >= _transformAnimations.Length)
+                {
+                    return false;
+                }
+                if (_activeTransformAnimation > -1)
+                {
+                    _padStates[_activeTransformAnimation + _padTransitionStartIndex].PadIllumination = PadIllumination.Solid;
+                    var existingAnimation = _transformAnimations[_activeTransformAnimation];
+                    existingAnimation.Stop();
+                }
+                _padStates[index + _padTransitionStartIndex].PadIllumination = PadIllumination.Breathe;
+                _activeTransformAnimation = index;
+                animation = _transformAnimations[_activeTransformAnimation];
+            }
+            return true;
         }
 
         private void SetNavigationLevel(NavigationLevel navigationLevel)
         {
-            MidiAwareAnimation animation = null;
+            IAnimation animation = null;
             lock (_navigationAnimationLock)
             {
                 _navigationLevel = navigationLevel;
@@ -104,20 +144,22 @@ namespace ShowControl.Rendering
                 {
                     _inputDevice.ClearInterface();
                     _inputDevice.SetButtonIllumination(Button.Up, LightState.On);
-                    for (int i = 0; i < _animations.Length; i++)
-                    {
-                        _inputDevice.SetPadColor(i, _padColors[i]);
-                    }
+                    _inputDevice.SetPadStates(_padStates);
                 }
-                else if (_activeAnimation > -1)
+                else if (navigationLevel == NavigationLevel.KeyAnimation && _activeKeyAnimation > -1)
                 {
-                    animation = _animations[_activeAnimation];
+                    animation = _keyAnimations[_activeKeyAnimation];
+                }
+                else if (navigationLevel == NavigationLevel.TransformAnimation && _activeTransformAnimation > -1)
+                {
+                    animation = _transformAnimations[_activeTransformAnimation];
                 }
             }
+
             var deviceInitializationState = animation?.Start(_inputDevice.AsReadOnly());
-            if (deviceInitializationState?.PadColors != null && deviceInitializationState.PadColors.Length > 0)
+            if (deviceInitializationState?.PadStates != null && deviceInitializationState.PadStates.Length > 0)
             {
-                _inputDevice.SetPadColors(deviceInitializationState.PadColors);
+                _inputDevice.SetPadStates(deviceInitializationState.PadStates);
             }
             if (deviceInitializationState?.ButtonLightStates != null)
             {
@@ -132,33 +174,68 @@ namespace ShowControl.Rendering
         {
             if (e.EventType == DeviceInputEventType.Navigation)
             {
-                if (e.ButtonDirection == ButtonDirection.Press && e.NavigationDirection == NavigationButton.Up)
-                {
-                    _inputDevice.ClearInterface();
-                    SetNavigationLevel(_navigationLevel == NavigationLevel.Root ? NavigationLevel.Animation : NavigationLevel.Root);
-                }
+                ProcessNavigationButtonPressed(e.ButtonDirection, e.NavigationDirection);
             }
             else if (_navigationLevel == NavigationLevel.Root)
             {
-                if (e.EventType == DeviceInputEventType.Pad && e.ButtonDirection == ButtonDirection.Press)
+                if (e.EventType == DeviceInputEventType.Pad)
                 {
-                    _inputDevice.ClearInterface();
-                    SetActiveAnimation(e.PadNumber.Value);
-                    SetNavigationLevel(NavigationLevel.Animation);
-                }
-                else if (e.EventType == DeviceInputEventType.Pad && e.ButtonDirection == ButtonDirection.Release)
-                {
-                    _inputDevice.SetPadColor(e.PadNumber.Value, System.Drawing.Color.Red);
+                    ProcessPadPressed(e.ButtonDirection, e.PadNumber.Value);
                 }
             }
-            else if (_navigationLevel == NavigationLevel.Animation)
+            else
             {
-                MidiAwareAnimation animation = null;
+                IAnimation animation = null;
                 lock (_navigationAnimationLock)
                 {
-                    animation = _activeAnimation > -1 ? _animations[_activeAnimation] : null;
+                    if (_navigationLevel == NavigationLevel.KeyAnimation)
+                    {
+                        animation = _activeKeyAnimation > -1 ? _keyAnimations[_activeKeyAnimation] : null;
+                    }
+                    else if (_navigationLevel == NavigationLevel.TransformAnimation)
+                    {
+                        animation = _activeTransformAnimation > -1 ? _transformAnimations[_activeTransformAnimation] : null;
+                    }
                 }
-                animation?.MidiAware_OnMessageReceived(sender, e);
+                var midiAware = animation as MidiAwareAnimation;
+                midiAware?.MidiAware_OnMessageReceived(sender, e);
+            }
+        }
+
+        private void ProcessPadPressed(ButtonDirection direction, byte padNumber)
+        {
+            if (direction == ButtonDirection.Press)
+            {
+                if (padNumber < _padTransitionStartIndex)
+                {
+                    if (SetActiveKeyAnimation(padNumber))
+                    {
+                        _inputDevice.ClearInterface();
+                        SetNavigationLevel(NavigationLevel.KeyAnimation);
+                    }
+                }
+                else
+                {
+                    int transformAnimationIndex = padNumber - _padTransitionStartIndex;
+                    if (SetActiveTransformAnimation(transformAnimationIndex))
+                    {
+                        _inputDevice.ClearInterface();
+                        SetNavigationLevel(NavigationLevel.TransformAnimation);
+                    }
+                }
+            }
+            else if (direction == ButtonDirection.Release)
+            {
+                _inputDevice.SetPadState(padNumber, _padStates[padNumber]);
+            }
+        }
+
+        private void ProcessNavigationButtonPressed(ButtonDirection direction, NavigationButton navigationButton)
+        {
+            if (direction == ButtonDirection.Press && navigationButton == NavigationButton.Up)
+            {
+                _inputDevice.ClearInterface();
+                SetNavigationLevel(_navigationLevel == NavigationLevel.Root ? NavigationLevel.KeyAnimation : NavigationLevel.Root);
             }
         }
 
@@ -175,44 +252,74 @@ namespace ShowControl.Rendering
             int address = 1;
             for (int j = 0; j < _devices.Length; j++)
             {
+                System.Diagnostics.Debug.WriteLine("Address {0} for {1}: {2}", j + 1, _devices[j].GetType().ToString(), address);
                 Console.WriteLine("Address {0} for {1}: {2}", j + 1, _devices[j].GetType().ToString(), address);
                 address += _devices[j].ChannelCount;
             }
 
-            _animations = new MidiAwareAnimation[] {
+            _keyAnimations = new IKeyAnimation[] {
                 new RainbowAnimation(_devices.Length, _audioService),
-                new ColorMixAnimation(_devices.Length),
                 new VibrantAnimation(_devices.Length, _audioService, _cts.Token)
             };
 
-            _padColors = new System.Drawing.Color[_animations.Length];
-            Array.Fill(_padColors, System.Drawing.Color.Red);
+            _transformAnimations = new ITransformAnimation[]
+            {
+                new MirrorTransformAnimation()
+            };
+
+            InitializePads();
 
             SetNavigationLevel(NavigationLevel.Root);
 
-            for (int i = 0; i < _animations.Length; i++)
+            for (int i = 0; i < _keyAnimations.Length; i++)
             {
-                var animation = _animations[i];
-                animation.MidiAware_DeviceStateChangeEvent += MidiAware_OnDeviceStateChange;
+                var animation = _keyAnimations[i];
+                if (animation is MidiAwareAnimation midiAware)
+                {
+                    midiAware.MidiAware_DeviceStateChangeEvent += MidiAware_OnDeviceStateChange;
+                }
+            }
+        }
+
+        private void InitializePads()
+        {
+            _padStates = new PadState[_inputDevice.PadCount];
+            for (int i = 0; i < _keyAnimations.Length && i < _padTransitionStartIndex; i++)
+            {
+                _padStates[i].Color = System.Drawing.Color.Red;
+                _padStates[i].PadIllumination = PadIllumination.Solid;
+            }
+
+            for (int i = 0; i < _transformAnimations.Length && i < _padTransitionStartIndex; i++)
+            {
+                _padStates[i + _padTransitionStartIndex].Color = System.Drawing.Color.Red;
+                _padStates[i + _padTransitionStartIndex].PadIllumination = PadIllumination.Solid;
             }
         }
 
         private void RenderThreadLoop()
         {
+            List<byte> bytes = new List<byte>(512);
             while (!_cts.Token.IsCancellationRequested)
             {
                 foreach (IDmxOutputDevice outputDevice in _outputDevices)
                 {
-                    List<byte> bytes = new List<byte>(512);
+                    bytes.Clear();
                     int expectedFrameLength = 0;
-                    IAnimation animation = null;
+                    IKeyAnimation keyAnimation = null;
+                    ITransformAnimation transformAnimation = null;
                     lock (_navigationAnimationLock)
                     {
-                        animation = _activeAnimation > -1 ? _animations[_activeAnimation] : null;
+                        keyAnimation = _activeKeyAnimation > -1 ? _keyAnimations[_activeKeyAnimation] : null;
+                        transformAnimation = _activeTransformAnimation > -1 ? _transformAnimations[_activeTransformAnimation] : null;
                     }
-                    if (animation != null)
+                    if (keyAnimation != null)
                     {
-                        var frame = animation.GetNextFrame();
+                        var frame = keyAnimation.GetNextFrame();
+                        if (transformAnimation != null)
+                        {
+                            frame = transformAnimation.GetNextFrame(frame);
+                        }
                         for (int i = 0; i < frame.Length; i++)
                         {
                             var device = _devices[i];
@@ -248,36 +355,36 @@ namespace ShowControl.Rendering
 
         private void MidiAware_OnDeviceStateChange(object sender, DeviceStateChangeEventArgs e)
         {
-            MidiAwareAnimation activeAnimation = null;
+            IKeyAnimation activeKeyAnimation = null;
             NavigationLevel navigationLevel;
             int sourceAnimationIndex = -1;
             lock (_navigationAnimationLock)
             {
-                if (_activeAnimation > -1)
+                if (_activeKeyAnimation > -1)
                 {
-                    activeAnimation = _animations[_activeAnimation];
+                    activeKeyAnimation = _keyAnimations[_activeKeyAnimation];
                 }
-                for (int i = 0; i < _animations.Length; i++)
+                for (int i = 0; i < _keyAnimations.Length; i++)
                 {
-                    if (sender == _animations[i])
+                    if (sender == _keyAnimations[i])
                     {
                         sourceAnimationIndex = i;
                     }
                 }
                 navigationLevel = _navigationLevel;
             }
-            if (sender == activeAnimation && e.EventType == DeviceStateChangeEventType.PadColor)
+            if (sender == activeKeyAnimation && e.EventType == DeviceStateChangeEventType.PadColor)
             {
-                _inputDevice.SetPadColor(e.PadNumber, e.PadColor);
+                _inputDevice.SetPadState(e.PadNumber, e.PadState);
             }
             else if (e.EventType == DeviceStateChangeEventType.NavigationColor)
             {
                 if (sourceAnimationIndex > -1)
                 {
-                    _padColors[sourceAnimationIndex] = e.NavigationColor;
+                    _padStates[sourceAnimationIndex].Color = e.NavigationColor;
                     if (navigationLevel == NavigationLevel.Root)
                     {
-                        _inputDevice.SetPadColor(sourceAnimationIndex, _padColors[sourceAnimationIndex]);
+                        _inputDevice.SetPadState(sourceAnimationIndex, _padStates[sourceAnimationIndex]);
                     }
                 }
             }

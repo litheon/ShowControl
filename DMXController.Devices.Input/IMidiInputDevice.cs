@@ -24,8 +24,8 @@ namespace ShowControl.Devices.Input
 
     public interface IMidiInputDevice : IReadOnlyMidiInputDevice
     {
-        public void SetPadColor(int index, System.Drawing.Color color);
-        public void SetPadColors(System.Drawing.Color[] color);
+        public void SetPadState(int index, PadState padStates);
+        public void SetPadStates(PadState[] padStates);
         public void SetButtonIllumination(Button button, LightState state);
         public void ClearInterface();
         public void Stop();

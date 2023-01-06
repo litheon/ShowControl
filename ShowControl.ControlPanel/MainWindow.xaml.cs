@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.Hosting;
 using NAudio.Dsp;
 using ShowControl.Devices.Audio;
+using ShowControl.Devices.DMX;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -36,8 +37,23 @@ namespace ShowControl.ControlPanel
         public MainWindow()
         {
             InitializeComponent();
-            _hostTask = Host.Host.Main(new string[] { }, OnAudioFrameProcessed);
+            _hostTask = Host.Host.Main(new string[] { }, OnAudioFrameProcessed, HandleDevices);
             Initialize();
+        }
+
+        private void HandleDevices(IDmxDevice[] devices)
+        {
+            int address = 1;
+            var addressOutput = new StringBuilder();
+            for (int j = 0; j < devices.Length; j++)
+            {
+                addressOutput.AppendLine(string.Format("Address {0} for {1}: {2}", j + 1, devices[j].GetType().ToString(), address));
+                address += devices[j].ChannelCount;
+            }
+            Dispatcher.Invoke(() =>
+            {
+                Addresses.Text = addressOutput.ToString();
+            });
         }
 
         private async void Initialize()

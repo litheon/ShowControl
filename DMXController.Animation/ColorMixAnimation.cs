@@ -7,7 +7,7 @@ using ShowControl.Utilities;
 
 namespace ShowControl.Animation
 {
-    public class ColorMixAnimation : MidiAwareAnimation
+    public class ColorMixAnimation : MidiAwareAnimation, IKeyAnimation
     {
         private int R;
         private int G;
@@ -23,7 +23,7 @@ namespace ShowControl.Animation
             }
         }
 
-        public override Pixel[] GetNextFrame()
+        public Pixel[] GetNextFrame()
         {
             int r;
             int g;
@@ -72,7 +72,7 @@ namespace ShowControl.Animation
         public override DeviceState Start(IReadOnlyMidiInputDevice inputDevice)
         {
             return new DeviceState(
-                new System.Drawing.Color[0],
+                new PadState[0],
                 new ButtonLightState[1]
                 {
                     new ButtonLightState(Button.Up, LightState.On)
