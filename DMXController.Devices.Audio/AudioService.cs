@@ -43,14 +43,14 @@ namespace ShowControl.Devices.Audio
         private readonly Complex[] _fftBuffer = new Complex[FftLength];
         private readonly Complex[] _activeBuffer;
 
-        private readonly BpmDetect _bpmDetect;
+        private readonly IBpmDetect _bpmDetect;
 
         private readonly object _disposalLock = new object();
         private bool _stopped;
 
         public AudioService()
         {
-            _bpmDetect = new BpmDetect(ChannelCount, SampleRate);
+            _bpmDetect = new RealTimeBpmDetect(ChannelCount, SampleRate);
             _bassAverageLevel = new SampleAverageLevelCalculator(0);
             _bassCurrentLevel = new SampleAverageLevelCalculator(Convert.ToInt32(Math.Round(BassCutOffHz / (SampleRate / FftLength))) - 1);
             _activeBuffer = _fftBuffer;
@@ -62,16 +62,29 @@ namespace ShowControl.Devices.Audio
 
             var drivers = AsioOut.GetDriverNames();
             var driver = drivers.FirstOrDefault(d => d.Contains("Focusrite USB"));
+            bool initialized = false;
             if (driver != null)
             {
-                _asioOut = new AsioOut(driver)
+                try
                 {
-                    InputChannelOffset = 2
-                    //InputChannelOffset = 8
-                };
-                _asioOut.InitRecordAndPlayback(null, ChannelCount, SampleRate);
-                _asioOut.AudioAvailable += AsioOut_AudioAvailable;
-                _asioOut.Play();
+                    _asioOut = new AsioOut(driver)
+                    {
+                        InputChannelOffset = 2
+                        //InputChannelOffset = 8
+                    };
+
+                    _asioOut.InitRecordAndPlayback(null, ChannelCount, SampleRate);
+                    _asioOut.AudioAvailable += AsioOut_AudioAvailable;
+                    _asioOut.Play();
+                    initialized = true;
+                }
+                catch
+                { 
+                }
+            }
+            if (!initialized)
+            {
+                _bpmDetect = new FallbackBpmDetect();
             }
         }
 

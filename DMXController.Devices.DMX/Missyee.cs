@@ -15,22 +15,24 @@ namespace ShowControl.Devices.DMX
         public Color Color { get; set; }
         public byte SoundReactivitySensitivity { get; set; }
         public byte StrobeIntensity { get; set; }
+        public byte MasterFader { get; set; }
 
         public Missyee()
         {
             Mode = DmxDeviceMode.RGB;
             Color = Color.FromArgb(0, 0, 0, 0);
+            MasterFader = 0xFF;
         }
 
         public byte[] GetDMXVector()
         {
             if (Mode == DmxDeviceMode.RGB)
             {
-                return new byte[] { Color.A, Color.R, Color.G, Color.B, 0x00, 0x00, 0x00 };
+                return new byte[] { MasterFader, Color.R, Color.G, Color.B, 0x00, 0x00, 0x00 };
             }
             else if(Mode == DmxDeviceMode.SoundReactive)
             {
-                return new byte[] { Color.A, Color.R, Color.G, Color.B, 0x00, 0xFF, 0x0 };
+                return new byte[] { MasterFader, Color.R, Color.G, Color.B, 0x00, 0xFF, 0x0 };
             }
             else if (Mode == DmxDeviceMode.Off)
             {
@@ -38,7 +40,7 @@ namespace ShowControl.Devices.DMX
             }
             else if (Mode == DmxDeviceMode.Strobe)
             {
-                return new byte[] { Color.A, Color.R, Color.G, Color.B, StrobeIntensity, 0x00, 0x00 };
+                return new byte[] { MasterFader, Color.R, Color.G, Color.B, StrobeIntensity, 0x00, 0x00 };
             }
             else
             {

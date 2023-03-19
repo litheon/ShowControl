@@ -33,14 +33,15 @@ namespace ShowControl.Animation
         private long _lastRotaryTurnedTicks = 0;
         private readonly TimeSpan _minRotaryTurnTimeSpan = TimeSpan.FromMilliseconds(50);
 
-        private readonly Color[] _colors = new Color[6]
+        private readonly Color[] _colors = new Color[7]
         {
                 Color.FromArgb(0xFF, 0xFF, 0x00, 0x00),
                 Color.FromArgb(0xFF, 0xFF, 0x80, 0x00),
                 Color.FromArgb(0xFF, 0xFF, 0xFF, 0x00),
                 Color.FromArgb(0xFF, 0x00, 0xFF, 0x00),
                 Color.FromArgb(0xFF, 0x00, 0x00, 0xFF),
-                Color.FromArgb(0xFF, 0xFF, 0x00, 0xFF)
+                Color.FromArgb(0xFF, 0xFF, 0x00, 0xFF),
+                Color.FromArgb(0xFF, 0xFF, 0xFF, 0xFF)
         };
 
         public RainbowAnimation(int pixelCount, IAudioService audioService)

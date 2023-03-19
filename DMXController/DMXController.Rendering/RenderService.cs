@@ -4,6 +4,7 @@ using ShowControl.Devices.DMX;
 using ShowControl.Devices.Input;
 using ShowControl.Devices.Input.Extensions;
 using ShowControl.Devices.Output;
+using ShowControl.Utilities;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -35,6 +36,8 @@ namespace ShowControl.Rendering
         private PadState[] _padStates;
         private int _padTransitionStartIndex;
 
+        private int _masterFader = 255;
+
         public RenderService(
             IDmxDeviceEnumerator deviceEnumerator,
             IInputService inputService,
@@ -49,14 +52,6 @@ namespace ShowControl.Rendering
             _cts = new CancellationTokenSource();
             _devices = new IDmxDevice[]
             {
-                new Missyee(),
-                new Missyee(),
-                new Missyee(),
-                new Missyee(),
-                new Missyee(),
-                new Missyee(),
-                new Missyee(),
-                new Missyee(),
                 new JLPow(),
                 new JLPow(),
                 new JLPow(),
@@ -64,7 +59,17 @@ namespace ShowControl.Rendering
                 new JLPow(),
                 new JLPow(),
                 new BetopperDJNew(),
-                new BetopperDJ()
+                new BetopperDJNew(),
+                new BetopperDJNew(),
+                new BetopperDJNew(),
+                new BetopperDJNew(),
+                new BetopperDJNew(),
+                new BetopperDJNew(),
+                new BetopperDJNew(),
+                new BetopperDJNew(),
+                new BetopperDJNew(),
+                new BetopperDJNew(),
+                new BetopperDJNew(),
             };
         }
         public RenderService(
@@ -126,11 +131,19 @@ namespace ShowControl.Rendering
                     var existingAnimation = _transformAnimations[_activeTransformAnimation];
                     existingAnimation.Stop();
                 }
+
+                if (_activeTransformAnimation == index)
+                {
+                    _padStates[index + _padTransitionStartIndex].PadIllumination = PadIllumination.Solid;
+                    _activeTransformAnimation = -1;
+                    animation = null;
+                    return false;
+                }
                 _padStates[index + _padTransitionStartIndex].PadIllumination = PadIllumination.Breathe;
                 _activeTransformAnimation = index;
                 animation = _transformAnimations[_activeTransformAnimation];
             }
-            return true;
+            return false;
         }
 
         private void SetNavigationLevel(NavigationLevel navigationLevel)
@@ -181,6 +194,18 @@ namespace ShowControl.Rendering
                 if (e.EventType == DeviceInputEventType.Pad)
                 {
                     ProcessPadPressed(e.ButtonDirection, e.PadNumber.Value);
+                }
+                else if (e.EventType == DeviceInputEventType.RotaryEncoder)
+                {
+                    var direction = e.RotaryDirection;
+                    if (direction == RotaryDirection.Up)
+                    {
+                        _masterFader.InterlockedDecrement(0, byte.MaxValue);
+                    }
+                    else if (direction == RotaryDirection.Down)
+                    {
+                        _masterFader.InterlockedIncrement(0, byte.MaxValue);
+                    }
                 }
             }
             else
@@ -329,6 +354,7 @@ namespace ShowControl.Rendering
                             {
                                 device.SoundReactivitySensitivity = frame[i].SoundReactivity;
                             }
+                            device.MasterFader = (byte)_masterFader.InterlockedGet();
                             bytes.AddRange(device.GetDMXVector());
                             //should add transformations that can modify an existing animation, for example
                             //mirroring it

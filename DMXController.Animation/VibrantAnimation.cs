@@ -29,7 +29,7 @@ namespace ShowControl.Animation
         private readonly CancellationToken _cancellationToken;
         private readonly Thread _animationThread;
         private int _navigationColorIndex = 0;
-        private int _frameCountAnimationThreshold = 0;
+        private int _frameCountAnimationThreshold = 4;
         private int _currentFrameCountAnimationThreshold = 0;
         private readonly int AnimationFrameCountMaximum = 12;
 
@@ -109,7 +109,7 @@ namespace ShowControl.Animation
             //option 1: each light represents a certain width of the spectra, and specific colors map to specific ranges
             //option 2: from left to right each frequency range is graphed on the lights, with, for example the left most
             //light being off is zero while the right most light being on is 100
-            //large bands will be mapped to individual colors (e.g. RGB), and those bands' amplitude will be graphed from L to R
+            //large bands will be mapped to individual colors(e.g.RGB), and those bands' amplitude will be graphed from L to R
             var secondsSinceLastBassOverride = (DateTime.Now.Ticks - _lastBassOverride) / TimeSpan.TicksPerSecond;
 
             if (_lastBassOverride == 0 || secondsSinceLastBassOverride >= BassOverrideSeconds)

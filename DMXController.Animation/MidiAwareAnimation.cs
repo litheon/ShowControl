@@ -9,6 +9,9 @@ namespace ShowControl.Animation
     public abstract class MidiAwareAnimation : IAnimation, IMidiAware
     {
         private PadState[] _padStates;
+
+        public int MasterFader { get; set; }
+
         public event EventHandler<DeviceStateChangeEventArgs> MidiAware_DeviceStateChangeEvent;
 
 

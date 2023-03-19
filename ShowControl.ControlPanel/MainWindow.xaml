@@ -19,7 +19,7 @@
         </Canvas>
         <StackPanel Orientation="Vertical">
             <TextBlock x:Name="Bpm" Width="200" Text="BPM"></TextBlock>
-            <TextBlock x:Name="Addresses" Width="300" Text="Devices"></TextBlock>
+            <TextBlock x:Name="Addresses" Width="400" Text="Devices"></TextBlock>
         </StackPanel>
     </Grid>
 </Window>

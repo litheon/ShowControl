@@ -14,5 +14,6 @@ namespace ShowControl.Devices.DMX
         public Color Color { get; set; }
         public byte SoundReactivitySensitivity { get; set; }
         public byte StrobeIntensity { get; set; }
+        public byte MasterFader { get; set; }
     }
 }
