@@ -24,6 +24,8 @@ namespace ShowControl.Devices.DMX
             MasterFader = 0xFF;
         }
 
+        public static BetopperDJNew Instance = new BetopperDJNew();
+
         public byte[] GetDMXVector()
         {
             if (Mode == DmxDeviceMode.RGB)

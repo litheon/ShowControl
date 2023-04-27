@@ -1,5 +1,6 @@
 ﻿using ShowControl.Animation;
 using ShowControl.Devices.Audio;
+using ShowControl.Devices.DMX;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -41,6 +42,11 @@ namespace ShowControl.Rendering
                 pixelOffset += surface.TotalPixelCount;
                 channelOffset += surface.TotalChannelCount;
             }
+        }
+
+        public IDmxDevice[] GetDevices()
+        {
+            return _renderSurfaces.SelectMany(r => r.GetDevices()).ToArray();
         }
 
         public int TotalPixelCount { get; private set; }

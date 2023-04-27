@@ -40,6 +40,11 @@ namespace ShowControl.Rendering
             }
         }
 
+        public IDmxDevice[] GetDevices()
+        {
+            return new IDmxDevice[] { _dmxDevice };
+        }
+
         public int TotalPixelCount => 1;
 
         public int TotalChannelCount => _dmxDevice.ChannelCount;

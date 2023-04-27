@@ -1,6 +1,8 @@
 ﻿using ShowControl.Devices.Audio;
+using ShowControl.Devices.DMX;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 
 namespace ShowControl.Rendering
@@ -15,6 +17,23 @@ namespace ShowControl.Rendering
             ) : base(renderSettings, renderSurfaces)
         {
             _audioService = audioService;
+        }
+
+        public static AudioReactiveRenderSurface Create(
+            IAudioService audioService,
+            params IRenderSurface[] renderSurfaces
+            )
+        {
+            return new AudioReactiveRenderSurface(audioService, renderSettings: null, renderSurfaces);
+        }
+
+        public static AudioReactiveRenderSurface Create(
+            IAudioService audioService,
+            RenderSettings renderSettings = null,
+            params IDmxDevice[] dmxDevices)
+        {
+            var dmxRenderSurfaces = dmxDevices.Select(d => new DmxDeviceRenderSurface(d));
+            return new AudioReactiveRenderSurface(audioService, renderSettings: renderSettings, dmxRenderSurfaces.ToArray());
         }
     }
 }

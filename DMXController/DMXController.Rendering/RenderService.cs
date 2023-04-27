@@ -26,6 +26,8 @@ namespace ShowControl.Rendering
         private readonly IAudioService _audioService;
         private readonly IDmxDevice[] _devices;
 
+        private readonly IRenderSurface[] _renderSurfaces;
+
         private readonly object _navigationAnimationLock = new object();
         private IMidiInputDevice _inputDevice;
         private NavigationLevel _navigationLevel;
@@ -50,27 +52,18 @@ namespace ShowControl.Rendering
             _renderThread = new Thread(RenderThreadLoop);
             _tcs = new TaskCompletionSource<bool>();
             _cts = new CancellationTokenSource();
-            _devices = new IDmxDevice[]
+            _renderSurfaces = new IRenderSurface[]
             {
-                new JLPow(),
-                new JLPow(),
-                new JLPow(),
-                new JLPow(),
-                new JLPow(),
-                new JLPow(),
-                new BetopperDJNew(),
-                new BetopperDJNew(),
-                new BetopperDJNew(),
-                new BetopperDJNew(),
-                new BetopperDJNew(),
-                new BetopperDJNew(),
-                new BetopperDJNew(),
-                new BetopperDJNew(),
-                new BetopperDJNew(),
-                new BetopperDJNew(),
-                new BetopperDJNew(),
-                new BetopperDJNew(),
+                 AudioReactiveRenderSurface.Create(
+                    _audioService,
+                    new RenderSettings(255),
+                    BetopperDJNew.Instance,
+                    BetopperDJNew.Instance,
+                    BetopperDJNew.Instance
+                )
             };
+
+            _devices = _renderSurfaces.SelectMany(r => r.GetDevices()).ToArray();
         }
         public RenderService(
             IDmxDeviceEnumerator deviceEnumerator,
@@ -324,12 +317,13 @@ namespace ShowControl.Rendering
 
         private void RenderThreadLoop()
         {
-            List<byte> bytes = new List<byte>(512);
+            //List<byte> bytes = new List<byte>(512);
+            byte[] targetVector = new byte[512];
             while (!_cts.Token.IsCancellationRequested)
             {
                 foreach (IDmxOutputDevice outputDevice in _outputDevices)
                 {
-                    bytes.Clear();
+                    //bytes.Clear();
                     int expectedFrameLength = 0;
                     IKeyAnimation keyAnimation = null;
                     ITransformAnimation transformAnimation = null;
@@ -345,35 +339,36 @@ namespace ShowControl.Rendering
                         {
                             frame = transformAnimation.GetNextFrame(frame);
                         }
-                        for (int i = 0; i < frame.Length; i++)
+                        int pixelOffset = 0;
+                        int channelOffset = 0;
+                        var frameSpan = frame.AsSpan();
+                        for (int i = 0; i < _renderSurfaces.Length; i++)
                         {
-                            var device = _devices[i];
-                            device.Color = frame[i].Color;
-                            device.Mode = frame[i].SoundReactivity > 0 ? DmxDeviceMode.SoundReactive : DmxDeviceMode.RGB;
-                            if (device.Mode == DmxDeviceMode.SoundReactive)
-                            {
-                                device.SoundReactivitySensitivity = frame[i].SoundReactivity;
-                            }
-                            device.MasterFader = (byte)_masterFader.InterlockedGet();
-                            bytes.AddRange(device.GetDMXVector());
-                            //should add transformations that can modify an existing animation, for example
-                            //mirroring it
-                            //animating it to bounce left/right
-                            //slowly animating in lights or animating them out
-                            //continuously animating in more lights
-                            //multiple streaks of light
-                            //pulsed waves of peak brightness with troughs that have a lower brightness
-                            //transformation that samples from an existing animation, and manipulates it in some way
-                            //ultimately fading in the current sample of the original animation
-                            expectedFrameLength += device.ChannelCount;
-                            if (bytes.Count != expectedFrameLength)
-                            {
-                                throw new Exception("Previous device did not return expected number of channels");
-                            }
+                            var surface = _renderSurfaces[i];
+                            surface.Render(frameSpan.Slice(pixelOffset, surface.TotalPixelCount), targetVector.AsSpan(), null);
+                            pixelOffset += surface.TotalPixelCount;
+                            channelOffset += surface.TotalChannelCount;
                         }
+                        //for (int i = 0; i < frame.Length; i++)
+                        //{
+                        //    var device = _devices[i];
+                        //    device.Color = frame[i].Color;
+                        //    device.Mode = frame[i].SoundReactivity > 0 ? DmxDeviceMode.SoundReactive : DmxDeviceMode.RGB;
+                        //    if (device.Mode == DmxDeviceMode.SoundReactive)
+                        //    {
+                        //        device.SoundReactivitySensitivity = frame[i].SoundReactivity;
+                        //    }
+                        //    device.MasterFader = (byte)_masterFader.InterlockedGet();
+                        //    bytes.AddRange(device.GetDMXVector());
+                        //    expectedFrameLength += device.ChannelCount;
+                        //    if (bytes.Count != expectedFrameLength)
+                        //    {
+                        //        throw new Exception("Previous device did not return expected number of channels");
+                        //    }
+                        //}
                     }
 
-                    outputDevice.Write(bytes.ToArray());
+                    outputDevice.Write(targetVector);
                 }
             }
             _tcs.SetResult(true);

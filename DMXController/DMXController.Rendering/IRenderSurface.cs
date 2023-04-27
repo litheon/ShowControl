@@ -1,4 +1,5 @@
 ﻿using ShowControl.Animation;
+using ShowControl.Devices.DMX;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -15,5 +16,7 @@ namespace ShowControl.Rendering
         public int TotalPixelCount { get; }
 
         public int TotalChannelCount { get; }
+
+        public IDmxDevice[] GetDevices();
     }
 }
