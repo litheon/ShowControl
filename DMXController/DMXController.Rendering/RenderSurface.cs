@@ -38,7 +38,7 @@ namespace ShowControl.Rendering
             {
                 var renderPixels = sourcePixels.Slice(pixelOffset, surface.TotalPixelCount);
                 var targetChannels = renderTarget.Slice(channelOffset, surface.TotalChannelCount);
-                surface.Render(renderPixels, targetChannels, _renderSettings ?? renderSettings);
+                surface.Render(renderPixels, targetChannels, renderSettings ?? _renderSettings);
                 pixelOffset += surface.TotalPixelCount;
                 channelOffset += surface.TotalChannelCount;
             }

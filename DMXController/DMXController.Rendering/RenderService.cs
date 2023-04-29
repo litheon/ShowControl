@@ -59,6 +59,9 @@ namespace ShowControl.Rendering
                     new RenderSettings(255),
                     BetopperDJNew.Instance,
                     BetopperDJNew.Instance,
+                    BetopperDJNew.Instance,
+                    BetopperDJNew.Instance,
+                    BetopperDJNew.Instance,
                     BetopperDJNew.Instance
                 )
             };
@@ -319,8 +322,10 @@ namespace ShowControl.Rendering
         {
             //List<byte> bytes = new List<byte>(512);
             byte[] targetVector = new byte[512];
+            var renderSettings = new RenderSettings();
             while (!_cts.Token.IsCancellationRequested)
             {
+                renderSettings.MasterFader = _masterFader.InterlockedGet();
                 foreach (IDmxOutputDevice outputDevice in _outputDevices)
                 {
                     //bytes.Clear();
@@ -345,7 +350,8 @@ namespace ShowControl.Rendering
                         for (int i = 0; i < _renderSurfaces.Length; i++)
                         {
                             var surface = _renderSurfaces[i];
-                            surface.Render(frameSpan.Slice(pixelOffset, surface.TotalPixelCount), targetVector.AsSpan(), null);
+                            
+                            surface.Render(frameSpan.Slice(pixelOffset, surface.TotalPixelCount), targetVector.AsSpan(), renderSettings);
                             pixelOffset += surface.TotalPixelCount;
                             channelOffset += surface.TotalChannelCount;
                         }

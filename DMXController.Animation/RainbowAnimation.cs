@@ -14,6 +14,8 @@ namespace ShowControl.Animation
     {
         private int _frameStart;
         private readonly Pixel[] _rootFrame;
+        private int[] _lastFrameDeltas;
+        private readonly int[] _targetColorIndices;
         private readonly object _frameLock = new object();
         private Pixel[] _frame;
         private readonly object _modeLock = new object();
@@ -33,33 +35,41 @@ namespace ShowControl.Animation
         private long _lastRotaryTurnedTicks = 0;
         private readonly TimeSpan _minRotaryTurnTimeSpan = TimeSpan.FromMilliseconds(50);
 
-        private readonly Color[] _colors = new Color[7]
+        private readonly Color[] _colors = new Color[6]
         {
                 Color.FromArgb(0xFF, 0xFF, 0x00, 0x00),
-                Color.FromArgb(0xFF, 0xFF, 0x80, 0x00),
+                Color.FromArgb(0xFF, 0xFF, 0xA5, 0x00),
                 Color.FromArgb(0xFF, 0xFF, 0xFF, 0x00),
                 Color.FromArgb(0xFF, 0x00, 0xFF, 0x00),
                 Color.FromArgb(0xFF, 0x00, 0x00, 0xFF),
-                Color.FromArgb(0xFF, 0xFF, 0x00, 0xFF),
-                Color.FromArgb(0xFF, 0xFF, 0xFF, 0xFF)
+                Color.FromArgb(0xFF, 0xFF, 0x00, 0xFF)
+                //Color.FromArgb(0xFF, 0xFF, 0xFF, 0xFF)
         };
 
         public RainbowAnimation(int pixelCount, IAudioService audioService)
         {
             _frameStart = 0;
             _rootFrame = new Pixel[pixelCount];
+            _lastFrameDeltas = new int[pixelCount];
             _mode = AnimationMode.Automatic;
             _automationTimer = new Timer(AutomaticModeFrameTick, null, Timeout.Infinite, Timeout.Infinite);
             _navigationColorTimer = new Timer(NavigationTimerTick, null, 1000, 1000);
             _audioService = audioService;
             _pressedPads = new List<int>();
-
+            _targetColorIndices = new int[Math.Max(pixelCount, _colors.Length)];
             int j = 0;
             for (int i = 0; i < _rootFrame.Length; i++)
             {
                 _rootFrame[i] = new Pixel(_colors[j], 0, 0);
                 j = (j + 1) % _colors.Length;
             }
+            j = 1;
+            for (int i = 0; i < _targetColorIndices.Length; i++)
+            {
+                _targetColorIndices[i] = j;
+                j = (j + 1) % _colors.Length;
+            }
+            Array.Fill(_lastFrameDeltas, 0);
         }
 
         ~RainbowAnimation()
@@ -70,8 +80,128 @@ namespace ShowControl.Animation
 
         private void AutomaticModeFrameTick(object state)
         {
-            _frameStart.InterlockedIncrement(0, _rootFrame.Length - 1);
+            Animate();
+            //_frameStart.InterlockedIncrement(0, _rootFrame.Length - 1);
         }
+
+        private void Animate(bool forward = true)
+        {
+            lock (_rootFrame)
+            {
+                int minDistance = 256;
+                int maxDistance = 0x00;
+            
+                for (int i = 0; i < _rootFrame.Length; i++)
+                {
+                    var targetColorIndex = _targetColorIndices[i];
+                    if (!forward)
+                    {
+                        if (i == 0)
+                        {
+                            targetColorIndex = _targetColorIndices[^1];
+                        }
+                        else
+                        {
+                            targetColorIndex = _targetColorIndices[i - 1];
+                        }
+                    }
+
+                    var rDistance = Math.Abs(_colors[targetColorIndex].R - _rootFrame[i].Color.R);
+                    var gDistance = Math.Abs(_colors[targetColorIndex].G - _rootFrame[i].Color.G);
+                    var bDistance = Math.Abs(_colors[targetColorIndex].B - _rootFrame[i].Color.B);
+                    if (rDistance > 0)
+                    {
+                        minDistance = Math.Min(minDistance, rDistance);
+                    }
+                    if (gDistance > 0)
+                    {
+                        minDistance = Math.Min(minDistance, gDistance);
+                    }
+                    if (bDistance > 0)
+                    {
+                        minDistance = Math.Min(minDistance, bDistance);
+                    }
+                    maxDistance = Math.Max(maxDistance, rDistance);
+                    maxDistance = Math.Max(maxDistance, gDistance);
+                    maxDistance = Math.Max(maxDistance, bDistance);
+                }
+                if (maxDistance == 0)
+                {
+                    if (forward)
+                    {
+                        var first = _targetColorIndices[0];
+                        for (int i = 0; i < _targetColorIndices.Length - 1; i++)
+                        {
+                            _targetColorIndices[i] = _targetColorIndices[i + 1];
+                        }
+                        _targetColorIndices[^1] = first;
+                    }
+                    else
+                    {
+                        var last = _targetColorIndices[^1];
+                        for (int i = _targetColorIndices.Length - 1; i > 0; i--)
+                        {
+                            _targetColorIndices[i] = _targetColorIndices[i - 1];
+                        }
+                        _targetColorIndices[0] = last;
+                    }
+
+                    Array.Fill(_lastFrameDeltas, 0);
+                    return;
+                }
+                for (int i = 0; i < _rootFrame.Length; i++)
+                {
+                    var targetColorIndex = _targetColorIndices[i];
+                    if (!forward)
+                    {
+                        if (i == 0)
+                        {
+                            targetColorIndex = _targetColorIndices[^1];
+                        }
+                        else
+                        {
+                            targetColorIndex = _targetColorIndices[i - 1];
+                        }
+                    }
+
+                    var rDistance = _colors[targetColorIndex].R - _rootFrame[i].Color.R;
+                    var gDistance = _colors[targetColorIndex].G - _rootFrame[i].Color.G;
+                    var bDistance = _colors[targetColorIndex].B - _rootFrame[i].Color.B;
+
+                    byte R = HandleFunction(_rootFrame[i].Color.R, rDistance);
+                    byte G = HandleFunction(_rootFrame[i].Color.G, gDistance);
+                    byte B = HandleFunction(_rootFrame[i].Color.B, bDistance);
+
+                    _rootFrame[i].Color = Color.FromArgb(0xFF, R, G, B);
+
+                    byte HandleFunction(byte value, int distance)
+                    {
+                        if (distance == 0)
+                        {
+                            return value;
+                        }
+
+                        bool subtract = distance < 0;
+                        var lastRate = Math.Abs((_lastFrameDeltas[i] > 0 ? _lastFrameDeltas[i] / distance : 1));
+                        var closeRate = minDistance < 256 ? Math.Abs(((double)1 / minDistance)) : 256;
+
+                        int delta = 0;
+                        //if (closeRate / lastRate >= 1.5 && Math.Abs(distance) > 1 && _lastFrameDeltas[i] > 0)
+                        //{
+                        //    delta = subtract ? -2 : 2;
+                        //}
+                        //else
+                        //{
+                            delta = subtract ? -1 : 1;
+                        //}
+
+                        _lastFrameDeltas[i] = delta;
+                        return (byte)(value + delta);
+                    }
+                }
+            }
+        }
+
 
         private void NavigationTimerTick(object state)
         {
@@ -82,7 +212,7 @@ namespace ShowControl.Animation
         private void StartTimers()
         {
             //_automationTimer.Change(500, 500);
-            _automationTimer.Change(700, 700);
+            _automationTimer.Change(1, 1);
         }
 
         private void StopTimers()
@@ -102,7 +232,7 @@ namespace ShowControl.Animation
                 if (_mode == AnimationMode.Automatic)
                 {
                     //_automationTimer.Change(500, 500);
-                    _automationTimer.Change(700, 700);
+                    _automationTimer.Change(1, 1);
                 }
                 else
                 {
@@ -148,9 +278,13 @@ namespace ShowControl.Animation
             //add a mode that grabs a window into a large continous gradient that music/the user/a timer will automatically scroll through
             if (_mode == AnimationMode.SoundReactive)
             {
-                if (e.CurrentLevel > e.AverageLevel * 1.4 && e.CurrentLevel >= -50.0d && _frameCoolDown <= 0)
+                if (e.CurrentLevel >= -50.0d)
                 {
-                    _frameStart.InterlockedIncrement(0, _rootFrame.Length - 1);
+                    var level = Convert.ToInt32(Math.Min(Math.Max(Math.Round(e.CurrentLevel / e.AverageLevel) * 10, 1), 10));
+                    for (int i = 0; i < 10; i++)
+                    {
+                        Animate();
+                    }
                     _frameCoolDown = DefaultFrameCooldown;
                 }
                 else if (_frameCoolDown >= 1)
@@ -218,25 +352,36 @@ namespace ShowControl.Animation
 
         public override void RotaryTurned(RotaryDirection direction, byte rotaryNumber, byte? value)
         {
-            var currentTicks = DateTime.Now.Ticks;
-            if (currentTicks < _lastRotaryTurnedTicks + _minRotaryTurnTimeSpan.Ticks)
+            //var currentTicks = DateTime.Now.Ticks;
+            //if (currentTicks < _lastRotaryTurnedTicks + _minRotaryTurnTimeSpan.Ticks)
+            //{
+            //    return;
+            //}
+            //_lastRotaryTurnedTicks = currentTicks;
+            if (rotaryNumber == 1 && direction != RotaryDirection.None)
             {
-                return;
-            }
-            _lastRotaryTurnedTicks = currentTicks;
-            if (rotaryNumber == 1)
-            {
+                for (int i = 0; i < 20; i++)
+                {
+                    Animate(direction == RotaryDirection.Up);
+                }
+                
                 SetMode(AnimationMode.Manual);
-                if (direction == RotaryDirection.Up)
+                //if (direction == RotaryDirection.Up)
+                //{
+                //    _frameStart.InterlockedDecrement(0, _rootFrame.Length - 1);
+                //}
+                //else if (direction == RotaryDirection.Down)
+                //{
+                //    _frameStart.InterlockedIncrement(0, _rootFrame.Length - 1);
+                //}
+                //var frameStart = _frameStart.InterlockedGet();
+                lock(_rootFrame)
                 {
-                    _frameStart.InterlockedDecrement(0, _rootFrame.Length - 1);
+                    lock (_frame)
+                    {
+                        Array.Copy(_rootFrame, _frame, _rootFrame.Length);
+                    }
                 }
-                else if (direction == RotaryDirection.Down)
-                {
-                    _frameStart.InterlockedIncrement(0, _rootFrame.Length - 1);
-                }
-                var frameStart = _frameStart.InterlockedGet();
-                _frame = _rootFrame.Skip(frameStart).Concat(_rootFrame.Take(frameStart)).ToArray();
             }
         }
 
@@ -281,12 +426,15 @@ namespace ShowControl.Animation
 
         public Pixel[] GetNextFrame()
         {
-            if (_mode == AnimationMode.SoundReactive || _mode == AnimationMode.Automatic)
+            lock(_rootFrame)
             {
-                var frameStart = _frameStart.InterlockedGet();
-                _frame = _rootFrame.Skip(frameStart).Concat(_rootFrame.Take(frameStart)).ToArray();
+                if (_mode == AnimationMode.SoundReactive || _mode == AnimationMode.Automatic)
+                {
+                    var frameStart = _frameStart.InterlockedGet();
+                    _frame = _rootFrame.Skip(frameStart).Concat(_rootFrame.Take(frameStart)).ToArray();
+                }
+                return _frame;
             }
-            return _frame;
         }
 
         private void SetFrameWithSingleColor(Color color)

@@ -19,6 +19,11 @@ namespace ShowControl.Animation
                 _keyFrameBuffer[i] = keyFrame[i];
                 _keyFrameBuffer[^(i+1)] = keyFrame[i];
             }
+            if (keyFrame.Length % 2 == 1)
+            {
+                var index = _keyFrameBuffer.Length / 2;
+                _keyFrameBuffer[index] = keyFrame[index];
+            }
             return _keyFrameBuffer;
         }
 

@@ -7,11 +7,11 @@ namespace ShowControl.Rendering
     public class RenderSettings
     {
         public RenderSettings(
-            int maxBrightness)
+            int maxBrightness = 255)
         {
             MasterFader = maxBrightness;
         }
 
-        public int MasterFader { get; private set; }
+        public int MasterFader { get; set; }
     }
 }
