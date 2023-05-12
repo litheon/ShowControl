@@ -14,8 +14,12 @@ namespace ShowControl.Animation
     {
         private int _frameStart;
         private readonly Pixel[] _rootFrame;
-        private int[] _lastFrameDeltas;
+        private int _maxDistance;
+        private int _maxDistanceIndex;
         private readonly int[] _targetColorIndices;
+        private readonly int[] _sourceColorIndices;
+        private readonly ColorStat[] _skippedAnimations;
+        private readonly ColorStat[] _remainingDistributed;
         private readonly object _frameLock = new object();
         private Pixel[] _frame;
         private readonly object _modeLock = new object();
@@ -50,17 +54,20 @@ namespace ShowControl.Animation
         {
             _frameStart = 0;
             _rootFrame = new Pixel[pixelCount];
-            _lastFrameDeltas = new int[pixelCount];
             _mode = AnimationMode.Automatic;
             _automationTimer = new Timer(AutomaticModeFrameTick, null, Timeout.Infinite, Timeout.Infinite);
             _navigationColorTimer = new Timer(NavigationTimerTick, null, 1000, 1000);
             _audioService = audioService;
             _pressedPads = new List<int>();
             _targetColorIndices = new int[Math.Max(pixelCount, _colors.Length)];
+            _sourceColorIndices = new int[_targetColorIndices.Length];
+            _skippedAnimations = new ColorStat[_targetColorIndices.Length];
+            _remainingDistributed = new ColorStat[_targetColorIndices.Length];
             int j = 0;
             for (int i = 0; i < _rootFrame.Length; i++)
             {
                 _rootFrame[i] = new Pixel(_colors[j], 0, 0);
+                _sourceColorIndices[i] = j;
                 j = (j + 1) % _colors.Length;
             }
             j = 1;
@@ -69,7 +76,7 @@ namespace ShowControl.Animation
                 _targetColorIndices[i] = j;
                 j = (j + 1) % _colors.Length;
             }
-            Array.Fill(_lastFrameDeltas, 0);
+            CalculateMaxDistance();
         }
 
         ~RainbowAnimation()
@@ -84,51 +91,64 @@ namespace ShowControl.Animation
             //_frameStart.InterlockedIncrement(0, _rootFrame.Length - 1);
         }
 
+        private void CalculateMaxDistance()
+        {
+            _maxDistance = 0;
+            for (int i = 0; i < _targetColorIndices.Length; i++)
+            {
+                var targetColorIndex = _targetColorIndices[i];
+                var sourceColorIndex = _sourceColorIndices[i];
+
+                if (_rootFrame[i].Color.R != _colors[targetColorIndex].R)
+                {
+                    var originalRDistance = Math.Abs(_colors[targetColorIndex].R - _colors[sourceColorIndex].R);
+                    DetermineMaxDistanceIndex(ref _maxDistanceIndex, ref _maxDistance, i, originalRDistance);
+                }
+                if (_rootFrame[i].Color.G != _colors[targetColorIndex].G)
+                {
+                    var originalGDistance = Math.Abs(_colors[targetColorIndex].G - _colors[sourceColorIndex].G);
+                    DetermineMaxDistanceIndex(ref _maxDistanceIndex, ref _maxDistance, i, originalGDistance);
+                }
+                if (_rootFrame[i].Color.B != _colors[targetColorIndex].B)
+                {
+                    var originalBDistance = Math.Abs(_colors[targetColorIndex].B - _colors[sourceColorIndex].B);
+                    DetermineMaxDistanceIndex(ref _maxDistanceIndex, ref _maxDistance, i, originalBDistance);
+                }
+
+                static void DetermineMaxDistanceIndex(ref int maxDistanceIndex, ref int originalMaxDistance, int i, int distance)
+                {
+                    if (distance > originalMaxDistance)
+                    {
+                        originalMaxDistance = distance;
+                        maxDistanceIndex = i;
+                    }
+                }
+            }
+        }
+
         private void Animate(bool forward = true)
         {
             lock (_rootFrame)
             {
-                int minDistance = 256;
-                int maxDistance = 0x00;
-            
-                for (int i = 0; i < _rootFrame.Length; i++)
+                var rRemainingDistance = Math.Abs(_colors[_targetColorIndices[_maxDistanceIndex]].R - _rootFrame[_maxDistanceIndex].Color.R);
+                var gRemainingDistance = Math.Abs(_colors[_targetColorIndices[_maxDistanceIndex]].G - _rootFrame[_maxDistanceIndex].Color.G);
+                var bRemainingDistance = Math.Abs(_colors[_targetColorIndices[_maxDistanceIndex]].B - _rootFrame[_maxDistanceIndex].Color.B);
+
+                var remainingDistance = Math.Max(rRemainingDistance, Math.Max(gRemainingDistance, bRemainingDistance));
+                if (remainingDistance == 0)
                 {
-                    var targetColorIndex = _targetColorIndices[i];
-                    if (!forward)
+                    for (int i = 0; i < _rootFrame.Length; i++)
                     {
-                        if (i == 0)
+                        if (_rootFrame[i].Color != _colors[_targetColorIndices[i]])
                         {
-                            targetColorIndex = _targetColorIndices[^1];
-                        }
-                        else
-                        {
-                            targetColorIndex = _targetColorIndices[i - 1];
+                            int x = 0;
                         }
                     }
 
-                    var rDistance = Math.Abs(_colors[targetColorIndex].R - _rootFrame[i].Color.R);
-                    var gDistance = Math.Abs(_colors[targetColorIndex].G - _rootFrame[i].Color.G);
-                    var bDistance = Math.Abs(_colors[targetColorIndex].B - _rootFrame[i].Color.B);
-                    if (rDistance > 0)
-                    {
-                        minDistance = Math.Min(minDistance, rDistance);
-                    }
-                    if (gDistance > 0)
-                    {
-                        minDistance = Math.Min(minDistance, gDistance);
-                    }
-                    if (bDistance > 0)
-                    {
-                        minDistance = Math.Min(minDistance, bDistance);
-                    }
-                    maxDistance = Math.Max(maxDistance, rDistance);
-                    maxDistance = Math.Max(maxDistance, gDistance);
-                    maxDistance = Math.Max(maxDistance, bDistance);
-                }
-                if (maxDistance == 0)
-                {
+                    Array.Copy(_targetColorIndices, _sourceColorIndices, _targetColorIndices.Length);
                     if (forward)
                     {
+
                         var first = _targetColorIndices[0];
                         for (int i = 0; i < _targetColorIndices.Length - 1; i++)
                         {
@@ -146,62 +166,96 @@ namespace ShowControl.Animation
                         _targetColorIndices[0] = last;
                     }
 
-                    Array.Fill(_lastFrameDeltas, 0);
+                    for (int i = 0; i < _remainingDistributed.Length; i++)
+                    {
+                        _remainingDistributed[i].r = 0;
+                        _remainingDistributed[i].g = 0;
+                        _remainingDistributed[i].b = 0;
+                    }
+
+                    for (int i = 0; i < _skippedAnimations.Length; i++)
+                    {
+                        _skippedAnimations[i].r = 0;
+                        _skippedAnimations[i].g = 0;
+                        _skippedAnimations[i].b = 0;
+                    }
+
+                    for (int i = 0; i < _rootFrame.Length; i++)
+                    {
+                        if (_rootFrame[i].Color != _colors[_sourceColorIndices[i]])
+                        {
+                            int x = 0;
+                        }
+                    }
+
+                    CalculateMaxDistance();
                     return;
                 }
+
                 for (int i = 0; i < _rootFrame.Length; i++)
                 {
-                    var targetColorIndex = _targetColorIndices[i];
-                    if (!forward)
-                    {
-                        if (i == 0)
-                        {
-                            targetColorIndex = _targetColorIndices[^1];
-                        }
-                        else
-                        {
-                            targetColorIndex = _targetColorIndices[i - 1];
-                        }
-                    }
-
-                    var rDistance = _colors[targetColorIndex].R - _rootFrame[i].Color.R;
-                    var gDistance = _colors[targetColorIndex].G - _rootFrame[i].Color.G;
-                    var bDistance = _colors[targetColorIndex].B - _rootFrame[i].Color.B;
-
-                    byte R = HandleFunction(_rootFrame[i].Color.R, rDistance);
-                    byte G = HandleFunction(_rootFrame[i].Color.G, gDistance);
-                    byte B = HandleFunction(_rootFrame[i].Color.B, bDistance);
-
+                    byte R = CalculateColorChange(_rootFrame[i].Color.R, _colors[_sourceColorIndices[i]].R, _colors[_targetColorIndices[i]].R, remainingDistance, ref _skippedAnimations[i].r, ref _remainingDistributed[i].r);
+                    byte G = CalculateColorChange(_rootFrame[i].Color.G, _colors[_sourceColorIndices[i]].G, _colors[_targetColorIndices[i]].G, remainingDistance, ref _skippedAnimations[i].g, ref _remainingDistributed[i].g);
+                    byte B = CalculateColorChange(_rootFrame[i].Color.B, _colors[_sourceColorIndices[i]].B, _colors[_targetColorIndices[i]].B, remainingDistance, ref _skippedAnimations[i].b, ref _remainingDistributed[i].b);
                     _rootFrame[i].Color = Color.FromArgb(0xFF, R, G, B);
-
-                    byte HandleFunction(byte value, int distance)
-                    {
-                        if (distance == 0)
-                        {
-                            return value;
-                        }
-
-                        bool subtract = distance < 0;
-                        var lastRate = Math.Abs((_lastFrameDeltas[i] > 0 ? _lastFrameDeltas[i] / distance : 1));
-                        var closeRate = minDistance < 256 ? Math.Abs(((double)1 / minDistance)) : 256;
-
-                        int delta = 0;
-                        //if (closeRate / lastRate >= 1.5 && Math.Abs(distance) > 1 && _lastFrameDeltas[i] > 0)
-                        //{
-                        //    delta = subtract ? -2 : 2;
-                        //}
-                        //else
-                        //{
-                            delta = subtract ? -1 : 1;
-                        //}
-
-                        _lastFrameDeltas[i] = delta;
-                        return (byte)(value + delta);
-                    }
                 }
             }
         }
 
+        private byte CalculateColorChange(int current, byte source, byte target, int remainingDistance,
+            ref int skippedAnimations, ref int remainingDistributed)
+        {
+            if (current == target)
+            {
+                return target;
+            }
+
+            if (source < target && current < source)
+            {
+                int x = 0;
+            }
+
+            bool add = source < target;
+            //The original distance this light had to target
+            var animatesToTarget = Math.Abs(source - target);
+            //The number of Animate calls that should occur before this light moves up by one to target
+            var animatesPerDelta = animatesToTarget > 0 ? _maxDistance / animatesToTarget : 0;
+            //The number of Animate calls that need to be made up for this light for target
+            var originalRemaining = animatesToTarget > 0 && _maxDistance / animatesPerDelta < animatesToTarget ? _maxDistance / animatesPerDelta % animatesToTarget : 0;
+            //On average the number of remaining to target that should be distributed per Animate for this light 
+            var remainingRatePerAnimate = (double)originalRemaining / _maxDistance;
+            //Should we animate to target for this light in this call?
+            if (animatesPerDelta <= 1)
+            {
+                //yes
+                current = add ? current + 1 : current - 1;
+            }
+            else if (animatesPerDelta > 1)
+            {
+                if (skippedAnimations < animatesPerDelta - 1)
+                {
+                    skippedAnimations++;
+                }
+                else
+                {
+                    current = add ? current + 1 : current - 1;
+                    skippedAnimations = 0;
+                }
+            }
+
+            if ((double)(originalRemaining - remainingDistributed) / (remainingDistance) > remainingRatePerAnimate)
+            {
+                current = add ? current + 1 : current - 1;
+                remainingDistributed++;
+            }
+
+            if (current > 255 || current < 0)
+            {
+                int x = 0;
+            }
+
+            return (byte)current;
+        }
 
         private void NavigationTimerTick(object state)
         {
@@ -278,10 +332,10 @@ namespace ShowControl.Animation
             //add a mode that grabs a window into a large continous gradient that music/the user/a timer will automatically scroll through
             if (_mode == AnimationMode.SoundReactive)
             {
-                if (e.CurrentLevel >= -50.0d)
+                if (e.CurrentLevel >= -30.0d)
                 {
-                    var level = Convert.ToInt32(Math.Min(Math.Max(Math.Round(e.CurrentLevel / e.AverageLevel) * 10, 1), 10));
-                    for (int i = 0; i < 10; i++)
+                    var level = Convert.ToInt32(Math.Min(Math.Max(Math.Round(e.CurrentLevel / e.AverageLevel) * 3, 1), 3));
+                    for (int i = 0; i < level; i++)
                     {
                         Animate();
                     }
@@ -318,6 +372,7 @@ namespace ShowControl.Animation
                     SetMode(AnimationMode.Manual);
                     var color = Color.FromArgb(0x00, 0x00, 0x00, 0x00);
                     SetFrameWithSingleColor(color);
+                    _pressedPads.Add(padNumber);
                 }
                 else if (padNumber == padCount - 2)
                 {
@@ -333,7 +388,7 @@ namespace ShowControl.Animation
             }
             else if (direction == ButtonDirection.Release)
             {
-                if (padNumber < padCount - 2)
+                if (padNumber != padCount - 2)
                 {
                     _pressedPads.Remove(padNumber);
                     if (_pressedPads.Count == 0)
@@ -446,5 +501,12 @@ namespace ShowControl.Animation
             }
             SetFrame(colors);
         }
+    }
+
+    public struct ColorStat
+    {
+        public int r;
+        public int g;
+        public int b;
     }
 }

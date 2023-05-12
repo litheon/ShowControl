@@ -84,10 +84,20 @@ namespace ShowControl.Devices.Input
             );
 
             DeviceId = deviceId;
+            InitializeInterface();
+        }
+
+        private void InitializeInterface()
+        {
             var advancedControlModeSignal = new NoteEvent(0, channel: 16, commandCode: MidiCommandCode.NoteOff, noteNumber: 0, velocity: 127);
             _midiOut.Send(advancedControlModeSignal.GetAsShortMessage());
             _midiIn.Start();
-            ClearInterface();
+        }
+
+        public override void Reconnect(int inDeviceNo, int outDeviceNo)
+        {
+            base.Reconnect(inDeviceNo, outDeviceNo);
+            InitializeInterface();
         }
 
         public int DeviceId { get; private set; }

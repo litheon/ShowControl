@@ -6,8 +6,9 @@ namespace ShowControl.Devices.Input
 {
     public interface IInputService
     {
+        public event EventHandler OnInputDeviceReconnected;
         public event EventHandler<DeviceInputEventArgs> OnInputReceived;
-        public List<IMidiInputDevice> Devices { get; }
+        public IEnumerable<IMidiInputDevice> Devices { get; }
         public void Stop();
     }
 }

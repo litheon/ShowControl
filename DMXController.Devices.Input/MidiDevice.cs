@@ -15,6 +15,23 @@ namespace ShowControl.Devices.Input
             _midiIn = new MidiIn(inDeviceNo);
             _midiOut = new MidiOut(outDeviceNo);
             _midiIn.MessageReceived += MidiIn_MessageReceived;
+            _midiIn.ErrorReceived += _midiIn_ErrorReceived;
+        }
+
+        public virtual void Reconnect(int inDeviceNo, int outDeviceNo)
+        {
+            _midiIn.Dispose();
+            _midiOut.Dispose();
+            _midiIn = new MidiIn(inDeviceNo);
+            _midiOut = new MidiOut(outDeviceNo);
+            _midiIn.MessageReceived += MidiIn_MessageReceived;
+            _midiIn.ErrorReceived += _midiIn_ErrorReceived;
+            _midiIn.Start();
+        }
+
+        private void _midiIn_ErrorReceived(object sender, MidiInMessageEventArgs e)
+        {
+            int x = 0;
         }
 
         public void Dispose()

@@ -28,7 +28,7 @@ namespace ShowControl.Rendering
 
         private readonly IRenderSurface[] _renderSurfaces;
 
-        private readonly object _navigationAnimationLock = new object();
+        private readonly object _navigationLock = new object();
         private IMidiInputDevice _inputDevice;
         private NavigationLevel _navigationLevel;
         private int _activeKeyAnimation = -1;
@@ -38,7 +38,7 @@ namespace ShowControl.Rendering
         private PadState[] _padStates;
         private int _padTransitionStartIndex;
 
-        private int _masterFader = 255;
+        private int _masterFader = 127;
 
         public RenderService(
             IDmxDeviceEnumerator deviceEnumerator,
@@ -57,6 +57,10 @@ namespace ShowControl.Rendering
                  AudioReactiveRenderSurface.Create(
                     _audioService,
                     new RenderSettings(255),
+                    BetopperDJNew.Instance,
+                    BetopperDJNew.Instance,
+                    BetopperDJNew.Instance,
+                    BetopperDJNew.Instance,
                     BetopperDJNew.Instance,
                     BetopperDJNew.Instance,
                     BetopperDJNew.Instance,
@@ -81,6 +85,7 @@ namespace ShowControl.Rendering
         public Task StartAsync(CancellationToken cancellationToken)
         {
             _inputService.OnInputReceived += InputService_OnInputReceived;
+            _inputService.OnInputDeviceReconnected += _inputService_OnInputDeviceReconnected;
             _inputDevice = _inputService.Devices.FirstOrDefault();
             _padTransitionStartIndex = _inputDevice.PadCount / 2;
 
@@ -90,10 +95,18 @@ namespace ShowControl.Rendering
             return Task.CompletedTask;
         }
 
+        private void _inputService_OnInputDeviceReconnected(object sender, EventArgs e)
+        {
+            lock (_navigationLock)
+            {
+                SetNavigationLevel(_navigationLevel);
+            }
+        }
+
         private bool SetActiveKeyAnimation(int index)
         {
             IKeyAnimation animation;
-            lock (_navigationAnimationLock)
+            lock (_navigationLock)
             {
                 if (index >= _keyAnimations.Length)
                 {
@@ -115,7 +128,7 @@ namespace ShowControl.Rendering
         private bool SetActiveTransformAnimation(int index)
         {
             ITransformAnimation animation;
-            lock (_navigationAnimationLock)
+            lock (_navigationLock)
             {
                 if (index >= _transformAnimations.Length)
                 {
@@ -145,7 +158,7 @@ namespace ShowControl.Rendering
         private void SetNavigationLevel(NavigationLevel navigationLevel)
         {
             IAnimation animation = null;
-            lock (_navigationAnimationLock)
+            lock (_navigationLock)
             {
                 _navigationLevel = navigationLevel;
 
@@ -181,11 +194,16 @@ namespace ShowControl.Rendering
 
         private void InputService_OnInputReceived(object sender, DeviceInputEventArgs e)
         {
+            NavigationLevel navigationLevel;
+            lock (_navigationLock)
+            {
+                navigationLevel = _navigationLevel;
+            }
             if (e.EventType == DeviceInputEventType.Navigation)
             {
                 ProcessNavigationButtonPressed(e.ButtonDirection, e.NavigationDirection);
             }
-            else if (_navigationLevel == NavigationLevel.Root)
+            else if (navigationLevel == NavigationLevel.Root)
             {
                 if (e.EventType == DeviceInputEventType.Pad)
                 {
@@ -207,7 +225,7 @@ namespace ShowControl.Rendering
             else
             {
                 IAnimation animation = null;
-                lock (_navigationAnimationLock)
+                lock (_navigationLock)
                 {
                     if (_navigationLevel == NavigationLevel.KeyAnimation)
                     {
@@ -256,7 +274,10 @@ namespace ShowControl.Rendering
             if (direction == ButtonDirection.Press && navigationButton == NavigationButton.Up)
             {
                 _inputDevice.ClearInterface();
-                SetNavigationLevel(_navigationLevel == NavigationLevel.Root ? NavigationLevel.KeyAnimation : NavigationLevel.Root);
+                lock (_navigationLock)
+                {
+                    SetNavigationLevel(_navigationLevel == NavigationLevel.Root ? NavigationLevel.KeyAnimation : NavigationLevel.Root);
+                }
             }
         }
 
@@ -332,7 +353,7 @@ namespace ShowControl.Rendering
                     int expectedFrameLength = 0;
                     IKeyAnimation keyAnimation = null;
                     ITransformAnimation transformAnimation = null;
-                    lock (_navigationAnimationLock)
+                    lock (_navigationLock)
                     {
                         keyAnimation = _activeKeyAnimation > -1 ? _keyAnimations[_activeKeyAnimation] : null;
                         transformAnimation = _activeTransformAnimation > -1 ? _transformAnimations[_activeTransformAnimation] : null;
@@ -385,7 +406,7 @@ namespace ShowControl.Rendering
             IKeyAnimation activeKeyAnimation = null;
             NavigationLevel navigationLevel;
             int sourceAnimationIndex = -1;
-            lock (_navigationAnimationLock)
+            lock (_navigationLock)
             {
                 if (_activeKeyAnimation > -1)
                 {

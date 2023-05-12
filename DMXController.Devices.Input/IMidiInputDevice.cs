@@ -29,6 +29,7 @@ namespace ShowControl.Devices.Input
         public void SetButtonIllumination(Button button, LightState state);
         public void ClearInterface();
         public void Stop();
+        public void Reconnect(int inDeviceNo, int outDeviceNo);
         public event EventHandler<DeviceInputEventArgs> OnInputReceived;
     }
 }
