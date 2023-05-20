@@ -20,6 +20,7 @@ namespace ShowControl.Animation
         private readonly int[] _sourceColorIndices;
         private readonly ColorStat[] _skippedAnimations;
         private readonly ColorStat[] _remainingDistributed;
+        private long _lastAnimationFrameTicks;
         private readonly object _frameLock = new object();
         private Pixel[] _frame;
         private readonly object _modeLock = new object();
@@ -32,30 +33,23 @@ namespace ShowControl.Animation
         int navigationColorIndex = 0;
 
         private readonly IAudioService _audioService;
-        private double _lastFft = double.NegativeInfinity;
         private const int DefaultFrameCooldown = AudioService.SampleRate / AudioService.FftLength / 6;
         private int _frameCoolDown = 1;
         private readonly List<int> _pressedPads;
-        private long _lastRotaryTurnedTicks = 0;
-        private readonly TimeSpan _minRotaryTurnTimeSpan = TimeSpan.FromMilliseconds(50);
+        private readonly Color[] _colors;
+        bool _specialModesEnabled = false;
 
-        private readonly Color[] _colors = new Color[6]
-        {
-                Color.FromArgb(0xFF, 0xFF, 0x00, 0x00),
-                Color.FromArgb(0xFF, 0xFF, 0xA5, 0x00),
-                Color.FromArgb(0xFF, 0xFF, 0xFF, 0x00),
-                Color.FromArgb(0xFF, 0x00, 0xFF, 0x00),
-                Color.FromArgb(0xFF, 0x00, 0x00, 0xFF),
-                Color.FromArgb(0xFF, 0xFF, 0x00, 0xFF)
-                //Color.FromArgb(0xFF, 0xFF, 0xFF, 0xFF)
-        };
-
-        public RainbowAnimation(int pixelCount, IAudioService audioService)
+        public RainbowAnimation(
+            int pixelCount,
+            Color[] colors,
+            IAudioService audioService)
         {
             _frameStart = 0;
             _rootFrame = new Pixel[pixelCount];
-            _mode = AnimationMode.Automatic;
+            _colors = colors;
             _automationTimer = new Timer(AutomaticModeFrameTick, null, Timeout.Infinite, Timeout.Infinite);
+            _lastMode = AnimationMode.Automatic;
+            _mode = AnimationMode.Automatic;
             _navigationColorTimer = new Timer(NavigationTimerTick, null, 1000, 1000);
             _audioService = audioService;
             _pressedPads = new List<int>();
@@ -87,29 +81,29 @@ namespace ShowControl.Animation
 
         private void AutomaticModeFrameTick(object state)
         {
-            Animate();
+            Animate(forward: true, fromInput: false);
             //_frameStart.InterlockedIncrement(0, _rootFrame.Length - 1);
         }
 
         private void CalculateMaxDistance()
         {
             _maxDistance = 0;
-            for (int i = 0; i < _targetColorIndices.Length; i++)
+            for (int i = 0; i < _targetColorIndices.Length && i < _rootFrame.Length; i++)
             {
                 var targetColorIndex = _targetColorIndices[i];
                 var sourceColorIndex = _sourceColorIndices[i];
 
-                if (_rootFrame[i].Color.R != _colors[targetColorIndex].R)
+                if (_colors[sourceColorIndex].R != _colors[targetColorIndex].R)
                 {
                     var originalRDistance = Math.Abs(_colors[targetColorIndex].R - _colors[sourceColorIndex].R);
                     DetermineMaxDistanceIndex(ref _maxDistanceIndex, ref _maxDistance, i, originalRDistance);
                 }
-                if (_rootFrame[i].Color.G != _colors[targetColorIndex].G)
+                if (_colors[sourceColorIndex].G != _colors[targetColorIndex].G)
                 {
                     var originalGDistance = Math.Abs(_colors[targetColorIndex].G - _colors[sourceColorIndex].G);
                     DetermineMaxDistanceIndex(ref _maxDistanceIndex, ref _maxDistance, i, originalGDistance);
                 }
-                if (_rootFrame[i].Color.B != _colors[targetColorIndex].B)
+                if (_colors[sourceColorIndex].B != _colors[targetColorIndex].B)
                 {
                     var originalBDistance = Math.Abs(_colors[targetColorIndex].B - _colors[sourceColorIndex].B);
                     DetermineMaxDistanceIndex(ref _maxDistanceIndex, ref _maxDistance, i, originalBDistance);
@@ -126,7 +120,7 @@ namespace ShowControl.Animation
             }
         }
 
-        private void Animate(bool forward = true)
+        private void Animate(bool forward, bool fromInput)
         {
             lock (_rootFrame)
             {
@@ -135,11 +129,15 @@ namespace ShowControl.Animation
                 var bRemainingDistance = Math.Abs(_colors[_targetColorIndices[_maxDistanceIndex]].B - _rootFrame[_maxDistanceIndex].Color.B);
 
                 var remainingDistance = Math.Max(rRemainingDistance, Math.Max(gRemainingDistance, bRemainingDistance));
+                var currentTicks = DateTime.Now.Ticks;
                 if (remainingDistance == 0)
                 {
+                    _lastAnimationFrameTicks = DateTime.Now.Ticks;
                     for (int i = 0; i < _rootFrame.Length; i++)
                     {
-                        if (_rootFrame[i].Color != _colors[_targetColorIndices[i]])
+                        if (_rootFrame[i].Color.R != _colors[_targetColorIndices[i]].R ||
+                            _rootFrame[i].Color.G != _colors[_targetColorIndices[i]].G ||
+                            _rootFrame[i].Color.B != _colors[_targetColorIndices[i]].B)
                         {
                             int x = 0;
                         }
@@ -182,7 +180,9 @@ namespace ShowControl.Animation
 
                     for (int i = 0; i < _rootFrame.Length; i++)
                     {
-                        if (_rootFrame[i].Color != _colors[_sourceColorIndices[i]])
+                        if (_rootFrame[i].Color.R != _colors[_sourceColorIndices[i]].R ||
+                            _rootFrame[i].Color.G != _colors[_sourceColorIndices[i]].G ||
+                            _rootFrame[i].Color.B != _colors[_sourceColorIndices[i]].B)
                         {
                             int x = 0;
                         }
@@ -190,6 +190,10 @@ namespace ShowControl.Animation
 
                     CalculateMaxDistance();
                     return;
+                }
+                else if (remainingDistance == 0)
+                {
+                    int x = 0;
                 }
 
                 for (int i = 0; i < _rootFrame.Length; i++)
@@ -249,6 +253,11 @@ namespace ShowControl.Animation
                 remainingDistributed++;
             }
 
+            if (current == target)
+            {
+                int x = 0;
+            }
+
             if (current > 255 || current < 0)
             {
                 int x = 0;
@@ -265,8 +274,8 @@ namespace ShowControl.Animation
 
         private void StartTimers()
         {
-            //_automationTimer.Change(500, 500);
-            _automationTimer.Change(1, 1);
+            _automationTimer.Change(5, 5);
+            //_automationTimer.Change(1, 1);
         }
 
         private void StopTimers()
@@ -285,8 +294,8 @@ namespace ShowControl.Animation
                 _mode = mode;
                 if (_mode == AnimationMode.Automatic)
                 {
-                    //_automationTimer.Change(500, 500);
-                    _automationTimer.Change(1, 1);
+                    _automationTimer.Change(5, 5);
+                    //_automationTimer.Change(1, 1);
                 }
                 else
                 {
@@ -314,13 +323,17 @@ namespace ShowControl.Animation
         private PadState[] GetPadStates(int count)
         {
             var padStates = new PadState[count];
-            for (int i = 0; i < padStates.Length - 2; i++)
+            var endLength = _specialModesEnabled ? padStates.Length - 2 : padStates.Length;
+            for (int i = 0; i < endLength; i++)
             {
                 padStates[i] = new PadState(PadIllumination.Solid, _colors[i % _colors.Length]);
             }
-            padStates[^2].Color = Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF);
-            padStates[^2] = new PadState(PadIllumination.Solid, Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF));
-            padStates[^1] = new PadState(PadIllumination.Solid, Color.FromArgb(0x00, 0x00, 0x00, 0x00));
+            if (_specialModesEnabled)
+            {
+                padStates[^2].Color = Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF);
+                padStates[^2] = new PadState(PadIllumination.Solid, Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF));
+                padStates[^1] = new PadState(PadIllumination.Solid, Color.FromArgb(0x00, 0x00, 0x00, 0x00));
+            }
             return padStates;
         }
 
@@ -337,7 +350,7 @@ namespace ShowControl.Animation
                     var level = Convert.ToInt32(Math.Min(Math.Max(Math.Round(e.CurrentLevel / e.AverageLevel) * 3, 1), 3));
                     for (int i = 0; i < level; i++)
                     {
-                        Animate();
+                        Animate(forward: true, fromInput: true);
                     }
                     _frameCoolDown = DefaultFrameCooldown;
                 }
@@ -367,14 +380,14 @@ namespace ShowControl.Animation
         {
             if (direction == ButtonDirection.Press)
             {
-                if (padNumber == padCount - 1)
+                if (padNumber == padCount - 1 && _specialModesEnabled)
                 {
                     SetMode(AnimationMode.Manual);
                     var color = Color.FromArgb(0x00, 0x00, 0x00, 0x00);
                     SetFrameWithSingleColor(color);
                     _pressedPads.Add(padNumber);
                 }
-                else if (padNumber == padCount - 2)
+                else if (padNumber == padCount - 2 && _specialModesEnabled)
                 {
                     SetMode(AnimationMode.SoundReactive);
                 }
@@ -388,7 +401,7 @@ namespace ShowControl.Animation
             }
             else if (direction == ButtonDirection.Release)
             {
-                if (padNumber != padCount - 2)
+                if (padNumber != padCount - 2 || !_specialModesEnabled)
                 {
                     _pressedPads.Remove(padNumber);
                     if (_pressedPads.Count == 0)
@@ -415,12 +428,12 @@ namespace ShowControl.Animation
             //_lastRotaryTurnedTicks = currentTicks;
             if (rotaryNumber == 1 && direction != RotaryDirection.None)
             {
-                for (int i = 0; i < 20; i++)
+                for (int i = 0; i < 10; i++)
                 {
-                    Animate(direction == RotaryDirection.Up);
+                    Animate(direction == RotaryDirection.Up, fromInput: true);
                 }
                 
-                SetMode(AnimationMode.Manual);
+                //SetMode(AnimationMode.Manual);
                 //if (direction == RotaryDirection.Up)
                 //{
                 //    _frameStart.InterlockedDecrement(0, _rootFrame.Length - 1);
@@ -468,7 +481,7 @@ namespace ShowControl.Animation
                 buttonLightStates = new ButtonLightState[0];
             }
 
-            StartTimers();
+            SetMode(AnimationMode.Automatic);
             return new DeviceState(padStates, buttonLightStates);
         }
 

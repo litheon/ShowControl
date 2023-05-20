@@ -7,6 +7,7 @@ using ShowControl.Devices.Output;
 using ShowControl.Utilities;
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Linq;
 using System.Text;
 using System.Threading;
@@ -299,8 +300,125 @@ namespace ShowControl.Rendering
                 address += _devices[j].ChannelCount;
             }
 
+            var roygbiv = new Color[6]
+            {
+                    Color.FromArgb(0xFF, 0xFF, 0x00, 0x00),
+                    Color.FromArgb(0xFF, 0xFF, 0xA5, 0x00),
+                    Color.FromArgb(0xFF, 0xFF, 0xFF, 0x00),
+                    Color.FromArgb(0xFF, 0x00, 0xFF, 0x00),
+                    Color.FromArgb(0xFF, 0x00, 0x00, 0xFF),
+                    Color.FromArgb(0xFF, 0xFF, 0x00, 0xFF)
+                    //Color.FromArgb(0xFF, 0xFF, 0xFF, 0xFF)
+            };
+
+            var warmColdRoygviv = new Color[]
+            {
+                Color.FromArgb(0xFF, 0xFF, 0x00, 0x00),
+                Color.DarkRed,
+                Color.OrangeRed,
+
+                Color.FromArgb(0xFF, 0xFF, 0xA5, 0x00),
+                Color.DarkOrange,
+
+                Color.FromArgb(0xFF, 0xFF, 0xFF, 0x00),
+                Color.Gold,
+                Color.DarkGoldenrod,
+
+                Color.Green,
+                Color.SeaGreen,
+
+                Color.FromArgb(0xFF, 0x00, 0x00, 0xFF),
+
+                Color.FromArgb(0xFF, 0xFF, 0x00, 0xFF),
+                Color.Purple,
+
+
+                Color.Red,
+                Color.DarkRed,
+                Color.OrangeRed,
+                Color.Gold,
+                Color.Red,
+                Color.DarkRed,
+                Color.OrangeRed,
+                Color.Gold,
+                Color.Red,
+                Color.DarkRed,
+                Color.OrangeRed,
+                Color.Gold,
+                Color.Red,
+                Color.DarkRed,
+                Color.OrangeRed,
+                Color.Gold,
+                Color.Red,
+                Color.DarkRed,
+                Color.OrangeRed,
+                Color.Gold,
+
+
+
+                Color.OrangeRed,
+                Color.Orange,
+                Color.DarkOrange,
+                Color.OrangeRed,
+                Color.Orange,
+                Color.DarkOrange,
+                Color.OrangeRed,
+                Color.Orange,
+                Color.DarkOrange,
+                Color.OrangeRed,
+                Color.Orange,
+                Color.DarkOrange,
+                Color.OrangeRed,
+                Color.Orange,
+                Color.DarkOrange,
+
+                Color.Gold,
+                Color.Goldenrod,
+                Color.DarkGoldenrod,
+                Color.LightGoldenrodYellow,
+                Color.PaleGoldenrod,
+                Color.Gold,
+                Color.Goldenrod,
+                Color.DarkGoldenrod,
+                Color.LightGoldenrodYellow,
+                Color.PaleGoldenrod,
+                Color.DarkGoldenrod,
+                Color.LightGoldenrodYellow,
+                Color.PaleGoldenrod,
+                Color.LightGoldenrodYellow,
+                Color.PaleGoldenrod,
+
+                Color.Blue,
+                Color.CornflowerBlue,
+                Color.LightBlue,
+                Color.DarkBlue,
+                Color.DeepSkyBlue,
+                Color.DarkSlateBlue,
+                Color.RoyalBlue,
+                Color.DeepSkyBlue,
+                Color.DarkSlateBlue,
+                Color.RoyalBlue,
+                Color.Blue,
+
+                Color.BlueViolet,
+                Color.Purple,
+                Color.DarkViolet,
+                Color.BlueViolet,
+                Color.Purple,
+                Color.DarkViolet,
+                Color.MediumVioletRed,
+                Color.PaleVioletRed,
+                Color.MediumVioletRed,
+                Color.PaleVioletRed,
+                Color.Purple,
+                Color.DarkViolet,
+                Color.MediumVioletRed,
+                //Color.FromArgb(0xFF, 0xFF, 0xFF, 0xFF)
+            };
+
             _keyAnimations = new IKeyAnimation[] {
-                new RainbowAnimation(_devices.Length, _audioService),
+                new RainbowAnimation(_devices.Length, roygbiv, _audioService),
+                new RainbowAnimation(_devices.Length, warmColdRoygviv, _audioService),
                 new VibrantAnimation(_devices.Length, _audioService, _cts.Token)
             };
 
