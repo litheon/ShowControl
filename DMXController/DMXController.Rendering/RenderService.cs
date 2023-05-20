@@ -413,7 +413,8 @@ namespace ShowControl.Rendering
                 Color.Purple,
                 Color.DarkViolet,
                 Color.MediumVioletRed,
-                //Color.FromArgb(0xFF, 0xFF, 0xFF, 0xFF)
+
+                Color.FromArgb(0xFF, 0xFF, 0xFF, 0xFF)
             };
 
             _keyAnimations = new IKeyAnimation[] {
@@ -467,8 +468,6 @@ namespace ShowControl.Rendering
                 renderSettings.MasterFader = _masterFader.InterlockedGet();
                 foreach (IDmxOutputDevice outputDevice in _outputDevices)
                 {
-                    //bytes.Clear();
-                    int expectedFrameLength = 0;
                     IKeyAnimation keyAnimation = null;
                     ITransformAnimation transformAnimation = null;
                     lock (_navigationLock)
@@ -494,23 +493,6 @@ namespace ShowControl.Rendering
                             pixelOffset += surface.TotalPixelCount;
                             channelOffset += surface.TotalChannelCount;
                         }
-                        //for (int i = 0; i < frame.Length; i++)
-                        //{
-                        //    var device = _devices[i];
-                        //    device.Color = frame[i].Color;
-                        //    device.Mode = frame[i].SoundReactivity > 0 ? DmxDeviceMode.SoundReactive : DmxDeviceMode.RGB;
-                        //    if (device.Mode == DmxDeviceMode.SoundReactive)
-                        //    {
-                        //        device.SoundReactivitySensitivity = frame[i].SoundReactivity;
-                        //    }
-                        //    device.MasterFader = (byte)_masterFader.InterlockedGet();
-                        //    bytes.AddRange(device.GetDMXVector());
-                        //    expectedFrameLength += device.ChannelCount;
-                        //    if (bytes.Count != expectedFrameLength)
-                        //    {
-                        //        throw new Exception("Previous device did not return expected number of channels");
-                        //    }
-                        //}
                     }
 
                     outputDevice.Write(targetVector);

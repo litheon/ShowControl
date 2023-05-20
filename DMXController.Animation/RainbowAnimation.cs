@@ -12,7 +12,6 @@ namespace ShowControl.Animation
 {
     public class RainbowAnimation : MidiAwareAnimation, IKeyAnimation
     {
-        private int _frameStart;
         private readonly Pixel[] _rootFrame;
         private int _maxDistance;
         private int _maxDistanceIndex;
@@ -20,13 +19,14 @@ namespace ShowControl.Animation
         private readonly int[] _sourceColorIndices;
         private readonly ColorStat[] _skippedAnimations;
         private readonly ColorStat[] _remainingDistributed;
-        private long _lastAnimationFrameTicks;
         private readonly object _frameLock = new object();
         private Pixel[] _frame;
         private readonly object _modeLock = new object();
         private AnimationMode _lastMode;
         private AnimationMode _mode;
         private readonly Timer _automationTimer;
+        private readonly Thread _automationThread;
+        private readonly AutoResetEvent _frameAnimateEvent = new AutoResetEvent(false);
 #pragma warning disable IDE0052 // Remove unread private members
         private readonly Timer _navigationColorTimer;
 #pragma warning restore IDE0052 // Remove unread private members
@@ -38,16 +38,19 @@ namespace ShowControl.Animation
         private readonly List<int> _pressedPads;
         private readonly Color[] _colors;
         bool _specialModesEnabled = false;
+        private readonly CancellationTokenSource _cts = new CancellationTokenSource();
 
         public RainbowAnimation(
             int pixelCount,
             Color[] colors,
             IAudioService audioService)
         {
-            _frameStart = 0;
             _rootFrame = new Pixel[pixelCount];
-            _colors = colors;
+            _frame = new Pixel[pixelCount];
+            _colors = ConvertColors(colors);
             _automationTimer = new Timer(AutomaticModeFrameTick, null, Timeout.Infinite, Timeout.Infinite);
+            _automationThread = new Thread(AutomationThreadStart);
+            _automationThread.Start();
             _lastMode = AnimationMode.Automatic;
             _mode = AnimationMode.Automatic;
             _navigationColorTimer = new Timer(NavigationTimerTick, null, 1000, 1000);
@@ -77,12 +80,23 @@ namespace ShowControl.Animation
         {
             _navigationColorTimer.Dispose();
             _automationTimer.Dispose();
+            _cts.Cancel();
         }
 
         private void AutomaticModeFrameTick(object state)
         {
-            Animate(forward: true, fromInput: false);
-            //_frameStart.InterlockedIncrement(0, _rootFrame.Length - 1);
+            _frameAnimateEvent.Set();
+        }
+
+        private void AutomationThreadStart(object state)
+        {
+            while(!_cts.IsCancellationRequested)
+            {
+                _frameAnimateEvent.WaitOne();
+                _automationTimer.Change(Timeout.Infinite, Timeout.Infinite);
+                Animate(forward: true, fromInput: false);
+                _automationTimer.Change(20, Timeout.Infinite);
+            }
         }
 
         private void CalculateMaxDistance()
@@ -124,6 +138,7 @@ namespace ShowControl.Animation
         {
             lock (_rootFrame)
             {
+
                 var rRemainingDistance = Math.Abs(_colors[_targetColorIndices[_maxDistanceIndex]].R - _rootFrame[_maxDistanceIndex].Color.R);
                 var gRemainingDistance = Math.Abs(_colors[_targetColorIndices[_maxDistanceIndex]].G - _rootFrame[_maxDistanceIndex].Color.G);
                 var bRemainingDistance = Math.Abs(_colors[_targetColorIndices[_maxDistanceIndex]].B - _rootFrame[_maxDistanceIndex].Color.B);
@@ -132,14 +147,16 @@ namespace ShowControl.Animation
                 var currentTicks = DateTime.Now.Ticks;
                 if (remainingDistance == 0)
                 {
-                    _lastAnimationFrameTicks = DateTime.Now.Ticks;
-                    for (int i = 0; i < _rootFrame.Length; i++)
+                    if (System.Diagnostics.Debugger.IsAttached)
                     {
-                        if (_rootFrame[i].Color.R != _colors[_targetColorIndices[i]].R ||
-                            _rootFrame[i].Color.G != _colors[_targetColorIndices[i]].G ||
-                            _rootFrame[i].Color.B != _colors[_targetColorIndices[i]].B)
+                        for (int i = 0; i < _rootFrame.Length; i++)
                         {
-                            int x = 0;
+                            if (_rootFrame[i].Color.R != _colors[_targetColorIndices[i]].R ||
+                                _rootFrame[i].Color.G != _colors[_targetColorIndices[i]].G ||
+                                _rootFrame[i].Color.B != _colors[_targetColorIndices[i]].B)
+                            {
+                                System.Diagnostics.Debugger.Break();
+                            }
                         }
                     }
 
@@ -178,22 +195,25 @@ namespace ShowControl.Animation
                         _skippedAnimations[i].b = 0;
                     }
 
-                    for (int i = 0; i < _rootFrame.Length; i++)
+                    if (System.Diagnostics.Debugger.IsAttached)
                     {
-                        if (_rootFrame[i].Color.R != _colors[_sourceColorIndices[i]].R ||
-                            _rootFrame[i].Color.G != _colors[_sourceColorIndices[i]].G ||
-                            _rootFrame[i].Color.B != _colors[_sourceColorIndices[i]].B)
+                        for (int i = 0; i < _rootFrame.Length; i++)
                         {
-                            int x = 0;
+                            if (_rootFrame[i].Color.R != _colors[_sourceColorIndices[i]].R ||
+                                _rootFrame[i].Color.G != _colors[_sourceColorIndices[i]].G ||
+                                _rootFrame[i].Color.B != _colors[_sourceColorIndices[i]].B)
+                            {
+                                System.Diagnostics.Debugger.Break();
+                            }
                         }
                     }
 
+
                     CalculateMaxDistance();
-                    return;
-                }
-                else if (remainingDistance == 0)
-                {
-                    int x = 0;
+
+                    rRemainingDistance = Math.Abs(_colors[_targetColorIndices[_maxDistanceIndex]].R - _rootFrame[_maxDistanceIndex].Color.R);
+                    gRemainingDistance = Math.Abs(_colors[_targetColorIndices[_maxDistanceIndex]].G - _rootFrame[_maxDistanceIndex].Color.G);
+                    bRemainingDistance = Math.Abs(_colors[_targetColorIndices[_maxDistanceIndex]].B - _rootFrame[_maxDistanceIndex].Color.B);
                 }
 
                 for (int i = 0; i < _rootFrame.Length; i++)
@@ -201,6 +221,7 @@ namespace ShowControl.Animation
                     byte R = CalculateColorChange(_rootFrame[i].Color.R, _colors[_sourceColorIndices[i]].R, _colors[_targetColorIndices[i]].R, remainingDistance, ref _skippedAnimations[i].r, ref _remainingDistributed[i].r);
                     byte G = CalculateColorChange(_rootFrame[i].Color.G, _colors[_sourceColorIndices[i]].G, _colors[_targetColorIndices[i]].G, remainingDistance, ref _skippedAnimations[i].g, ref _remainingDistributed[i].g);
                     byte B = CalculateColorChange(_rootFrame[i].Color.B, _colors[_sourceColorIndices[i]].B, _colors[_targetColorIndices[i]].B, remainingDistance, ref _skippedAnimations[i].b, ref _remainingDistributed[i].b);
+
                     _rootFrame[i].Color = Color.FromArgb(0xFF, R, G, B);
                 }
             }
@@ -214,9 +235,12 @@ namespace ShowControl.Animation
                 return target;
             }
 
-            if (source < target && current < source)
+            if (System.Diagnostics.Debugger.IsAttached)
             {
-                int x = 0;
+                if (source < target && current < source)
+                {
+                    System.Diagnostics.Debugger.Break();
+                }
             }
 
             bool add = source < target;
@@ -253,14 +277,12 @@ namespace ShowControl.Animation
                 remainingDistributed++;
             }
 
-            if (current == target)
+            if (System.Diagnostics.Debugger.IsAttached)
             {
-                int x = 0;
-            }
-
-            if (current > 255 || current < 0)
-            {
-                int x = 0;
+                if (current > 255 || current < 0)
+                {
+                    System.Diagnostics.Debugger.Break();
+                }
             }
 
             return (byte)current;
@@ -274,7 +296,7 @@ namespace ShowControl.Animation
 
         private void StartTimers()
         {
-            _automationTimer.Change(5, 5);
+            _automationTimer.Change(20, Timeout.Infinite);
             //_automationTimer.Change(1, 1);
         }
 
@@ -294,12 +316,13 @@ namespace ShowControl.Animation
                 _mode = mode;
                 if (_mode == AnimationMode.Automatic)
                 {
-                    _automationTimer.Change(5, 5);
+                    _automationTimer.Change(20, Timeout.Infinite);
                     //_automationTimer.Change(1, 1);
                 }
                 else
                 {
                     _automationTimer.Change(Timeout.Infinite, Timeout.Infinite);
+                    _frameAnimateEvent.Reset();
                 }
             }
         }
@@ -447,7 +470,7 @@ namespace ShowControl.Animation
                 {
                     lock (_frame)
                     {
-                        Array.Copy(_rootFrame, _frame, _rootFrame.Length);
+                        SetFrame(_rootFrame);
                     }
                 }
             }
@@ -494,25 +517,73 @@ namespace ShowControl.Animation
 
         public Pixel[] GetNextFrame()
         {
-            lock(_rootFrame)
+            AnimationMode mode;
+            lock (_modeLock)
             {
-                if (_mode == AnimationMode.SoundReactive || _mode == AnimationMode.Automatic)
+                mode = _mode;
+            }
+            if (mode == AnimationMode.SoundReactive || mode == AnimationMode.Automatic)
+            {
+                lock (_rootFrame)
                 {
-                    var frameStart = _frameStart.InterlockedGet();
-                    _frame = _rootFrame.Skip(frameStart).Concat(_rootFrame.Take(frameStart)).ToArray();
+                    lock (_frame)
+                    {
+
+                        Pixel[] frame = new Pixel[_rootFrame.Length];
+                        Array.Copy(_rootFrame, frame, _rootFrame.Length);
+                        return frame;
+                    }
                 }
-                return _frame;
+            }
+            else
+            {
+                lock (_frame)
+                {
+
+                    Pixel[] frame = new Pixel[_frame.Length];
+                    Array.Copy(_frame, frame, _frame.Length);
+                    return frame;
+                }
             }
         }
 
         private void SetFrameWithSingleColor(Color color)
         {
-            Pixel[] colors = new Pixel[_rootFrame.Length];
-            for (int i = 0; i < colors.Length; i++)
+            lock (_rootFrame)
             {
-                colors[i] = new Pixel(color, 0x00, 0x00);
+                Pixel[] colors = new Pixel[_rootFrame.Length];
+                for (int i = 0; i < colors.Length; i++)
+                {
+                    colors[i] = new Pixel(color, 0x00, 0x00);
+                }
+                SetFrame(colors);
             }
-            SetFrame(colors);
+        }
+
+        private System.Drawing.Color[] ConvertColors(System.Drawing.Color[] colors)
+        {
+            Color[] converted = new Color[colors.Length];
+            for (int i = 0; i < converted.Length; i++)
+            {
+                var color = colors[i];
+                if (color.R > 0 && (color.G < 4 || color.B < 2))
+                {
+                    converted[i] = Color.FromArgb(0xFF, color.R, Math.Max((byte)0x04, color.G), color.B);
+                }
+                else if (color.B > 0 && (color.R < 6 || color.G < 3))
+                {
+                    converted[i] = Color.FromArgb(0xFF, Math.Max((byte)0x06, color.R), Math.Max((byte)0x03, color.G), color.B);
+                }
+                else if (color.G > 0 && (color.R < 2 || color.B < 6))
+                {
+                    converted[i] = Color.FromArgb(0xFF, Math.Max((byte)0x02, color.R), color.G, Math.Max((byte)0x06, color.B));
+                }
+                else
+                {
+                    converted[i] = color;
+                }
+            }
+            return converted;
         }
     }
 
