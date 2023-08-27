@@ -10,20 +10,21 @@ using System.Drawing;
 
 namespace ShowControl.Animation
 {
-    public class RainbowAnimation : MidiAwareAnimation, IKeyAnimation
+    public class RainbowAnimation : MidiAwareAnimation, IKeyAnimation, IDisposable
     {
+        private readonly Color[] _colors;
+
         private readonly Pixel[] _rootFrame;
-        private int _maxDistance;
-        private int _maxDistanceIndex;
-        private readonly int[] _targetColorIndices;
-        private readonly int[] _sourceColorIndices;
-        private readonly ColorStat[] _skippedAnimations;
-        private readonly ColorStat[] _remainingDistributed;
+        private readonly Color[] _currentAnimationColors;
+        private readonly Color[] _targetAnimationColors;
+        private readonly Color[] _sourceAnimationColors;
+
         private readonly object _frameLock = new object();
-        private Pixel[] _frame;
         private readonly object _modeLock = new object();
         private AnimationMode _lastMode;
         private AnimationMode _mode;
+
+        private readonly CancellationToken _cancellationToken;
         private readonly Timer _automationTimer;
         private readonly Thread _automationThread;
         private readonly AutoResetEvent _frameAnimateEvent = new AutoResetEvent(false);
@@ -35,52 +36,60 @@ namespace ShowControl.Animation
         private readonly IAudioService _audioService;
         private const int DefaultFrameCooldown = AudioService.SampleRate / AudioService.FftLength / 6;
         private int _frameCoolDown = 1;
-        private readonly List<int> _pressedPads;
-        private readonly Color[] _colors;
-        bool _specialModesEnabled = false;
-        private readonly CancellationTokenSource _cts = new CancellationTokenSource();
 
+        private readonly List<int> _pressedPads;
+        private readonly SmoothColorTransition _smoothColorTransition;
+
+        bool _specialModesEnabled = true;
+
+        bool _disposed = false;
         public RainbowAnimation(
             int pixelCount,
             Color[] colors,
-            IAudioService audioService)
+            IAudioService audioService,
+            CancellationToken cancellationToken)
         {
             _rootFrame = new Pixel[pixelCount];
-            _frame = new Pixel[pixelCount];
+
             _colors = ConvertColors(colors);
+
+            _currentAnimationColors = new Color[pixelCount];
+            _targetAnimationColors = new Color[Math.Max(pixelCount, _colors.Length)];
+            _sourceAnimationColors = new Color[_targetAnimationColors.Length];
+
+            
             _automationTimer = new Timer(AutomaticModeFrameTick, null, Timeout.Infinite, Timeout.Infinite);
             _automationThread = new Thread(AutomationThreadStart);
             _automationThread.Start();
             _lastMode = AnimationMode.Automatic;
             _mode = AnimationMode.Automatic;
             _navigationColorTimer = new Timer(NavigationTimerTick, null, 1000, 1000);
+
             _audioService = audioService;
             _pressedPads = new List<int>();
-            _targetColorIndices = new int[Math.Max(pixelCount, _colors.Length)];
-            _sourceColorIndices = new int[_targetColorIndices.Length];
-            _skippedAnimations = new ColorStat[_targetColorIndices.Length];
-            _remainingDistributed = new ColorStat[_targetColorIndices.Length];
+
+            _smoothColorTransition = new SmoothColorTransition();
+
             int j = 0;
             for (int i = 0; i < _rootFrame.Length; i++)
             {
-                _rootFrame[i] = new Pixel(_colors[j], 0, 0);
-                _sourceColorIndices[i] = j;
+                _currentAnimationColors[i] = _colors[j];
+                _sourceAnimationColors[i] = _colors[j];
                 j = (j + 1) % _colors.Length;
             }
             j = 1;
-            for (int i = 0; i < _targetColorIndices.Length; i++)
+            for (int i = 0; i < _targetAnimationColors.Length; i++)
             {
-                _targetColorIndices[i] = j;
+                _targetAnimationColors[i] = _colors[j];
                 j = (j + 1) % _colors.Length;
             }
-            CalculateMaxDistance();
+
+            _cancellationToken = cancellationToken;
         }
 
         ~RainbowAnimation()
         {
-            _navigationColorTimer.Dispose();
-            _automationTimer.Dispose();
-            _cts.Cancel();
+            Dispose();
         }
 
         private void AutomaticModeFrameTick(object state)
@@ -90,202 +99,47 @@ namespace ShowControl.Animation
 
         private void AutomationThreadStart(object state)
         {
-            while(!_cts.IsCancellationRequested)
+            while(!_cancellationToken.IsCancellationRequested)
             {
                 _frameAnimateEvent.WaitOne();
                 _automationTimer.Change(Timeout.Infinite, Timeout.Infinite);
                 Animate(forward: true, fromInput: false);
                 _automationTimer.Change(20, Timeout.Infinite);
             }
-        }
-
-        private void CalculateMaxDistance()
-        {
-            _maxDistance = 0;
-            for (int i = 0; i < _targetColorIndices.Length && i < _rootFrame.Length; i++)
-            {
-                var targetColorIndex = _targetColorIndices[i];
-                var sourceColorIndex = _sourceColorIndices[i];
-
-                if (_colors[sourceColorIndex].R != _colors[targetColorIndex].R)
-                {
-                    var originalRDistance = Math.Abs(_colors[targetColorIndex].R - _colors[sourceColorIndex].R);
-                    DetermineMaxDistanceIndex(ref _maxDistanceIndex, ref _maxDistance, i, originalRDistance);
-                }
-                if (_colors[sourceColorIndex].G != _colors[targetColorIndex].G)
-                {
-                    var originalGDistance = Math.Abs(_colors[targetColorIndex].G - _colors[sourceColorIndex].G);
-                    DetermineMaxDistanceIndex(ref _maxDistanceIndex, ref _maxDistance, i, originalGDistance);
-                }
-                if (_colors[sourceColorIndex].B != _colors[targetColorIndex].B)
-                {
-                    var originalBDistance = Math.Abs(_colors[targetColorIndex].B - _colors[sourceColorIndex].B);
-                    DetermineMaxDistanceIndex(ref _maxDistanceIndex, ref _maxDistance, i, originalBDistance);
-                }
-
-                static void DetermineMaxDistanceIndex(ref int maxDistanceIndex, ref int originalMaxDistance, int i, int distance)
-                {
-                    if (distance > originalMaxDistance)
-                    {
-                        originalMaxDistance = distance;
-                        maxDistanceIndex = i;
-                    }
-                }
-            }
+            _automationTimer.Dispose();
         }
 
         private void Animate(bool forward, bool fromInput)
         {
             lock (_rootFrame)
             {
-
-                var rRemainingDistance = Math.Abs(_colors[_targetColorIndices[_maxDistanceIndex]].R - _rootFrame[_maxDistanceIndex].Color.R);
-                var gRemainingDistance = Math.Abs(_colors[_targetColorIndices[_maxDistanceIndex]].G - _rootFrame[_maxDistanceIndex].Color.G);
-                var bRemainingDistance = Math.Abs(_colors[_targetColorIndices[_maxDistanceIndex]].B - _rootFrame[_maxDistanceIndex].Color.B);
-
-                var remainingDistance = Math.Max(rRemainingDistance, Math.Max(gRemainingDistance, bRemainingDistance));
-                var currentTicks = DateTime.Now.Ticks;
-                if (remainingDistance == 0)
+                bool atTarget = _smoothColorTransition.Transition(_sourceAnimationColors, _targetAnimationColors, _currentAnimationColors);
+                
+                if (atTarget)
                 {
-                    if (System.Diagnostics.Debugger.IsAttached)
-                    {
-                        for (int i = 0; i < _rootFrame.Length; i++)
-                        {
-                            if (_rootFrame[i].Color.R != _colors[_targetColorIndices[i]].R ||
-                                _rootFrame[i].Color.G != _colors[_targetColorIndices[i]].G ||
-                                _rootFrame[i].Color.B != _colors[_targetColorIndices[i]].B)
-                            {
-                                System.Diagnostics.Debugger.Break();
-                            }
-                        }
-                    }
-
-                    Array.Copy(_targetColorIndices, _sourceColorIndices, _targetColorIndices.Length);
+                    Array.Copy(_targetAnimationColors, _sourceAnimationColors, _targetAnimationColors.Length);
                     if (forward)
                     {
-
-                        var first = _targetColorIndices[0];
-                        for (int i = 0; i < _targetColorIndices.Length - 1; i++)
+                        var first = _targetAnimationColors[0];
+                        for (int i = 0; i < _targetAnimationColors.Length - 1; i++)
                         {
-                            _targetColorIndices[i] = _targetColorIndices[i + 1];
+                            _targetAnimationColors[i] = _targetAnimationColors[i + 1];
                         }
-                        _targetColorIndices[^1] = first;
+                        _targetAnimationColors[^1] = first;
                     }
                     else
                     {
-                        var last = _targetColorIndices[^1];
-                        for (int i = _targetColorIndices.Length - 1; i > 0; i--)
+                        var last = _targetAnimationColors[^1];
+                        for (int i = _targetAnimationColors.Length - 1; i > 0; i--)
                         {
-                            _targetColorIndices[i] = _targetColorIndices[i - 1];
+                            _targetAnimationColors[i] = _targetAnimationColors[i - 1];
                         }
-                        _targetColorIndices[0] = last;
+                        _targetAnimationColors[0] = last;
                     }
-
-                    for (int i = 0; i < _remainingDistributed.Length; i++)
-                    {
-                        _remainingDistributed[i].r = 0;
-                        _remainingDistributed[i].g = 0;
-                        _remainingDistributed[i].b = 0;
-                    }
-
-                    for (int i = 0; i < _skippedAnimations.Length; i++)
-                    {
-                        _skippedAnimations[i].r = 0;
-                        _skippedAnimations[i].g = 0;
-                        _skippedAnimations[i].b = 0;
-                    }
-
-                    if (System.Diagnostics.Debugger.IsAttached)
-                    {
-                        for (int i = 0; i < _rootFrame.Length; i++)
-                        {
-                            if (_rootFrame[i].Color.R != _colors[_sourceColorIndices[i]].R ||
-                                _rootFrame[i].Color.G != _colors[_sourceColorIndices[i]].G ||
-                                _rootFrame[i].Color.B != _colors[_sourceColorIndices[i]].B)
-                            {
-                                System.Diagnostics.Debugger.Break();
-                            }
-                        }
-                    }
-
-
-                    CalculateMaxDistance();
-
-                    rRemainingDistance = Math.Abs(_colors[_targetColorIndices[_maxDistanceIndex]].R - _rootFrame[_maxDistanceIndex].Color.R);
-                    gRemainingDistance = Math.Abs(_colors[_targetColorIndices[_maxDistanceIndex]].G - _rootFrame[_maxDistanceIndex].Color.G);
-                    bRemainingDistance = Math.Abs(_colors[_targetColorIndices[_maxDistanceIndex]].B - _rootFrame[_maxDistanceIndex].Color.B);
                 }
 
-                for (int i = 0; i < _rootFrame.Length; i++)
-                {
-                    byte R = CalculateColorChange(_rootFrame[i].Color.R, _colors[_sourceColorIndices[i]].R, _colors[_targetColorIndices[i]].R, remainingDistance, ref _skippedAnimations[i].r, ref _remainingDistributed[i].r);
-                    byte G = CalculateColorChange(_rootFrame[i].Color.G, _colors[_sourceColorIndices[i]].G, _colors[_targetColorIndices[i]].G, remainingDistance, ref _skippedAnimations[i].g, ref _remainingDistributed[i].g);
-                    byte B = CalculateColorChange(_rootFrame[i].Color.B, _colors[_sourceColorIndices[i]].B, _colors[_targetColorIndices[i]].B, remainingDistance, ref _skippedAnimations[i].b, ref _remainingDistributed[i].b);
-
-                    _rootFrame[i].Color = Color.FromArgb(0xFF, R, G, B);
-                }
+                SetFrame(_currentAnimationColors);
             }
-        }
-
-        private byte CalculateColorChange(int current, byte source, byte target, int remainingDistance,
-            ref int skippedAnimations, ref int remainingDistributed)
-        {
-            if (current == target)
-            {
-                return target;
-            }
-
-            if (System.Diagnostics.Debugger.IsAttached)
-            {
-                if (source < target && current < source)
-                {
-                    System.Diagnostics.Debugger.Break();
-                }
-            }
-
-            bool add = source < target;
-            //The original distance this light had to target
-            var animatesToTarget = Math.Abs(source - target);
-            //The number of Animate calls that should occur before this light moves up by one to target
-            var animatesPerDelta = animatesToTarget > 0 ? _maxDistance / animatesToTarget : 0;
-            //The number of Animate calls that need to be made up for this light for target
-            var originalRemaining = animatesToTarget > 0 && _maxDistance / animatesPerDelta < animatesToTarget ? _maxDistance / animatesPerDelta % animatesToTarget : 0;
-            //On average the number of remaining to target that should be distributed per Animate for this light 
-            var remainingRatePerAnimate = (double)originalRemaining / _maxDistance;
-            //Should we animate to target for this light in this call?
-            if (animatesPerDelta <= 1)
-            {
-                //yes
-                current = add ? current + 1 : current - 1;
-            }
-            else if (animatesPerDelta > 1)
-            {
-                if (skippedAnimations < animatesPerDelta - 1)
-                {
-                    skippedAnimations++;
-                }
-                else
-                {
-                    current = add ? current + 1 : current - 1;
-                    skippedAnimations = 0;
-                }
-            }
-
-            if ((double)(originalRemaining - remainingDistributed) / (remainingDistance) > remainingRatePerAnimate)
-            {
-                current = add ? current + 1 : current - 1;
-                remainingDistributed++;
-            }
-
-            if (System.Diagnostics.Debugger.IsAttached)
-            {
-                if (current > 255 || current < 0)
-                {
-                    System.Diagnostics.Debugger.Break();
-                }
-            }
-
-            return (byte)current;
         }
 
         private void NavigationTimerTick(object state)
@@ -317,7 +171,6 @@ namespace ShowControl.Animation
                 if (_mode == AnimationMode.Automatic)
                 {
                     _automationTimer.Change(20, Timeout.Infinite);
-                    //_automationTimer.Change(1, 1);
                 }
                 else
                 {
@@ -335,11 +188,14 @@ namespace ShowControl.Animation
             }
         }
 
-        private void SetFrame(Pixel[] frame)
+        private void SetFrame(Color[] frame)
         {
             lock(_frameLock)
             {
-                _frame = frame;
+                for (int i = 0; i < _rootFrame.Length; i++)
+                {
+                    _rootFrame[i].Color = frame[i];
+                }
             }
         }
 
@@ -443,35 +299,11 @@ namespace ShowControl.Animation
 
         public override void RotaryTurned(RotaryDirection direction, byte rotaryNumber, byte? value)
         {
-            //var currentTicks = DateTime.Now.Ticks;
-            //if (currentTicks < _lastRotaryTurnedTicks + _minRotaryTurnTimeSpan.Ticks)
-            //{
-            //    return;
-            //}
-            //_lastRotaryTurnedTicks = currentTicks;
             if (rotaryNumber == 1 && direction != RotaryDirection.None)
             {
                 for (int i = 0; i < 10; i++)
                 {
                     Animate(direction == RotaryDirection.Up, fromInput: true);
-                }
-                
-                //SetMode(AnimationMode.Manual);
-                //if (direction == RotaryDirection.Up)
-                //{
-                //    _frameStart.InterlockedDecrement(0, _rootFrame.Length - 1);
-                //}
-                //else if (direction == RotaryDirection.Down)
-                //{
-                //    _frameStart.InterlockedIncrement(0, _rootFrame.Length - 1);
-                //}
-                //var frameStart = _frameStart.InterlockedGet();
-                lock(_rootFrame)
-                {
-                    lock (_frame)
-                    {
-                        SetFrame(_rootFrame);
-                    }
                 }
             }
         }
@@ -517,33 +349,11 @@ namespace ShowControl.Animation
 
         public Pixel[] GetNextFrame()
         {
-            AnimationMode mode;
-            lock (_modeLock)
+            lock (_rootFrame)
             {
-                mode = _mode;
-            }
-            if (mode == AnimationMode.SoundReactive || mode == AnimationMode.Automatic)
-            {
-                lock (_rootFrame)
-                {
-                    lock (_frame)
-                    {
-
-                        Pixel[] frame = new Pixel[_rootFrame.Length];
-                        Array.Copy(_rootFrame, frame, _rootFrame.Length);
-                        return frame;
-                    }
-                }
-            }
-            else
-            {
-                lock (_frame)
-                {
-
-                    Pixel[] frame = new Pixel[_frame.Length];
-                    Array.Copy(_frame, frame, _frame.Length);
-                    return frame;
-                }
+                Pixel[] frame = new Pixel[_rootFrame.Length];
+                Array.Copy(_rootFrame, frame, _rootFrame.Length);
+                return frame;
             }
         }
 
@@ -551,10 +361,10 @@ namespace ShowControl.Animation
         {
             lock (_rootFrame)
             {
-                Pixel[] colors = new Pixel[_rootFrame.Length];
+                Color[] colors = new Color[_rootFrame.Length];
                 for (int i = 0; i < colors.Length; i++)
                 {
-                    colors[i] = new Pixel(color, 0x00, 0x00);
+                    colors[i] = color;
                 }
                 SetFrame(colors);
             }
@@ -584,6 +394,18 @@ namespace ShowControl.Animation
                 }
             }
             return converted;
+        }
+
+        public void Dispose()
+        {
+            if (!_disposed)
+            {
+                GC.SuppressFinalize(this);
+                Stop();
+                _frameAnimateEvent.Set();
+                _navigationColorTimer.Dispose();
+                _disposed = true;
+            }
         }
     }
 

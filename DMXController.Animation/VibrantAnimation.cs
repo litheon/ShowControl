@@ -10,7 +10,7 @@ using ShowControl.Utilities;
 
 namespace ShowControl.Animation
 {
-    public class VibrantAnimation : MidiAwareAnimation, IKeyAnimation
+    public class VibrantAnimation : MidiAwareAnimation, IKeyAnimation, IDisposable
     {
         private readonly IAudioService _audioService;
         private const int DefaultFrameCooldown = AudioService.SampleRate / AudioService.FftLength / 2;
@@ -61,7 +61,7 @@ namespace ShowControl.Animation
             _nextFrame = new Pixel[pixelCount];
             _targetFrame = new Color[pixelCount];
             _navigationColorTimer = new Timer(NavigationTimerTick, null, 1000, 1000);
-            _animationThread = new Thread(AnimationTimerTick);
+            _animationThread = new Thread(AutomationThreadStart);
             _animationThread.Start();
             for (int i = 0; i < pixelCount; i++)
             {
@@ -75,11 +75,10 @@ namespace ShowControl.Animation
 
         ~VibrantAnimation()
         {
-            _animationThread.Abort();
-            _navigationColorTimer.Dispose();
+
         }
 
-        private void AnimationTimerTick(object state)
+        private void AutomationThreadStart(object state)
         {
             while(!_cancellationToken.IsCancellationRequested)
             {
@@ -360,6 +359,12 @@ namespace ShowControl.Animation
             {
                 _targetFrame = colors;
             }
+        }
+
+        public void Dispose()
+        {
+            Stop();
+            _navigationColorTimer.Dispose();
         }
     }
 }

@@ -102,7 +102,7 @@ namespace ShowControl.Devices.DMX
             GetScaledColor();
             if (Mode == DmxDeviceMode.RGB)
             {
-                return new byte[] { MasterFader, 0x00, 0x00, 0x00, Color.R, Color.G, Color.B };
+                return new byte[] { Math.Min(MasterFader, Color.A), 0x00, 0x00, 0x00, Color.R, Color.G, Color.B };
             }
             else if(Mode == DmxDeviceMode.SoundReactive)
             {

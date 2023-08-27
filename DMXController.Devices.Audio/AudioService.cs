@@ -61,17 +61,18 @@ namespace ShowControl.Devices.Audio
             }
 
             var drivers = AsioOut.GetDriverNames();
-            var driver = drivers.FirstOrDefault(d => d.Contains("Focusrite USB"));
+            var focusRite = drivers.FirstOrDefault(d => d.Contains("Focusrite USB"));
             bool initialized = false;
-            if (driver != null)
+            if (focusRite != null)
             {
                 try
                 {
-                    _asioOut = new AsioOut(driver)
+                    _asioOut = new AsioOut(focusRite)
                     {
                         InputChannelOffset = 2
                         //InputChannelOffset = 8
                     };
+
 
                     _asioOut.InitRecordAndPlayback(null, ChannelCount, SampleRate);
                     _asioOut.AudioAvailable += AsioOut_AudioAvailable;
