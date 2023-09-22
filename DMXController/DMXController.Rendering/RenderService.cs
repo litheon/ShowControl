@@ -121,7 +121,7 @@ namespace ShowControl.Rendering
                 }
                 _padStates[index].PadIllumination = PadIllumination.Blink;
                 _activeKeyAnimation = index;
-                animation = _keyAnimations[_activeKeyAnimation];
+                animation = _keyAnimations[_activeKeyAnimation];   
             }
             return true;
         }
@@ -225,20 +225,21 @@ namespace ShowControl.Rendering
             }
             else
             {
-                IAnimation animation = null;
+                IAnimation activeKeyAnimation = null;
+                IAnimation activeTransformAnimation = null;
                 lock (_navigationLock)
                 {
                     if (_navigationLevel == NavigationLevel.KeyAnimation)
                     {
-                        animation = _activeKeyAnimation > -1 ? _keyAnimations[_activeKeyAnimation] : null;
-                    }
-                    else if (_navigationLevel == NavigationLevel.TransformAnimation)
-                    {
-                        animation = _activeTransformAnimation > -1 ? _transformAnimations[_activeTransformAnimation] : null;
+                        activeKeyAnimation = _activeKeyAnimation > -1 ? _keyAnimations[_activeKeyAnimation] : null;
+                        activeTransformAnimation = _activeTransformAnimation > -1 ? _transformAnimations[_activeTransformAnimation] : null;
                     }
                 }
-                var midiAware = animation as MidiAwareAnimation;
-                midiAware?.MidiAware_OnMessageReceived(sender, e);
+                var midiAwareKeyAnimation = activeKeyAnimation as MidiAwareAnimation;
+                midiAwareKeyAnimation?.MidiAware_OnMessageReceived(sender, e);
+
+                var midiAwareTransformAnimation = activeTransformAnimation as MidiAwareAnimation;
+                midiAwareTransformAnimation?.MidiAware_OnMessageReceived(sender, e);
             }
         }
 
@@ -284,9 +285,26 @@ namespace ShowControl.Rendering
 
         public Task StopAsync(CancellationToken cancellationToken)
         {
+            if (_activeKeyAnimation > -1)
+            {
+                _keyAnimations[_activeKeyAnimation].Stop();
+            }
+            if (_activeTransformAnimation > -1)
+            {
+                _transformAnimations[_activeTransformAnimation].Stop();
+            }
+            
             _cts.Cancel();
             _inputService.Stop();
             _audioService.Dispose();
+            foreach (var animation in _keyAnimations)
+            {
+                var disposableAnimation = animation as IDisposable;
+                if (disposableAnimation != null)
+                {
+                    disposableAnimation.Dispose();
+                }    
+            }
             return _tcs.Task;
         }
 
@@ -418,14 +436,15 @@ namespace ShowControl.Rendering
             };
 
             _keyAnimations = new IKeyAnimation[] {
-                new RainbowAnimation(_devices.Length, roygbiv, _audioService),
-                new RainbowAnimation(_devices.Length, warmColdRoygviv, _audioService),
+                new RainbowAnimation(_devices.Length, roygbiv, _audioService, _cts.Token),
+                new RainbowAnimation(_devices.Length, warmColdRoygviv, _audioService, _cts.Token),
                 new VibrantAnimation(_devices.Length, _audioService, _cts.Token)
             };
 
             _transformAnimations = new ITransformAnimation[]
             {
-                new MirrorTransformAnimation()
+                new MirrorTransformAnimation(),
+                new WaveDim()
             };
 
             InitializePads();
@@ -460,7 +479,6 @@ namespace ShowControl.Rendering
 
         private void RenderThreadLoop()
         {
-            //List<byte> bytes = new List<byte>(512);
             byte[] targetVector = new byte[512];
             var renderSettings = new RenderSettings();
             while (!_cts.Token.IsCancellationRequested)

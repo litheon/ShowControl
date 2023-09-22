@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "ShowControl.ControlPanel": {
+      "commandName": "Project",
+      "nativeDebugging": false
+    }
+  }
+}

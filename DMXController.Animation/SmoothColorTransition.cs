@@ -21,7 +21,7 @@ namespace ShowControl.Animation
 
         }
 
-        public bool Transition(Color[] source, Color[] target, Color[] current)
+        public bool Transition(Color[] source, Color[] target, Color[] current, bool recomputeDistance = false)
         {
             lock(_transitionLock)
             {
@@ -34,7 +34,7 @@ namespace ShowControl.Animation
                     _remainingDistributed = new ColorStat[_source.Length];
                 }
 
-                if (_recomputeMaxDistance)
+                if (_recomputeMaxDistance || recomputeDistance)
                 {
                     CalculateMaxDistance();
                 }
