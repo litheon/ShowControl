@@ -62,15 +62,19 @@ namespace ShowControl.Devices.Audio
 
             var drivers = AsioOut.GetDriverNames();
             var focusRite = drivers.FirstOrDefault(d => d.Contains("Focusrite USB"));
+            var universalAudio = drivers.FirstOrDefault(d => d.Contains("Universal Audio Thunderbolt"));
             bool initialized = false;
             if (focusRite != null)
             {
                 try
                 {
-                    _asioOut = new AsioOut(focusRite)
+
+                    //_asioOut = new AsioOut(focusRite)
+                    _asioOut = new AsioOut(universalAudio)
                     {
-                        InputChannelOffset = 2
+                        //InputChannelOffset = 2
                         //InputChannelOffset = 8
+                        InputChannelOffset = 0
                     };
 
 
@@ -154,7 +158,10 @@ namespace ShowControl.Devices.Audio
                 Hz += width;
             }
             var bpm = _bpmDetect.GetBpm();
-            var audioFrameProcessedEventArgs = new AudioFrameProcessedEventArgs(_copyBuffer[copyBufferIndex], width, bpm, _bassAverageLevel.SampleAverage, _bassCurrentLevel.SampleAverage);
+            var currentLevelDb = 20 * Math.Log10(_bassCurrentLevel.SampleAverage);
+            var averageLevelDb = 20 * Math.Log10(_bassAverageLevel.SampleAverage);
+
+            var audioFrameProcessedEventArgs = new AudioFrameProcessedEventArgs(_copyBuffer[copyBufferIndex], width, bpm, averageLevelDb, currentLevelDb);
             Task.Run(() => AudioFrameProcessed?.Invoke(this, audioFrameProcessedEventArgs));
             _copyBufferIndex.InterlockedIncrement(0, _copyBuffer.Length - 1);
         }
@@ -163,7 +170,7 @@ namespace ShowControl.Devices.Audio
         {
             if (Hz > 0 && Hz <= BassCutOffHz)
             {
-                var windowSampleCount = SampleLevelWindowSeconds / (seconds * BassCutOffHz / (1 / seconds));
+                var windowSampleCount = SampleLevelWindowSeconds / seconds;
                 _bassAverageLevel.SampleWindowSize = Convert.ToInt32(Math.Round(windowSampleCount));
                 _bassAverageLevel.Calculate(level);
                 _bassCurrentLevel.Calculate(level);

@@ -20,7 +20,6 @@ namespace ShowControl.Animation
         private readonly Color[] _sourceAnimationColors;
         private readonly Color[] _solidColorFrame;
 
-        private readonly object _frameLock = new object();
         private readonly object _modeLock = new object();
         private AnimationMode _lastMode;
         private AnimationMode _mode;
@@ -39,7 +38,8 @@ namespace ShowControl.Animation
         private int _frameCoolDown = 1;
 
         private readonly List<int> _pressedPads;
-        private readonly SmoothColorTransition _smoothColorTransition;
+        private readonly SmoothColorTransition _solidColorTransition;
+        private readonly SmoothColorTransition _variableColorTransition;
 
         bool _specialModesEnabled = true;
 
@@ -57,7 +57,7 @@ namespace ShowControl.Animation
             _currentAnimationColors = new Color[pixelCount];
             _targetAnimationColors = new Color[Math.Max(pixelCount, _colors.Length)];
             _sourceAnimationColors = new Color[_targetAnimationColors.Length];
-            _solidColorFrame = new Color[_targetAnimationColors.Length];
+            _solidColorFrame = new Color[pixelCount];
 
             
             _automationTimer = new Timer(AutomaticModeFrameTick, null, Timeout.Infinite, Timeout.Infinite);
@@ -70,7 +70,8 @@ namespace ShowControl.Animation
             _audioService = audioService;
             _pressedPads = new List<int>();
 
-            _smoothColorTransition = new SmoothColorTransition();
+            _variableColorTransition = new SmoothColorTransition();
+            _solidColorTransition = new SmoothColorTransition();
 
             int j = 0;
             for (int i = 0; i < _rootFrame.Length; i++)
@@ -117,42 +118,49 @@ namespace ShowControl.Animation
             lock(_modeLock)
             {
                 mode = _mode;
-            }
-            lock (_rootFrame)
-            {
-                if (_mode == AnimationMode.Manual)
+                lock (_rootFrame)
                 {
-                    _smoothColorTransition.Transition(_sourceAnimationColors, _solidColorFrame, _currentAnimationColors);
-                }
-                else
-                {
-                    bool atTarget = _smoothColorTransition.Transition(_sourceAnimationColors, _targetAnimationColors, _currentAnimationColors);
-
-                    if (atTarget)
+                    if (_mode == AnimationMode.Manual)
                     {
-                        Array.Copy(_targetAnimationColors, _sourceAnimationColors, _targetAnimationColors.Length);
-                        if (forward)
+                        for (int i = 0; i < 30; i++)
                         {
-                            var first = _targetAnimationColors[0];
-                            for (int i = 0; i < _targetAnimationColors.Length - 1; i++)
+                            // Should target be _targetAnimationColors?
+                            if (_solidColorTransition.Transition(_sourceAnimationColors, _solidColorFrame, _currentAnimationColors))
                             {
-                                _targetAnimationColors[i] = _targetAnimationColors[i + 1];
+                                Array.Copy(_solidColorFrame, _sourceAnimationColors, _solidColorFrame.Length);
                             }
-                            _targetAnimationColors[^1] = first;
-                        }
-                        else
-                        {
-                            var last = _targetAnimationColors[^1];
-                            for (int i = _targetAnimationColors.Length - 1; i > 0; i--)
-                            {
-                                _targetAnimationColors[i] = _targetAnimationColors[i - 1];
-                            }
-                            _targetAnimationColors[0] = last;
                         }
                     }
-                }
+                    else
+                    {
+                        bool atTarget = _variableColorTransition.Transition(_sourceAnimationColors, _targetAnimationColors, _currentAnimationColors);
 
-                SetFrame(_currentAnimationColors);
+                        if (atTarget)
+                        {
+                            Array.Copy(_targetAnimationColors, _sourceAnimationColors, _targetAnimationColors.Length);
+                            if (forward)
+                            {
+                                var first = _targetAnimationColors[0];
+                                for (int i = 0; i < _targetAnimationColors.Length - 1; i++)
+                                {
+                                    _targetAnimationColors[i] = _targetAnimationColors[i + 1];
+                                }
+                                _targetAnimationColors[^1] = first;
+                            }
+                            else
+                            {
+                                var last = _targetAnimationColors[^1];
+                                for (int i = _targetAnimationColors.Length - 1; i > 0; i--)
+                                {
+                                    _targetAnimationColors[i] = _targetAnimationColors[i - 1];
+                                }
+                                _targetAnimationColors[0] = last;
+                            }
+                        }
+                    }
+
+                    SetFrame(_currentAnimationColors);
+                }
             }
         }
 
@@ -177,13 +185,27 @@ namespace ShowControl.Animation
         {
             lock(_modeLock)
             {
+                System.Diagnostics.Debug.WriteLine($"Set mode to {mode.ToString()}");
                 if (_mode != mode)
                 {
                     _lastMode = _mode;
                 }
                 _mode = mode;
-                Array.Copy(_currentAnimationColors, _sourceAnimationColors, _currentAnimationColors.Length);
-                _smoothColorTransition.Transition(_sourceAnimationColors, _targetAnimationColors, _currentAnimationColors, recomputeDistance: true);
+
+                lock (_rootFrame)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Set current animation colors");
+                    Array.Copy(_currentAnimationColors, _sourceAnimationColors, _currentAnimationColors.Length);
+                    if (_mode == AnimationMode.Manual)
+                    {
+                        _solidColorTransition.Transition(_sourceAnimationColors, _solidColorFrame, _currentAnimationColors, recomputeDistance: true);
+                    }
+                    else
+                    {
+                        _variableColorTransition.Transition(_sourceAnimationColors, _targetAnimationColors, _currentAnimationColors, recomputeDistance: true);
+                    }
+                }
+
                 if (_mode == AnimationMode.Automatic || _mode == AnimationMode.Manual)
                 {
                     _automationTimer.Change(20, Timeout.Infinite);
@@ -205,7 +227,7 @@ namespace ShowControl.Animation
 
         private void SetFrame(Color[] frame)
         {
-            lock(_frameLock)
+            lock(_rootFrame)
             {
                 for (int i = 0; i < _rootFrame.Length; i++)
                 {
@@ -237,24 +259,22 @@ namespace ShowControl.Animation
             //if there are enough lights to do so
             //support a continous animation from one color to the next color
             //add a mode that grabs a window into a large continous gradient that music/the user/a timer will automatically scroll through
-            if (_mode == AnimationMode.SoundReactive)
+            lock (_modeLock)
             {
-                if (e.CurrentLevel >= -30.0d && _frameCoolDown <= 0)
+                lock (_rootFrame)
                 {
-                    var level = Convert.ToInt32(Math.Min(Math.Max(Math.Round(e.CurrentLevel / e.AverageLevel) * 5, 1), 5));
-                    for (int i = 0; i < level; i++)
+                    if (_mode == AnimationMode.SoundReactive)
                     {
-                        Animate(forward: true, fromInput: true);
+                        if (e.CurrentLevel >= -40.0d || e.AverageLevel > -35.0d)
+                        {
+                            var level = Convert.ToInt32(Math.Min(Math.Max(Math.Round(e.CurrentLevel / e.AverageLevel) * 5, 1), 5));
+                            for (int i = 0; i < level; i++)
+                            {
+                                Animate(forward: true, fromInput: true);
+                            }
+                            _frameCoolDown = DefaultFrameCooldown;
+                        }
                     }
-                    _frameCoolDown = DefaultFrameCooldown;
-                }
-                else if (_frameCoolDown >= 1)
-                {
-                    _frameCoolDown--;
-                }
-                else if (_frameCoolDown == 0)
-                {
-                    _frameCoolDown = -1;
                 }
             }
         }
@@ -272,46 +292,53 @@ namespace ShowControl.Animation
 
         public override void PadPressed(ButtonDirection direction, byte padNumber, int padCount)
         {
-            if (direction == ButtonDirection.Press)
+            lock (_modeLock)
             {
-                if (padNumber == padCount - 1 && _specialModesEnabled)
+                if (direction == ButtonDirection.Press)
                 {
-                    SetMode(AnimationMode.Manual);
-                    var color = Color.FromArgb(0x00, 0x00, 0x00, 0x00);
-                    SetTargetFrameToSingleColor(color);
-                    _pressedPads.Add(padNumber);
-                }
-                else if (padNumber == padCount - 2 && _specialModesEnabled)
-                {
-                    SetMode(AnimationMode.SoundReactive);
-                }
-                else
-                {
-                    SetMode(AnimationMode.Manual);
-                    var color = _colors[padNumber % _colors.Length];
-                    SetTargetFrameToSingleColor(color);
-                    _pressedPads.Add(padNumber);
-                }
-            }
-            else if (direction == ButtonDirection.Release)
-            {
-                if (_pressedPads.Count == 0)
-                {
-                    return;
-                }
-
-                if (padNumber != padCount - 2 || !_specialModesEnabled)
-                {
-                    _pressedPads.Remove(padNumber);
-                    if (_pressedPads.Count == 0)
+                    if (padNumber == padCount - 1 && _specialModesEnabled)
                     {
-                        RestoreMode();
+                        var color = Color.FromArgb(0x00, 0x00, 0x00, 0x00);
+                        SetTargetFrameToSingleColor(color);
+                        SetMode(AnimationMode.Manual);
+
+
+                        _pressedPads.Add(padNumber);
+                    }
+                    else if (padNumber == padCount - 2 && _specialModesEnabled)
+                    {
+                        SetMode(AnimationMode.SoundReactive);
                     }
                     else
                     {
+                        var color = _colors[padNumber % _colors.Length];
+                        SetTargetFrameToSingleColor(color);
+                        SetMode(AnimationMode.Manual);
 
-                        var recentColor = _colors[_pressedPads.Last() % _colors.Length];
-                        SetTargetFrameToSingleColor(recentColor);
+                        _pressedPads.Add(padNumber);
+                    }
+                }
+                else if (direction == ButtonDirection.Release)
+                {
+                    if (_pressedPads.Count == 0)
+                    {
+                        return;
+                    }
+
+                    if (padNumber != padCount - 2 || !_specialModesEnabled)
+                    {
+                        _pressedPads.Remove(padNumber);
+                        if (_pressedPads.Count == 0)
+                        {
+                            RestoreMode();
+                        }
+                        else
+                        {
+
+                            var recentColor = _colors[_pressedPads.Last() % _colors.Length];
+                            SetMode(AnimationMode.Manual);
+                            SetTargetFrameToSingleColor(recentColor);
+                        }
                     }
                 }
             }
@@ -386,7 +413,7 @@ namespace ShowControl.Animation
                 {
                     _solidColorFrame[i] = color;
                 }
-                _smoothColorTransition.Transition(_sourceAnimationColors, _solidColorFrame, _currentAnimationColors, recomputeDistance: true);
+                _solidColorTransition.Transition(_sourceAnimationColors, _solidColorFrame, _currentAnimationColors, recomputeDistance: true);
             }
         }
 
@@ -427,12 +454,5 @@ namespace ShowControl.Animation
                 _disposed = true;
             }
         }
-    }
-
-    public struct ColorStat
-    {
-        public int r;
-        public int g;
-        public int b;
     }
 }

@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Linq;
 using System.Text;
 
 namespace ShowControl.Animation
@@ -9,8 +10,8 @@ namespace ShowControl.Animation
     {
         private ColorStat[] _skippedAnimations;
         private ColorStat[] _remainingDistributed;
-        private int _maxDistanceIndex;
-        private int _maxDistance;
+        private int _maxDistanceIndex = -1;
+        private int _maxDistance = -1;
         private Color[] _source;
         private Color[] _target;
         private Color[] _current;
@@ -30,8 +31,47 @@ namespace ShowControl.Animation
                     _source = source;
                     _target = target;
                     _current = current;
-                    _skippedAnimations = new ColorStat[_source.Length];
-                    _remainingDistributed = new ColorStat[_source.Length];
+                    _skippedAnimations = new ColorStat[current.Length];
+                    _remainingDistributed = new ColorStat[current.Length];
+                }
+
+                if (_recomputeMaxDistance)
+                {
+                    for (int i = 0; i < current.Length; i++)
+                    {
+                        if (current[i] != source[i])
+                        {
+                            break;
+                        }
+                    }
+                }
+
+                if (System.Diagnostics.Debugger.IsAttached && _maxDistance != -1 && !recomputeDistance && !_recomputeMaxDistance)
+                {
+                    for (int i = 0; i < current.Length; i++)
+                    {
+                        if (Math.Abs(current[i].R - target[i].R) > _maxDistance ||
+                            Math.Abs(current[i].G - target[i].G) > _maxDistance ||
+                            Math.Abs(current[i].B - target[i].B) > _maxDistance)
+                        {
+                            System.Diagnostics.Debugger.Break();
+                        }
+                        if ((source[i].R < target[i].R && current[i].R < source[i].R) ||
+                            (source[i].R > target[i].R && current[i].R > source[i].R))
+                        {
+                            System.Diagnostics.Debugger.Break();
+                        }
+                        if ((source[i].G < target[i].G && current[i].G < source[i].G) ||
+                            (source[i].G > target[i].G && current[i].G > source[i].G))
+                        {
+                            System.Diagnostics.Debugger.Break();
+                        }
+                        if ((source[i].B < target[i].B && current[i].B < source[i].B) ||
+                            (source[i].B > target[i].B && current[i].B > source[i].B))
+                        {
+                            System.Diagnostics.Debugger.Break();
+                        }
+                    }
                 }
 
                 if (_recomputeMaxDistance || recomputeDistance)
@@ -81,6 +121,34 @@ namespace ShowControl.Animation
                     byte B = CalculateColorChange(current[i].B, source[i].B, target[i].B, remainingDistance, ref _skippedAnimations[i].b, ref _remainingDistributed[i].b);
 
                     current[i] = Color.FromArgb(0xFF, R, G, B);
+                }
+
+                if (System.Diagnostics.Debugger.IsAttached)
+                {
+                    for (int i = 0; i < current.Length; i++)
+                    {
+                        if (Math.Abs(current[i].R - target[i].R) > _maxDistance ||
+                            Math.Abs(current[i].G - target[i].G) > _maxDistance ||
+                            Math.Abs(current[i].B - target[i].B) > _maxDistance)
+                        {
+                            System.Diagnostics.Debugger.Break();
+                        }
+                        if ((source[i].R < target[i].R && current[i].R < source[i].R) ||
+                            (source[i].R > target[i].R && current[i].R > source[i].R))
+                        {
+                            System.Diagnostics.Debugger.Break();
+                        }
+                        if ((source[i].G < target[i].G && current[i].G < source[i].G) ||
+                            (source[i].G > target[i].G && current[i].G > source[i].G))
+                        {
+                            System.Diagnostics.Debugger.Break();
+                        }
+                        if ((source[i].B < target[i].B && current[i].B < source[i].B) ||
+                            (source[i].B > target[i].B && current[i].B > source[i].B))
+                        {
+                            System.Diagnostics.Debugger.Break();
+                        }
+                    }
                 }
 
                 _recomputeMaxDistance = remainingDistance == 0;

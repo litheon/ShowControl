@@ -31,7 +31,7 @@ namespace ShowControl.Animation
         private int _navigationColorIndex = 0;
         private int _frameCountAnimationThreshold = 4;
         private int _currentFrameCountAnimationThreshold = 0;
-        private readonly int AnimationFrameCountMaximum = 12;
+        private readonly int AnimationFrameCountMaximum = 3;
 
         private readonly object _modeLock = new object();
         private AnimationMode _lastMode;
@@ -113,7 +113,7 @@ namespace ShowControl.Animation
 
             if (_lastBassOverride == 0 || secondsSinceLastBassOverride >= BassOverrideSeconds)
             {
-                if (e.CurrentLevel < 0.001d)
+                if (e.AverageLevel < -42.0d)
                 {
                     Interlocked.Exchange(ref _frameCountAnimationThreshold, AnimationFrameCountMaximum);
                 }
@@ -137,30 +137,30 @@ namespace ShowControl.Animation
                 }
             }
 
-            if (e.CurrentLevel > e.AverageLevel * 2.5 && (_frameCoolDown <= 0 || secondsSinceLastBassOverride >= BassOverrideSeconds) )
+            if (1 / (e.CurrentLevel / e.AverageLevel) > 1.3 && e.CurrentLevel > -35.0d && (/*_frameCoolDown <= 0 || */secondsSinceLastBassOverride >= BassOverrideSeconds) )
             {
                 SetNextFrameWithSingleColor(_vibrantColors[_random.Next() % _vibrantColors.Length]);
 
-                if (secondsSinceLastBassOverride >= BassOverrideSeconds && _frameCoolDown > 0)
-                {
-                    Interlocked.Exchange(ref _frameCountAnimationThreshold, 1);
+                //if (secondsSinceLastBassOverride >= BassOverrideSeconds && _frameCoolDown > 0)
+                //{
+                    Interlocked.Exchange(ref _frameCountAnimationThreshold, 0);
                     Interlocked.Exchange(ref _currentFrameCountAnimationThreshold, 0);
                     _lastBassOverride = DateTime.Now.Ticks;
-                }
-                else
-                {
-                    _frameCoolDown = DefaultFrameCooldown;
-                }
+                //}
+                //else
+                //{
+                //    _frameCoolDown = DefaultFrameCooldown;
+                //}
             }
-            else if (_frameCoolDown >= 1)
-            {
-                Interlocked.Exchange(ref _currentFrameCountAnimationThreshold, 0);
-                _frameCoolDown--;
-            }
-            else if (_frameCoolDown == 0)
-            {
-                _frameCoolDown = -1;
-            }
+            //else if (_frameCoolDown >= 1)
+            //{
+            //    Interlocked.Exchange(ref _currentFrameCountAnimationThreshold, 0);
+            //    _frameCoolDown--;
+            //}
+            //else if (_frameCoolDown == 0)
+            //{
+            //    _frameCoolDown = -1;
+            //}
         }
 
         private void SetMode(AnimationMode mode)
