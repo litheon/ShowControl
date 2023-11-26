@@ -58,16 +58,10 @@ namespace ShowControl.Rendering
                  AudioReactiveRenderSurface.Create(
                     _audioService,
                     new RenderSettings(255),
-                    BetopperDJNew.Instance,
-                    BetopperDJNew.Instance,
-                    BetopperDJNew.Instance,
-                    BetopperDJNew.Instance,
-                    BetopperDJNew.Instance,
-                    BetopperDJNew.Instance,
-                    BetopperDJNew.Instance,
-                    BetopperDJNew.Instance,
-                    BetopperDJNew.Instance,
-                    BetopperDJNew.Instance
+                    Sheds.Instance,
+                    Sheds.Instance,
+                    Sheds.Instance,
+                    Sheds.Instance
                 )
             };
 
@@ -732,6 +726,7 @@ namespace ShowControl.Rendering
                 new VibrantAnimation(_devices.Length, _audioService, _cts.Token),
                 new ColorShimmerAnimation(_devices.Length, warmColdRoygviv, _audioService, _cts.Token),
                 new RainbowAnimation(_devices.Length, space, _audioService, _cts.Token),
+                new ColorPaletteAnimation(_devices.Length, _audioService, _cts.Token)
             };
 
             _transformAnimations = new ITransformAnimation[]

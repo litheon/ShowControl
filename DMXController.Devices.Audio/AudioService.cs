@@ -69,12 +69,12 @@ namespace ShowControl.Devices.Audio
                 try
                 {
 
-                    //_asioOut = new AsioOut(focusRite)
-                    _asioOut = new AsioOut(universalAudio)
+                    _asioOut = new AsioOut(focusRite)
+                    //_asioOut = new AsioOut(universalAudio)
                     {
-                        //InputChannelOffset = 2
+                        InputChannelOffset = 2
                         //InputChannelOffset = 8
-                        InputChannelOffset = 0
+                        //InputChannelOffset = 0
                     };
 
 
