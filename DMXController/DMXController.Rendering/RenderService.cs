@@ -41,6 +41,15 @@ namespace ShowControl.Rendering
 
         private int _masterFader = 127;
 
+        private Timer NavButtonBlinkTimer;
+
+        private static void Blink(object state)
+        {
+            var service = (RenderService)state;
+            var illumination = ((PresonusAtom)service._inputDevice).GetButtonIllumination(Button.Up);
+            ((PresonusAtom)service._inputDevice).SetButtonIllumination(Button.Up, illumination == LightState.On ? LightState.Off : LightState.On);
+        }
+
         public RenderService(
             IDmxDeviceEnumerator deviceEnumerator,
             IInputService inputService,
@@ -58,10 +67,16 @@ namespace ShowControl.Rendering
                  AudioReactiveRenderSurface.Create(
                     _audioService,
                     new RenderSettings(255),
-                    Sheds.Instance,
-                    Sheds.Instance,
-                    Sheds.Instance,
-                    Sheds.Instance
+                    BetopperDJNew.Instance,
+                    BetopperDJNew.Instance,
+                    BetopperDJNew.Instance,
+                    BetopperDJNew.Instance,
+                    BetopperDJNew.Instance,
+                    BetopperDJNew.Instance,
+                    BetopperDJNew.Instance,
+                    BetopperDJNew.Instance,
+                    BetopperDJNew.Instance,
+                    BetopperDJNew.Instance
                 )
             };
 
@@ -87,6 +102,7 @@ namespace ShowControl.Rendering
             _outputDevices = _deviceEnumerator.GetDmxDevices(_cts.Token);
             _renderThread.Start();
             Initialize();
+            NavButtonBlinkTimer = new Timer(Blink, this, 500, 500);
             return Task.CompletedTask;
         }
 
@@ -709,6 +725,103 @@ namespace ShowControl.Rendering
                 Color.FromArgb(Convert.ToInt32("0xFFF7417A", 16)), // Red-Purple
             };
 
+            var bestButt = new Color[]
+            {
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+
+
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+            };
+
+            var oppositeBestButt = new Color[]
+            {
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFF5EC00", 16)), // Yellow
+
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FD", 16)), // Blue
+            };
+
             var reds = new Color[]
             {
                 Color.FromArgb(0xFF, 0xFF, 0x00, 0x00),
@@ -723,10 +836,12 @@ namespace ShowControl.Rendering
             _keyAnimations = new IKeyAnimation[] {
                 new RainbowAnimation(_devices.Length, roygbiv, _audioService, _cts.Token),
                 new RainbowAnimation(_devices.Length, warmColdRoygviv, _audioService, _cts.Token),
-                new VibrantAnimation(_devices.Length, _audioService, _cts.Token),
-                new ColorShimmerAnimation(_devices.Length, warmColdRoygviv, _audioService, _cts.Token),
+                //new VibrantAnimation(_devices.Length, _audioService, _cts.Token),
+                //ew ColorShimmerAnimation(_devices.Length, warmColdRoygviv, _audioService, _cts.Token),
                 new RainbowAnimation(_devices.Length, space, _audioService, _cts.Token),
-                new ColorPaletteAnimation(_devices.Length, _audioService, _cts.Token)
+                new ColorPaletteAnimation(_devices.Length, _audioService, _cts.Token),
+                new RainbowAnimation(_devices.Length, bestButt, _audioService, _cts.Token),
+                new RainbowAnimation(_devices.Length, oppositeBestButt, _audioService, _cts.Token),
             };
 
             _transformAnimations = new ITransformAnimation[]

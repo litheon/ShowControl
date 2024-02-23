@@ -16,6 +16,7 @@ namespace ShowControl.Devices.Input
             {Button.Up, PresonusAtomButton.Up },
             {Button.Play, PresonusAtomButton.Play }
         };
+        private readonly Dictionary<Button, LightState> _buttonIllumination = new Dictionary<Button, LightState>();
         private const int RotaryEncoderOffset = 13;
         private const int RotaryEncoder1 = 14;
         private const int RotaryEncoder2 = 15;
@@ -206,10 +207,21 @@ namespace ShowControl.Devices.Input
             }
         }
 
+        public LightState? GetButtonIllumination(Input.Button button)
+        {
+            LightState state;
+            if (!_buttonIllumination.TryGetValue(button, out state))
+            {
+                return null;
+            }
+            return state;
+        }
+
         public void SetButtonIllumination(Input.Button button, LightState state)
         {
             if (_buttonTranslation.ContainsKey(button))
             {
+                _buttonIllumination[button] = state;
                 _midiOut.Send(new ControlChangeEvent(absoluteTime: 0, channel: 1, controller: (MidiController)_buttonTranslation[button], state == LightState.On ? (int)PresonusAtomPadIlluminationType.Solid : 0).GetAsShortMessage());
             }
         }

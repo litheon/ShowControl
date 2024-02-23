@@ -47,7 +47,6 @@ namespace ShowControl.Devices.Audio
 
         private readonly object _disposalLock = new object();
         private bool _stopped;
-
         public AudioService()
         {
             _bpmDetect = new RealTimeBpmDetect(ChannelCount, SampleRate);
@@ -69,12 +68,12 @@ namespace ShowControl.Devices.Audio
                 try
                 {
 
-                    _asioOut = new AsioOut(focusRite)
-                    //_asioOut = new AsioOut(universalAudio)
+                    //_asioOut = new AsioOut(focusRite)
+                    _asioOut = new AsioOut(universalAudio)
                     {
-                        InputChannelOffset = 2
+                        //InputChannelOffset = 2
                         //InputChannelOffset = 8
-                        //InputChannelOffset = 0
+                        InputChannelOffset = 0
                     };
 
 
