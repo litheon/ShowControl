@@ -44,7 +44,7 @@ namespace ShowControl.Animation
         private readonly List<int> _pressedPads;
         private readonly SmoothColorTransition _smoothColorTransition;
 
-        bool _specialModesEnabled = true;
+        bool _specialModesEnabled = false;
 
         bool _disposed = false;
         public ColorShimmerAnimation(

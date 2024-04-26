@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Windows.Forms;
 
 namespace ShowControl.Devices.Input
 {
@@ -10,7 +11,8 @@ namespace ShowControl.Devices.Input
         Right,
         Select,
         Play,
-        Stop
+        Stop,
+        Zoom
     };
 
     public interface IReadOnlyMidiInputDevice
@@ -27,6 +29,8 @@ namespace ShowControl.Devices.Input
         public void SetPadState(int index, PadState padStates);
         public void SetPadStates(PadState[] padStates);
         public void SetButtonIllumination(Button button, LightState state);
+        public void SetButtonIlluminations(ButtonState[] buttonStates);
+        public LightState? GetButtonIllumination(Button button);
         public void ClearInterface();
         public void Stop();
         public void Reconnect(int inDeviceNo, int outDeviceNo);

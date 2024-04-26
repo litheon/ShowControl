@@ -4,17 +4,23 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Text;
 using System.Threading;
+using static System.Windows.Forms.AxHost;
 
 namespace ShowControl.Devices.Input
 {
     public class PresonusAtom : MidiDevice, IMidiInputDevice
     {
-        public enum PresonusAtomButton { Up = 87, Down, Left, Right, Play = 109 };
+        public enum PresonusAtomButton : byte { Up = 87, Down = 89, Left = 90, Right = 102, Select = 103, Zoom = 104, Play = 109 };
         private enum PresonusAtomPadIlluminationType { Off, Blink, Breathe, Solid = 127 };
         private readonly MidiInputTranslation _midiInputTranslation;
         private readonly Dictionary<Button, PresonusAtomButton> _buttonTranslation = new Dictionary<Button, PresonusAtomButton>() {
             {Button.Up, PresonusAtomButton.Up },
-            {Button.Play, PresonusAtomButton.Play }
+            {Button.Play, PresonusAtomButton.Play },
+            {Button.Down, PresonusAtomButton.Down },
+            {Button.Left, PresonusAtomButton.Left },
+            {Button.Right, PresonusAtomButton.Right },
+            {Button.Select, PresonusAtomButton.Select },
+            {Button.Zoom, PresonusAtomButton.Zoom },
         };
         private readonly Dictionary<Button, LightState> _buttonIllumination = new Dictionary<Button, LightState>();
         private const int RotaryEncoderOffset = 13;
@@ -41,6 +47,46 @@ namespace ShowControl.Devices.Input
                 new MidiInputMapping(
                     new ControlChangeEvent(0, 1, (MidiController)PresonusAtomButton.Up, ButtonReleaseControllerValue),
                     (_) => new DeviceInputEventArgs(this, NavigationButton.Up, ButtonDirection.Release)
+                ),
+                new MidiInputMapping(
+                    new ControlChangeEvent(0, 1, (MidiController)PresonusAtomButton.Down, ButtonPressControllerValue),
+                    (_) => new DeviceInputEventArgs(this, NavigationButton.Down, ButtonDirection.Press)
+                ),
+                new MidiInputMapping(
+                    new ControlChangeEvent(0, 1, (MidiController)PresonusAtomButton.Down, ButtonReleaseControllerValue),
+                    (_) => new DeviceInputEventArgs(this, NavigationButton.Down, ButtonDirection.Release)
+                ),
+                new MidiInputMapping(
+                    new ControlChangeEvent(0, 1, (MidiController)PresonusAtomButton.Left, ButtonPressControllerValue),
+                    (_) => new DeviceInputEventArgs(this, NavigationButton.Left, ButtonDirection.Press)
+                ),
+                new MidiInputMapping(
+                    new ControlChangeEvent(0, 1, (MidiController)PresonusAtomButton.Left, ButtonReleaseControllerValue),
+                    (_) => new DeviceInputEventArgs(this, NavigationButton.Left, ButtonDirection.Release)
+                ),
+                new MidiInputMapping(
+                    new ControlChangeEvent(0, 1, (MidiController)PresonusAtomButton.Right, ButtonPressControllerValue),
+                    (_) => new DeviceInputEventArgs(this, NavigationButton.Right, ButtonDirection.Press)
+                ),
+                new MidiInputMapping(
+                    new ControlChangeEvent(0, 1, (MidiController)PresonusAtomButton.Right, ButtonReleaseControllerValue),
+                    (_) => new DeviceInputEventArgs(this, NavigationButton.Right, ButtonDirection.Release)
+                ),
+                new MidiInputMapping(
+                    new ControlChangeEvent(0, 1, (MidiController)PresonusAtomButton.Select, ButtonPressControllerValue),
+                    (_) => new DeviceInputEventArgs(this, NavigationButton.Select, ButtonDirection.Press)
+                ),
+                new MidiInputMapping(
+                    new ControlChangeEvent(0, 1, (MidiController)PresonusAtomButton.Select, ButtonReleaseControllerValue),
+                    (_) => new DeviceInputEventArgs(this, NavigationButton.Select, ButtonDirection.Release)
+                ),
+                new MidiInputMapping(
+                    new ControlChangeEvent(0, 1, (MidiController)PresonusAtomButton.Zoom, ButtonPressControllerValue),
+                    (_) => new DeviceInputEventArgs(this, NavigationButton.Zoom, ButtonDirection.Press)
+                ),
+                new MidiInputMapping(
+                    new ControlChangeEvent(0, 1, (MidiController)PresonusAtomButton.Zoom, ButtonReleaseControllerValue),
+                    (_) => new DeviceInputEventArgs(this, NavigationButton.Zoom, ButtonDirection.Release)
                 ),
                 new MidiInputMapping(
                     new ControlChangeEvent(0, 1, (MidiController)PresonusAtomButton.Play, ButtonPressControllerValue),
@@ -126,8 +172,12 @@ namespace ShowControl.Devices.Input
                 padStates[i].Color = Color.FromArgb(0x00, 0x00, 0x00, 0x00);
             }
             SetPadStates(padStates);
-            _midiOut.Send(new ControlChangeEvent(absoluteTime: 0, channel: 1, controller: (MidiController)PresonusAtomButton.Up, 0).GetAsShortMessage());
-            _midiOut.Send(new ControlChangeEvent(absoluteTime: 0, channel: 1, controller: (MidiController)PresonusAtomButton.Play, 0).GetAsShortMessage());
+            List<byte> bytes = new List<byte>();
+            foreach (var item in Enum.GetValues(typeof(PresonusAtomButton)))
+            {
+                bytes.AddRange(new ControlChangeEvent(absoluteTime: 0, channel: 1, controller: (MidiController)(item), 0).GetMidiMessageAsByteArray());
+            }
+            _midiOut.SendBuffer(bytes.ToArray());
         }
 
         public void SetPadState(int index, PadState padState)
@@ -222,7 +272,24 @@ namespace ShowControl.Devices.Input
             if (_buttonTranslation.ContainsKey(button))
             {
                 _buttonIllumination[button] = state;
-                _midiOut.Send(new ControlChangeEvent(absoluteTime: 0, channel: 1, controller: (MidiController)_buttonTranslation[button], state == LightState.On ? (int)PresonusAtomPadIlluminationType.Solid : 0).GetAsShortMessage());
+                _midiOut.SendBuffer(new ControlChangeEvent(absoluteTime: 0, channel: 1, controller: (MidiController)_buttonTranslation[button], state == LightState.On ? (int)PresonusAtomPadIlluminationType.Solid : 0).GetMidiMessageAsByteArray());
+            }
+        }
+
+        public void SetButtonIlluminations(ButtonState[] buttonStates)
+        {
+            List<byte> bytes = new List<byte>();
+            foreach (var  buttonState in buttonStates)
+            {
+                if (_buttonTranslation.ContainsKey(buttonState.Button))
+                {
+                    _buttonIllumination[buttonState.Button] = buttonState.LightState;
+                    bytes.AddRange(new ControlChangeEvent(absoluteTime: 0, channel: 1, controller: (MidiController)_buttonTranslation[buttonState.Button], buttonState.LightState == LightState.On ? (int)PresonusAtomPadIlluminationType.Solid : 0).GetMidiMessageAsByteArray());
+                }
+            }
+            if (bytes.Count > 0)
+            {
+                _midiOut.SendBuffer(bytes.ToArray());
             }
         }
 

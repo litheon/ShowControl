@@ -15,5 +15,13 @@ namespace ShowControl.Devices.Input
             byte byte4 = (byte)((message & 0x000000ff));
             return new byte[] { byte4, byte3, byte2 };
         }
+        public static byte[] GetMidiMessageAsByteArray(this ControlChangeEvent controlChangeEvent)
+        {
+            int message = controlChangeEvent.GetAsShortMessage();
+            byte byte2 = (byte)((message & 0x00ff0000) >> 16);
+            byte byte3 = (byte)((message & 0x0000ff00) >> 8);
+            byte byte4 = (byte)((message & 0x000000ff));
+            return new byte[] { byte4, byte3, byte2 };
+        }
     }
 }

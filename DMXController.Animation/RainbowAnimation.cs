@@ -43,6 +43,8 @@ namespace ShowControl.Animation
 
         bool _specialModesEnabled = false;
 
+        bool _padPressedReachedTarget = false;
+
         bool _disposed = false;
         public RainbowAnimation(
             int pixelCount,
@@ -122,12 +124,33 @@ namespace ShowControl.Animation
                 {
                     if (_mode == AnimationMode.Manual)
                     {
-                        for (int i = 0; i < 30; i++)
+                        int iterations = _padPressedReachedTarget ? 1 : 30;
+                        for (int i = 0; i < iterations; i++)
                         {
                             // Should target be _targetAnimationColors?
-                            if (_solidColorTransition.Transition(_sourceAnimationColors, _solidColorFrame, _currentAnimationColors))
+                            if (_solidColorTransition.Transition(_sourceAnimationColors, _solidColorFrame, _currentAnimationColors) && fromInput)
                             {
+                                _padPressedReachedTarget = true;
                                 Array.Copy(_solidColorFrame, _sourceAnimationColors, _solidColorFrame.Length);
+
+                                if (forward)
+                                {
+                                    var first = _solidColorFrame[0];
+                                    for (int j = 0; j < _solidColorFrame.Length - 1; j++)
+                                    {
+                                        _solidColorFrame[j] = _solidColorFrame[j + 1];
+                                    }
+                                    _solidColorFrame[^1] = first;
+                                }
+                                else
+                                {
+                                    var last = _solidColorFrame[^1];
+                                    for (int j = _solidColorFrame.Length - 1; j > 0; j--)
+                                    {
+                                        _solidColorFrame[i] = _solidColorFrame[j - 1];
+                                    }
+                                    _solidColorFrame[0] = last;
+                                }
                             }
                         }
                     }
@@ -311,12 +334,13 @@ namespace ShowControl.Animation
                     }
                     else
                     {
-                        var color = _colors[padNumber % _colors.Length];
-                        SetTargetFrameToSingleColor(color);
-                        SetMode(AnimationMode.Manual);
-
                         _pressedPads.Add(padNumber);
+
+                        var color = _colors[padNumber % _colors.Length];
+                        SetTargetFrameToPressedPads();
+                        SetMode(AnimationMode.Manual);
                     }
+                    _padPressedReachedTarget = false;
                 }
                 else if (direction == ButtonDirection.Release)
                 {
@@ -334,10 +358,8 @@ namespace ShowControl.Animation
                         }
                         else
                         {
-
-                            var recentColor = _colors[_pressedPads.Last() % _colors.Length];
                             SetMode(AnimationMode.Manual);
-                            SetTargetFrameToSingleColor(recentColor);
+                            SetTargetFrameToPressedPads();
                         }
                     }
                 }
@@ -413,6 +435,21 @@ namespace ShowControl.Animation
                 {
                     _solidColorFrame[i] = color;
                 }
+                _solidColorTransition.Transition(_sourceAnimationColors, _solidColorFrame, _currentAnimationColors, recomputeDistance: true);
+            }
+        }
+
+        private void SetTargetFrameToPressedPads()
+        {
+            lock (_rootFrame)
+            {
+                Array.Copy(_currentAnimationColors, _sourceAnimationColors, _currentAnimationColors.Length);
+                for (int i = 0; i < _solidColorFrame.Length; i++)
+                {
+                    var padNumber = _pressedPads[i % _pressedPads.Count];
+                    _solidColorFrame[i] = _colors[padNumber % _colors.Length];
+                }
+
                 _solidColorTransition.Transition(_sourceAnimationColors, _solidColorFrame, _currentAnimationColors, recomputeDistance: true);
             }
         }

@@ -8,7 +8,7 @@ namespace ShowControl.Devices.Input
     public enum DeviceInputEventType { Pad, Navigation, Transport, RotaryEncoder};
     public enum RotaryDirection {None, Up, Down};
     public enum ButtonDirection { None, Press, Release};
-    public enum NavigationButton { None, Up, Down, Left, Right};
+    public enum NavigationButton { None, Up, Down, Left, Right, Select, Zoom};
     public enum TransportButton { None, Play, Stop };
     public class DeviceInputEventArgs
     {

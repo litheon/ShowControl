@@ -297,7 +297,7 @@ namespace ShowControl.Animation
                 _frameAnimateEvent.WaitOne();
                 _automationTimer.Change(Timeout.Infinite, Timeout.Infinite);
                 Animate(forward: true, fromInput: false);
-                _automationTimer.Change(20, Timeout.Infinite);
+                _automationTimer.Change(10, Timeout.Infinite);
             }
             _automationTimer.Dispose();
         }
@@ -362,7 +362,7 @@ namespace ShowControl.Animation
 
         private void StartTimers()
         {
-            _automationTimer.Change(20, Timeout.Infinite);
+            _automationTimer.Change(10, Timeout.Infinite);
             //_automationTimer.Change(1, 1);
         }
 
@@ -398,7 +398,7 @@ namespace ShowControl.Animation
 
                 if (_mode == AnimationMode.Automatic || _mode == AnimationMode.Manual)
                 {
-                    _automationTimer.Change(20, Timeout.Infinite);
+                    _automationTimer.Change(10, Timeout.Infinite);
                 }
                 else if (_mode == AnimationMode.SoundReactive)
                 {
