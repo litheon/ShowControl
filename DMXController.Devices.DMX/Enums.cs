@@ -14,6 +14,7 @@ namespace ShowControl.Devices.DMX
     public enum DmxDeviceMode
     {
         RGB,
+        UV,
         Strobe,
         SoundReactive,
         Off

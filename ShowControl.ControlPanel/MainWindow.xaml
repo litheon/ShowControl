@@ -19,6 +19,9 @@
         </Canvas>
         <StackPanel Orientation="Vertical">
             <TextBlock x:Name="Bpm" Width="200" Text="BPM"></TextBlock>
+            <TextBlock x:Name="AmplitudeRatio" Width="200" Text="Amplitude Ratio"></TextBlock>
+            <TextBlock x:Name="BassAmplitudeCurrent" Width="200" Text="Current Bass Amplitude"></TextBlock>
+            <TextBlock x:Name="BassAmplitudeAverage" Width="200" Text="Average Bass Amplitude"></TextBlock>
             <TextBlock x:Name="Addresses" Width="400" Text="Devices"></TextBlock>
         </StackPanel>
     </Grid>

@@ -39,7 +39,7 @@ namespace ShowControl.Animation
         private readonly SmoothColorTransition _solidColorTransition;
         private readonly SmoothColorTransition _variableColorTransition;
 
-        bool _specialModesEnabled = false;
+        bool _specialModesEnabled = true;
 
         bool _disposed = false;
 

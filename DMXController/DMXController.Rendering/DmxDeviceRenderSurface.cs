@@ -23,7 +23,7 @@ namespace ShowControl.Rendering
             var pixel = sourcePixels[0];
 
             _dmxDevice.Color = pixel.Color;
-            _dmxDevice.Mode = pixel.SoundReactivity > 0 ? DmxDeviceMode.SoundReactive : DmxDeviceMode.RGB;
+            _dmxDevice.Mode = pixel.UV > 0 ? DmxDeviceMode.UV : DmxDeviceMode.RGB;
             if (_dmxDevice.Mode == DmxDeviceMode.SoundReactive)
             {
                 _dmxDevice.SoundReactivitySensitivity = pixel.SoundReactivity;

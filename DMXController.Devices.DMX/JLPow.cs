@@ -17,6 +17,11 @@ namespace ShowControl.Devices.DMX
         public byte StrobeIntensity { get; set; }
         public byte MasterFader { get; set; }
 
+        public byte UltraViolet { get; set; }
+        public byte White { get; set; }
+        public byte Amber { get; set; }
+
+
         public JLPow()
         {
             Mode = DmxDeviceMode.RGB;

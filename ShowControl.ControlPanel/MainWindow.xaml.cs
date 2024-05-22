@@ -80,6 +80,9 @@ namespace ShowControl.ControlPanel
             
             Dispatcher.Invoke(() => {
                 Bpm.Text = string.Format("BPM: {0}", e.Bpm);
+                BassAmplitudeAverage.Text = string.Format("Bass Amplitude Average: {0}", e.AverageLevel);
+                BassAmplitudeCurrent.Text = string.Format("Bass Amplitude Current: {0}", e.CurrentLevel);
+                AmplitudeRatio.Text = string.Format("Amplitude Ratio: {0}", e.AmplitudeRatio);
                 double previous = 0;
                 WindowsPoint point1;
                 WindowsPoint point2;

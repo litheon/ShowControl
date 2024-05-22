@@ -65,7 +65,7 @@ namespace ShowControl.Animation
             _animationThread.Start();
             for (int i = 0; i < pixelCount; i++)
             {
-                _currentFrame[i] = new Pixel(_vibrantColors[_random.Next() % _vibrantColors.Length], 0, 0);
+                _currentFrame[i] = new Pixel(_vibrantColors[_random.Next() % _vibrantColors.Length], 0, 0, 0x00);
             }
             for (int i = 0; i < pixelCount; i++)
             {

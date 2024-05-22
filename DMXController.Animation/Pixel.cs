@@ -9,11 +9,14 @@ namespace ShowControl.Animation
         public System.Drawing.Color Color { get; set; }
         public byte Strobe { get; }
         public byte SoundReactivity { get; }
-        public Pixel(System.Drawing.Color color, byte strobe, byte soundReactivity)
+        public byte UV { get; }
+
+        public Pixel(System.Drawing.Color color, byte strobe, byte soundReactivity, byte uv)
         {
             Color = color;
             Strobe = strobe;
             SoundReactivity = soundReactivity;
+            UV = uv;
         }
     }
 }

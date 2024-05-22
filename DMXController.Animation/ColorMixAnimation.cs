@@ -19,7 +19,7 @@ namespace ShowControl.Animation
             _rootFrame = new Pixel[pixelCount];
             for (int i = 0; i < _rootFrame.Length; i++)
             {
-                _rootFrame[i] = new Pixel(System.Drawing.Color.FromArgb(0x00, 0x00, 0x00, 0x00), 0x00, 0x00);
+                _rootFrame[i] = new Pixel(System.Drawing.Color.FromArgb(0x00, 0x00, 0x00, 0x00), 0x00, 0x00, 0x00);
             }
         }
 

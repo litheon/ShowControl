@@ -27,6 +27,8 @@ namespace ShowControl.Devices.Audio
         private const double MidRangeCutOffHz = 5000.0d;
         private readonly SampleAverageLevelCalculator _bassAverageLevel;
         private readonly SampleAverageLevelCalculator _bassCurrentLevel;
+        private readonly SampleAverageLevelCalculator _overallAverageLevel;
+        private readonly SampleAverageLevelCalculator _overallAverageLevelAverage;
 
         private static float[] _samples1;
         private static float[] _samples2;
@@ -52,6 +54,8 @@ namespace ShowControl.Devices.Audio
             _bpmDetect = new RealTimeBpmDetect(ChannelCount, SampleRate);
             _bassAverageLevel = new SampleAverageLevelCalculator(0);
             _bassCurrentLevel = new SampleAverageLevelCalculator(Convert.ToInt32(Math.Round(BassCutOffHz / (SampleRate / FftLength))) - 1);
+            _overallAverageLevel = new SampleAverageLevelCalculator(0);
+            _overallAverageLevelAverage = new SampleAverageLevelCalculator(0);
             _activeBuffer = _fftBuffer;
 
             for (int i = 0; i < _copyBuffer.Length; i++)
@@ -159,20 +163,28 @@ namespace ShowControl.Devices.Audio
             var bpm = _bpmDetect.GetBpm();
             var currentLevelDb = 20 * Math.Log10(_bassCurrentLevel.SampleAverage);
             var averageLevelDb = 20 * Math.Log10(_bassAverageLevel.SampleAverage);
+            var amplitudeRatio = _overallAverageLevel.SampleAverage / _overallAverageLevelAverage.SampleAverage;
 
-            var audioFrameProcessedEventArgs = new AudioFrameProcessedEventArgs(_copyBuffer[copyBufferIndex], width, bpm, averageLevelDb, currentLevelDb);
+            var audioFrameProcessedEventArgs = new AudioFrameProcessedEventArgs(_copyBuffer[copyBufferIndex], width, bpm, averageLevelDb, currentLevelDb, amplitudeRatio);
             Task.Run(() => AudioFrameProcessed?.Invoke(this, audioFrameProcessedEventArgs));
             _copyBufferIndex.InterlockedIncrement(0, _copyBuffer.Length - 1);
         }
 
         private void CalculateAverageLevel(double Hz, double level, double seconds)
         {
+            var windowSampleCount = SampleLevelWindowSeconds / seconds;
             if (Hz > 0 && Hz <= BassCutOffHz)
             {
-                var windowSampleCount = SampleLevelWindowSeconds / seconds;
                 _bassAverageLevel.SampleWindowSize = Convert.ToInt32(Math.Round(windowSampleCount));
                 _bassAverageLevel.Calculate(level);
                 _bassCurrentLevel.Calculate(level);
+            }
+            if (Hz == 0)
+            {
+                _overallAverageLevel.SampleWindowSize = Convert.ToInt32(Math.Round(windowSampleCount));
+                _overallAverageLevelAverage.SampleWindowSize = Convert.ToInt32(Math.Round(windowSampleCount));
+                _overallAverageLevel.Calculate(level);
+                _overallAverageLevelAverage.Calculate(_overallAverageLevel.SampleAverage);
             }
         }
 

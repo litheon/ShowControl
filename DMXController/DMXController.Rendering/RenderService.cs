@@ -42,6 +42,9 @@ namespace ShowControl.Rendering
         private int _masterFader = 127;
 
         private Timer NavButtonBlinkTimer;
+        private Timer RenderOperatatorTimer;
+        private readonly TimeSpan RenderDelayTime = TimeSpan.FromMinutes(10);
+        private double _lastAverageLevel;
 
         private static Button[] _blinkButtons = new Button[]
         {
@@ -64,6 +67,69 @@ namespace ShowControl.Rendering
             service._inputDevice.SetButtonIlluminations(buttonStates.ToArray());
         }
 
+        private void ChangeAnimation(object state)
+        {
+            lock(_navigationLock)
+            {
+                if (_activeKeyAnimation == -1 && _keyAnimations.Length > 0)
+                {
+                    if (_activeTransformAnimation != -1)
+                    {
+                        SetActiveTransformAnimation(_activeTransformAnimation);
+                    }
+                    SetActiveKeyAnimation(0);
+                    SetNavigationLevel(NavigationLevel.KeyAnimation);
+                }
+                else if (_activeTransformAnimation == -1 && _transformAnimations.Length > 0)
+                {
+                    SetActiveTransformAnimation(0);
+                }
+                else if (_activeTransformAnimation < _transformAnimations.Length - 2)
+                {
+                    SetActiveTransformAnimation(_activeTransformAnimation + 1);
+                }
+                else if (_activeKeyAnimation <  _keyAnimations.Length - 2)
+                {
+                    if (_activeTransformAnimation != -1)
+                    {
+                        SetActiveTransformAnimation(_activeTransformAnimation);
+                    }
+                    SetActiveKeyAnimation(_activeKeyAnimation + 1);
+                    SetNavigationLevel(NavigationLevel.KeyAnimation);
+                }
+                else if (_keyAnimations.Length > 0 && _activeKeyAnimation != _keyAnimations.Length - 1)
+                {
+                    if (_activeTransformAnimation != -1)
+                    {
+                        SetActiveTransformAnimation(_activeTransformAnimation);
+                    }
+                    SetActiveKeyAnimation(0);
+                    SetNavigationLevel(NavigationLevel.KeyAnimation);
+                }
+                else if (_activeTransformAnimation != -1)
+                {
+                    SetActiveTransformAnimation(_activeTransformAnimation);
+                }
+
+                if (_activeKeyAnimation != -1)
+                {
+                    var activeKeyAnimation = _keyAnimations[_activeKeyAnimation];
+                    var modeEnabledAnimation = activeKeyAnimation as IModeEnabledAnimation;
+                    if (modeEnabledAnimation != null)
+                    {
+                        if (_lastAverageLevel > -40)
+                        {
+                            modeEnabledAnimation.SetMode(AnimationMode.SoundReactive);
+                        }
+                        else
+                        {
+                            modeEnabledAnimation.SetMode(AnimationMode.Automatic);
+                        }
+                    }
+                }
+            }
+        }
+
         public RenderService(
             IDmxDeviceEnumerator deviceEnumerator,
             IInputService inputService,
@@ -73,6 +139,7 @@ namespace ShowControl.Rendering
             _deviceEnumerator = deviceEnumerator;
             _inputService = inputService;
             _audioService = audioService;
+            _audioService.AudioFrameProcessed += _audioService_AudioFrameProcessed;
             _renderThread = new Thread(RenderThreadLoop);
             _tcs = new TaskCompletionSource<bool>();
             _cts = new CancellationTokenSource();
@@ -81,21 +148,23 @@ namespace ShowControl.Rendering
                  AudioReactiveRenderSurface.Create(
                     _audioService,
                     new RenderSettings(255),
-                    BetopperDJNew.Instance,
-                    BetopperDJNew.Instance,
-                    BetopperDJNew.Instance,
-                    BetopperDJNew.Instance,
-                    BetopperDJNew.Instance,
-                    BetopperDJNew.Instance,
-                    BetopperDJNew.Instance,
-                    BetopperDJNew.Instance,
-                    BetopperDJNew.Instance,
-                    BetopperDJNew.Instance
+                    Sheds.Instance,
+                    Sheds.Instance,
+                    Sheds.Instance,
+                    Sheds.Instance,
+                    Sheds.Instance,
+                    Sheds.Instance
                 )
             };
 
             _devices = _renderSurfaces.SelectMany(r => r.GetDevices()).ToArray();
         }
+
+        private void _audioService_AudioFrameProcessed(object sender, AudioFrameProcessedEventArgs e)
+        {
+            _lastAverageLevel = e.AverageLevel;
+        }
+
         public RenderService(
             IDmxDeviceEnumerator deviceEnumerator,
             IInputService inputService,
@@ -117,6 +186,7 @@ namespace ShowControl.Rendering
             _renderThread.Start();
             Initialize();
             NavButtonBlinkTimer = new Timer(Blink, this, 500, 500);
+            RenderOperatatorTimer = new Timer(ChangeAnimation, this, RenderDelayTime, RenderDelayTime);
             return Task.CompletedTask;
         }
 
@@ -145,7 +215,7 @@ namespace ShowControl.Rendering
                 }
                 _padStates[index].PadIllumination = PadIllumination.Blink;
                 _activeKeyAnimation = index;
-                animation = _keyAnimations[_activeKeyAnimation];   
+                animation = _keyAnimations[_activeKeyAnimation];
             }
             return true;
         }
@@ -267,6 +337,7 @@ namespace ShowControl.Rendering
                 var midiAwareTransformAnimation = activeTransformAnimation as MidiAwareAnimation;
                 midiAwareTransformAnimation?.MidiAware_OnMessageReceived(sender, e);
             }
+            RenderOperatatorTimer.Change(RenderDelayTime, RenderDelayTime);
         }
 
         private void ProcessPadPressed(ButtonDirection direction, byte padNumber)
@@ -751,6 +822,26 @@ namespace ShowControl.Rendering
                 Color.FromArgb(0xFF, 0xFF, 0x16, 0x00),
             };
 
+            var bestButt = new Color[]
+            {
+                Color.FromArgb(Convert.ToInt32("0xFFFFFF00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFF0000FF", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFFFFFF00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFF0000FF", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFFFFFF00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFF0000FF", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFFFFFF00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFF0000FF", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FF", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FF", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FF", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFF0000FF", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0xFFFFFF00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFFFFF00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFFFFF00", 16)), // Yellow
+                Color.FromArgb(Convert.ToInt32("0xFFFFFF00", 16)), // Yellow
+            };
+
             _keyAnimations = new IKeyAnimation[] {
                 new RainbowAnimation(_devices.Length, roygbiv, _audioService, _cts.Token),
                 new RainbowAnimation(_devices.Length, warmColdRoygviv, _audioService, _cts.Token),
@@ -758,13 +849,15 @@ namespace ShowControl.Rendering
                 //new ColorShimmerAnimation(_devices.Length, warmColdRoygviv, _audioService, _cts.Token),
                 new RainbowAnimation(_devices.Length, space, _audioService, _cts.Token),
                 //new ColorPaletteAnimation(_devices.Length, _audioService, _cts.Token),
+                new RainbowAnimation(_devices.Length, bestButt, _audioService, _cts.Token),
+                new UltraVioletStaticAnimation(_devices.Length)
             };
 
             _transformAnimations = new ITransformAnimation[]
             {
                 new MirrorTransformAnimation(),
                 new WaveDim(),
-                //new FlyingSaucer(_audioService, _cts.Token),
+                new FlyingSaucer(_audioService, _cts.Token),
             };
 
             InitializePads();

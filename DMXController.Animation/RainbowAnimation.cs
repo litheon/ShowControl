@@ -10,7 +10,7 @@ using System.Drawing;
 
 namespace ShowControl.Animation
 {
-    public class RainbowAnimation : MidiAwareAnimation, IKeyAnimation, IDisposable
+    public class RainbowAnimation : MidiAwareAnimation, IKeyAnimation, IModeEnabledAnimation, IDisposable
     {
         private readonly Color[] _colors;
 
@@ -41,7 +41,7 @@ namespace ShowControl.Animation
         private readonly SmoothColorTransition _solidColorTransition;
         private readonly SmoothColorTransition _variableColorTransition;
 
-        bool _specialModesEnabled = false;
+        bool _specialModesEnabled = true;
 
         bool _padPressedReachedTarget = false;
 
@@ -204,7 +204,7 @@ namespace ShowControl.Animation
             _automationTimer.Change(Timeout.Infinite, Timeout.Infinite);
         }
 
-        private void SetMode(AnimationMode mode)
+        public void SetMode(AnimationMode mode)
         {
             lock(_modeLock)
             {

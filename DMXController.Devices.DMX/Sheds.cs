@@ -16,6 +16,9 @@ namespace ShowControl.Devices.DMX
         public Color Color { get; set; }
         public byte SoundReactivitySensitivity { get; set; }
         public byte StrobeIntensity { get; set; }
+        public byte UltraViolet { get; set; }
+        public byte White { get; set; }
+        public byte Amber { get; set; }
 
         public Sheds()
         {
@@ -103,6 +106,10 @@ namespace ShowControl.Devices.DMX
             if (Mode == DmxDeviceMode.RGB)
             {
                 return new byte[] { Math.Min(MasterFader, Color.A), Color.R, Color.G, Color.B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+            }
+            else if (Mode == DmxDeviceMode.UV)
+            {
+                return new byte[] { Math.Min(MasterFader, Color.A), 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x00 };
             }
             else if(Mode == DmxDeviceMode.SoundReactive)
             {
