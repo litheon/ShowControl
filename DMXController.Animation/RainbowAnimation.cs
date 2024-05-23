@@ -147,7 +147,7 @@ namespace ShowControl.Animation
                                     var last = _solidColorFrame[^1];
                                     for (int j = _solidColorFrame.Length - 1; j > 0; j--)
                                     {
-                                        _solidColorFrame[i] = _solidColorFrame[j - 1];
+                                        _solidColorFrame[j] = _solidColorFrame[j - 1];
                                     }
                                     _solidColorFrame[0] = last;
                                 }
