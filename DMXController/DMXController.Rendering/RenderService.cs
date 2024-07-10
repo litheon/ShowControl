@@ -849,15 +849,15 @@ namespace ShowControl.Rendering
                 //new ColorShimmerAnimation(_devices.Length, warmColdRoygviv, _audioService, _cts.Token),
                 new RainbowAnimation(_devices.Length, space, _audioService, _cts.Token),
                 //new ColorPaletteAnimation(_devices.Length, _audioService, _cts.Token),
-                new RainbowAnimation(_devices.Length, bestButt, _audioService, _cts.Token),
-                new UltraVioletStaticAnimation(_devices.Length)
+                //new RainbowAnimation(_devices.Length, bestButt, _audioService, _cts.Token),
+                //new UltraVioletStaticAnimation(_devices.Length)
             };
 
             _transformAnimations = new ITransformAnimation[]
             {
                 new MirrorTransformAnimation(),
                 new WaveDim(),
-                new FlyingSaucer(_audioService, _cts.Token),
+                //new FlyingSaucer(_audioService, _cts.Token),
             };
 
             InitializePads();
