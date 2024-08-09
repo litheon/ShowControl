@@ -16,7 +16,13 @@ namespace ShowControl.Devices.Output
 
         private readonly Timer _ftdiFrameTimer;
         private readonly EventWaitHandle _waitHandle = new EventWaitHandle(false, EventResetMode.AutoReset);
+        private readonly IntPtr _ftdiProPacketHeaderBuffer;
+        private readonly IntPtr _ftdiProPacketEndBuffer;
         private readonly IntPtr _ftdiDmxBuffer;
+        private const byte ProPacketHeaderSize = 4;
+        private const byte ProPacketDmxLabelNumber = 6;
+        private const byte ProPacketDmxStartCode = 0x7E;
+        private const byte ProPacketEndCode = 0xE7;
         private const int BufferSize = 513;
         private readonly byte[] _dmxBuffer = new byte[BufferSize];
         private readonly Thread _writeThread;
@@ -34,11 +40,15 @@ namespace ShowControl.Devices.Output
             HandleFTDIOperation(FT_SetDataCharacteristics(_handle, BITS_8, STOP_BITS_2, PARITY_NONE), nameof(FT_SetDataCharacteristics));
             HandleFTDIOperation(FT_SetFlowControl(_handle, (char)FLOW_NONE, 0, 0), nameof(FT_SetFlowControl));
             HandleFTDIOperation(FT_ClrRts(_handle), nameof(FT_ClrRts));
+            HandleFTDIOperation(FT_SetTimeouts(_handle, 10, 100), nameof(FT_SetTimeouts));
             HandleFTDIOperation(FT_Purge(_handle, PURGE_TX), nameof(FT_Purge));
             HandleFTDIOperation(FT_Purge(_handle, PURGE_RX), nameof(FT_Purge));
             _workWaitEvent = new AutoResetEvent(false);
             _frameWrittenEvent = new AutoResetEvent(false);
             _ftdiDmxBuffer = Marshal.AllocHGlobal(BufferSize);
+            _ftdiProPacketHeaderBuffer = Marshal.AllocHGlobal(ProPacketHeaderSize);
+            _ftdiProPacketEndBuffer = Marshal.AllocHGlobal(1);
+            Marshal.Copy(new byte[] { ProPacketEndCode }, 0, _ftdiProPacketEndBuffer, 1);
             _writeThread = new Thread(WriteLoop);
             _writeThread.Start();
             _ftdiFrameTimer = new Timer(FtdiFrameTimerTick, null, 0, Timeout.Infinite);
@@ -154,6 +164,13 @@ namespace ShowControl.Devices.Output
         private static extern FT_STATUS FT_SetDivisor(uint ftHandle, char usDivisor);
 #endif
 
+        [DllImport("FTD2XX.dll")]
+#if WIN64
+        private static extern FT_STATUS FT_SetTimeouts(UInt64 ftHandle, UInt32 readTimeout, UInt32 writeTimeout);
+#elif WIN32
+        private static extern FT_STATUS FT_SetTimeouts(uint ftHandle, UInt32 readTimeout, UInt32 writeTimeout);
+#endif
+
         private const byte BITS_8 = 8;
         private const byte STOP_BITS_2 = 2;
         private const byte PARITY_NONE = 0;
@@ -183,9 +200,13 @@ namespace ShowControl.Devices.Output
                 {
                     Marshal.Copy(_dmxBuffer, 0, _ftdiDmxBuffer, _dmxBuffer.Length);
                 }
-                HandleFTDIOperation(FT_SetBreakOn(_handle), nameof(FT_SetBreakOn));
-                HandleFTDIOperation(FT_SetBreakOff(_handle), nameof(FT_SetBreakOff));
+                var bytes = new byte[ProPacketHeaderSize] { ProPacketDmxStartCode, ProPacketDmxLabelNumber, (byte)(_dmxBuffer.Length & 0xFF), (byte)(_dmxBuffer.Length >> 8) };
+                Marshal.Copy(bytes, 0, _ftdiProPacketHeaderBuffer, ProPacketHeaderSize);
+                //HandleFTDIOperation(FT_SetBreakOn(_handle), nameof(FT_SetBreakOn));
+                //HandleFTDIOperation(FT_SetBreakOff(_handle), nameof(FT_SetBreakOff));
+                HandleFTDIOperation(FT_Write(_handle, _ftdiProPacketHeaderBuffer, ProPacketHeaderSize, ref bytesWritten), nameof(FT_Write));
                 HandleFTDIOperation(FT_Write(_handle, _ftdiDmxBuffer, BufferSize, ref bytesWritten), nameof(FT_Write));
+                HandleFTDIOperation(FT_Write(_handle, _ftdiProPacketEndBuffer, 1, ref bytesWritten), nameof(FT_Write));
                 _waitHandle.Reset();
                 _ftdiFrameTimer.Change(MinimumDelayBetweenFtdiFrameRenders, Timeout.Infinite);
                 _writeLoopLastTicks = DateTime.Now.Ticks;

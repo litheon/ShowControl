@@ -117,7 +117,7 @@ namespace ShowControl.Rendering
                     var modeEnabledAnimation = activeKeyAnimation as IModeEnabledAnimation;
                     if (modeEnabledAnimation != null)
                     {
-                        if (_lastAverageLevel > -40)
+                        if (_lastAverageLevel > -40 && _lastAverageLevel != 0)
                         {
                             modeEnabledAnimation.SetMode(AnimationMode.SoundReactive);
                         }
@@ -153,7 +153,26 @@ namespace ShowControl.Rendering
                     Sheds.Instance,
                     Sheds.Instance,
                     Sheds.Instance,
+                    Sheds.Instance,
+                    Sheds.Instance,
+                    Sheds.Instance,
+                    Sheds.Instance,
+                    Sheds.Instance,
+                    Sheds.Instance,
+                    Sheds.Instance,
+                    Sheds.Instance,
+                    Sheds.Instance,
+                    Sheds.Instance,
                     Sheds.Instance
+                    //BetopperDJNew.Instance,
+                    //BetopperDJNew.Instance,
+                    //BetopperDJNew.Instance,
+                    //BetopperDJNew.Instance,
+                    //BetopperDJNew.Instance,
+                    //BetopperDJNew.Instance,
+                    //BetopperDJNew.Instance,
+                    //BetopperDJNew.Instance,
+                    //BetopperDJNew.Instance
                 )
             };
 
@@ -855,8 +874,8 @@ namespace ShowControl.Rendering
 
             _transformAnimations = new ITransformAnimation[]
             {
-                new MirrorTransformAnimation(),
-                new WaveDim(),
+                //new MirrorTransformAnimation(),
+                //new WaveDim(),
                 //new FlyingSaucer(_audioService, _cts.Token),
             };
 
