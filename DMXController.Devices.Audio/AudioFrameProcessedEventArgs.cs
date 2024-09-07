@@ -13,7 +13,9 @@ namespace ShowControl.Devices.Audio
         public double AverageLevel { get; private set; }
         public double CurrentLevel { get; private set; }
         public double AmplitudeRatio { get; private set; }
-        public AudioFrameProcessedEventArgs(Point[] audioSpectrum, double widthPerBand, float bpm, double averageLevel, double currentLevel, double amplitudeRatio)
+
+        public double Seconds { get; private set; }
+        public AudioFrameProcessedEventArgs(Point[] audioSpectrum, double widthPerBand, float bpm, double averageLevel, double currentLevel, double amplitudeRatio, double seconds)
         {
             AudioSpectrum = audioSpectrum;
             WidthPerBand = widthPerBand;
@@ -21,6 +23,7 @@ namespace ShowControl.Devices.Audio
             AverageLevel = averageLevel;
             CurrentLevel = currentLevel;
             AmplitudeRatio = amplitudeRatio;
+            Seconds = seconds;
         }
     }
 }

@@ -34,14 +34,15 @@ namespace ShowControl.Animation
         int navigationColorIndex = 0;
 
         private readonly IAudioService _audioService;
-        private const int DefaultFrameCooldown = 1;
+        private const int DefaultFrameCooldown = 6;
         private int _frameCoolDown = 1;
+        private double _beats = 0;
 
         private readonly List<int> _pressedPads;
         private readonly SmoothColorTransition _solidColorTransition;
         private readonly SmoothColorTransition _variableColorTransition;
 
-        bool _specialModesEnabled = false;
+        bool _specialModesEnabled = true;
 
         bool _padPressedReachedTarget = false;
 
@@ -147,7 +148,7 @@ namespace ShowControl.Animation
                                     var last = _solidColorFrame[^1];
                                     for (int j = _solidColorFrame.Length - 1; j > 0; j--)
                                     {
-                                        _solidColorFrame[i] = _solidColorFrame[j - 1];
+                                        _solidColorFrame[j] = _solidColorFrame[j - 1];
                                     }
                                     _solidColorFrame[0] = last;
                                 }
@@ -288,14 +289,42 @@ namespace ShowControl.Animation
                 {
                     if (_mode == AnimationMode.SoundReactive)
                     {
+                        //if (false)
                         if (e.CurrentLevel >= -40.0d || e.AverageLevel > -35.0d)
                         {
-                            var level = Convert.ToInt32(Math.Min(Math.Max(Math.Round(e.CurrentLevel / e.AverageLevel) * 5, 1), 5));
+                            const int maxAnimations = 3;
+                            const int minAnimations = 1;
+                            var levelFactor = Math.Round(e.CurrentLevel / e.AverageLevel * maxAnimations);
+                            var level = Convert.ToInt32(Math.Min(Math.Max(levelFactor, minAnimations), maxAnimations));
                             for (int i = 0; i < level; i++)
                             {
                                 Animate(forward: true, fromInput: true);
                             }
                             _frameCoolDown = DefaultFrameCooldown;
+                        }
+                        else
+                        {
+                            if (e.Bpm > 60 && e.Bpm < 200)
+                            {
+                                var beats = 12 * e.Bpm / 60.0d * e.Seconds;
+                                _beats += beats;
+                                if (_beats >= 1)
+                                {
+                                    _frameCoolDown = 0;
+                                    _beats = 0;
+                                }
+                                int x = 0;
+                            }
+                            else
+                            {
+                                _frameCoolDown--;
+                            }
+
+                            if (_frameCoolDown == 0)
+                            {
+                                Animate(forward: true, fromInput: true);
+                                _frameCoolDown = DefaultFrameCooldown;
+                            }
                         }
                     }
                 }

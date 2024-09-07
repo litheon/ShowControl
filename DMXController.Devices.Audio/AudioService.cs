@@ -20,7 +20,7 @@ namespace ShowControl.Devices.Audio
         public const int SampleRate = 192000;
         private const int ChannelCount = 2;
 
-        private const int SampleLevelWindowSeconds = 30;
+        private const int SampleLevelWindowSeconds = 20;
         private const int SampleQueueLength = SampleLevelWindowSeconds * SampleLevelWindowSeconds;
 
         private const double BassCutOffHz = 250.0d;
@@ -72,12 +72,12 @@ namespace ShowControl.Devices.Audio
                 try
                 {
 
-                    //_asioOut = new AsioOut(focusRite)
-                    _asioOut = new AsioOut(universalAudio)
+                    _asioOut = new AsioOut(focusRite)
+                    //_asioOut = new AsioOut(universalAudio)
                     {
-                        //InputChannelOffset = 2
+                        InputChannelOffset = 2
                         //InputChannelOffset = 8
-                        InputChannelOffset = 0
+                        //InputChannelOffset = 0
                     };
 
 
@@ -165,7 +165,7 @@ namespace ShowControl.Devices.Audio
             var averageLevelDb = 20 * Math.Log10(_bassAverageLevel.SampleAverage);
             var amplitudeRatio = _overallAverageLevel.SampleAverage / _overallAverageLevelAverage.SampleAverage;
 
-            var audioFrameProcessedEventArgs = new AudioFrameProcessedEventArgs(_copyBuffer[copyBufferIndex], width, bpm, averageLevelDb, currentLevelDb, amplitudeRatio);
+            var audioFrameProcessedEventArgs = new AudioFrameProcessedEventArgs(_copyBuffer[copyBufferIndex], width, bpm, averageLevelDb, currentLevelDb, amplitudeRatio, seconds);
             Task.Run(() => AudioFrameProcessed?.Invoke(this, audioFrameProcessedEventArgs));
             _copyBufferIndex.InterlockedIncrement(0, _copyBuffer.Length - 1);
         }
