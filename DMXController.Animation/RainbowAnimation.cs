@@ -91,6 +91,8 @@ namespace ShowControl.Animation
             }
 
             _cancellationToken = cancellationToken;
+
+            SetMode(AnimationMode.Automatic);
         }
 
         ~RainbowAnimation()
@@ -292,10 +294,15 @@ namespace ShowControl.Animation
                         //if (false)
                         if (e.CurrentLevel >= -40.0d || e.AverageLevel > -35.0d)
                         {
-                            const int maxAnimations = 5;
+                            const int multiplier = 5;
+                            const int maxAnimations = 7;
                             const int minAnimations = 1;
-                            var levelFactor = Math.Round(e.CurrentLevel / e.AverageLevel * maxAnimations);
+                            var levelFactor = Math.Round(e.CurrentLevel / e.AverageLevel * multiplier);
                             var level = Convert.ToInt32(Math.Min(Math.Max(levelFactor, minAnimations), maxAnimations));
+                            if (level > 5)
+                            {
+                                int x = 0;
+                            }
                             for (int i = 0; i < level; i++)
                             {
                                 Animate(forward: true, fromInput: true);
@@ -434,7 +441,7 @@ namespace ShowControl.Animation
                 buttonLightStates = new ButtonLightState[0];
             }
 
-            SetMode(AnimationMode.Automatic);
+            
             return new DeviceState(padStates, buttonLightStates);
         }
 

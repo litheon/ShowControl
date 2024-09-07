@@ -973,17 +973,18 @@ namespace ShowControl.Rendering
             };
 
             _keyAnimations = new IKeyAnimation[] {
-                new RainbowAnimation(_devices.Length, dragonCyborg1, _audioService, _cts.Token),
+
+                // Rainbow-Space
+                new RainbowAnimation(_devices.Length, roygbiv, _audioService, _cts.Token),
+                new RainbowAnimation(_devices.Length, warmColdRoygviv, _audioService, _cts.Token),
+                new RainbowAnimation(_devices.Length, space, _audioService, _cts.Token),
+
+                //new RainbowAnimation(_devices.Length, dragonCyborg1, _audioService, _cts.Token),
                 new RainbowAnimation(_devices.Length, dragonCyborg2, _audioService, _cts.Token),
                 new RainbowAnimation(_devices.Length, dragonCyborg3, _audioService, _cts.Token),
                 new RainbowAnimation(_devices.Length, dragonCyborg5, _audioService, _cts.Token),
-                new RainbowAnimation(_devices.Length, dragonCyborg6, _audioService, _cts.Token),
-                new RainbowAnimation(_devices.Length, dragonCyborg8, _audioService, _cts.Token),
-
-                // Rainbow-Space
-                //new RainbowAnimation(_devices.Length, roygbiv, _audioService, _cts.Token),
-                //new RainbowAnimation(_devices.Length, warmColdRoygviv, _audioService, _cts.Token),
-                //new RainbowAnimation(_devices.Length, space, _audioService, _cts.Token),
+                //new RainbowAnimation(_devices.Length, dragonCyborg6, _audioService, _cts.Token),
+                //new RainbowAnimation(_devices.Length, dragonCyborg8, _audioService, _cts.Token),
 
                 //new VibrantAnimation(_devices.Length, _audioService, _cts.Token),
                 //new ColorShimmerAnimation(_devices.Length, warmColdRoygviv, _audioService, _cts.Token),
