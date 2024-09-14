@@ -37,6 +37,7 @@ namespace ShowControl.Animation
         private const int DefaultFrameCooldown = 6;
         private int _frameCoolDown = 1;
         private double _beats = 0;
+        private double _lastAmplitudeRatio = 0;
 
         private readonly List<int> _pressedPads;
         private readonly SmoothColorTransition _solidColorTransition;
@@ -292,7 +293,7 @@ namespace ShowControl.Animation
                     if (_mode == AnimationMode.SoundReactive)
                     {
                         //if (false)
-                        if (e.CurrentLevel >= -40.0d || e.AverageLevel > -35.0d)
+                        if ((e.CurrentLevel >= -40.0d || e.AverageLevel > -35.0d) && e.AmplitudeRatio > _lastAmplitudeRatio)
                         {
                             const int multiplier = 2;
                             const int maxAnimations = 3;
@@ -333,6 +334,8 @@ namespace ShowControl.Animation
                                 _frameCoolDown = DefaultFrameCooldown;
                             }
                         }
+
+                        _lastAmplitudeRatio = e.AmplitudeRatio;
                     }
                 }
             }

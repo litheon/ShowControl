@@ -122,7 +122,7 @@ namespace ShowControl.Rendering
                     var modeEnabledAnimation = activeKeyAnimation as IModeEnabledAnimation;
                     if (modeEnabledAnimation != null)
                     {
-                        if (_lastAverageLevel > -40 && _lastAverageLevel != 0)
+                        if (_lastAverageLevel > -60 && _lastAverageLevel != 0)
                         {
                             modeEnabledAnimation.SetMode(AnimationMode.SoundReactive);
                         }
