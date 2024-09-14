@@ -2,6 +2,7 @@
 using ShowControl.Devices.DMX;
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Text;
 
 namespace ShowControl.Rendering
@@ -31,6 +32,7 @@ namespace ShowControl.Rendering
             if (renderSettings != null)
             {
                 _dmxDevice.MasterFader = (byte)renderSettings.MasterFader;
+                _dmxDevice.UltraViolet = (byte)renderSettings.UV;
             }
 
             var dmxVector = _dmxDevice.GetDMXVector();

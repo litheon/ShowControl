@@ -105,7 +105,7 @@ namespace ShowControl.Devices.DMX
             GetScaledColor();
             if (Mode == DmxDeviceMode.RGB)
             {
-                return new byte[] { Math.Min(MasterFader, Color.A), Color.R, Color.G, Color.B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+                return new byte[] { Math.Min(MasterFader, Color.A), Color.R, Color.G, Color.B, 0x00, 0x00, UltraViolet, 0x00, 0x00, 0x00};
             }
             else if (Mode == DmxDeviceMode.UV)
             {

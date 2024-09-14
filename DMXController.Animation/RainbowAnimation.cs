@@ -294,12 +294,12 @@ namespace ShowControl.Animation
                         //if (false)
                         if (e.CurrentLevel >= -40.0d || e.AverageLevel > -35.0d)
                         {
-                            const int multiplier = 5;
-                            const int maxAnimations = 7;
+                            const int multiplier = 2;
+                            const int maxAnimations = 3;
                             const int minAnimations = 1;
-                            var levelFactor = Math.Round(e.CurrentLevel / e.AverageLevel * multiplier);
+                            var levelFactor = Math.Round(e.AverageLevel / e.CurrentLevel * multiplier);
                             var level = Convert.ToInt32(Math.Min(Math.Max(levelFactor, minAnimations), maxAnimations));
-                            if (level > 5)
+                            if (level < 3)
                             {
                                 int x = 0;
                             }
@@ -313,7 +313,7 @@ namespace ShowControl.Animation
                         {
                             if (e.Bpm > 60 && e.Bpm < 200)
                             {
-                                var beats = 12 * e.Bpm / 60.0d * e.Seconds;
+                                var beats = 8 * e.Bpm / 60.0d * e.Seconds;
                                 _beats += beats;
                                 if (_beats >= 1)
                                 {

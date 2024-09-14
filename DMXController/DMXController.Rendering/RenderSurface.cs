@@ -23,6 +23,22 @@ namespace ShowControl.Rendering
             TotalChannelCount = _renderSurfaces.Sum(r => r.TotalChannelCount);
         }
 
+        public static IRenderSurface Create(
+            RenderSettings renderSettings = null,
+            params IRenderSurface[] renderSurfaces
+            )
+        {
+            return new RenderSurface(renderSettings, renderSurfaces);
+        }
+
+        public static IRenderSurface Create(
+            RenderSettings renderSettings = null,
+            params IDmxDevice[] renderSurfaces
+            )
+        {
+            return new RenderSurface(renderSettings, renderSurfaces.Select(r => new DmxDeviceRenderSurface(r)).ToArray());
+        }
+
         public void Render(
             Span<Pixel> sourcePixels,
             Span<byte> renderTarget,
@@ -38,7 +54,7 @@ namespace ShowControl.Rendering
             {
                 var renderPixels = sourcePixels.Slice(pixelOffset, surface.TotalPixelCount);
                 var targetChannels = renderTarget.Slice(channelOffset, surface.TotalChannelCount);
-                surface.Render(renderPixels, targetChannels, renderSettings ?? _renderSettings);
+                surface.Render(renderPixels, targetChannels, _renderSettings.Combine(renderSettings));
                 pixelOffset += surface.TotalPixelCount;
                 channelOffset += surface.TotalChannelCount;
             }
