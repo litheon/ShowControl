@@ -170,13 +170,6 @@ namespace ShowControl.Rendering
                     Sheds.Instance,
                     Sheds.Instance
                 ),
-                RenderSurface.Create(
-                    new RenderSettings(255, 30),
-                    Sheds.Instance,
-                    Sheds.Instance,
-                    Sheds.Instance,
-                    Sheds.Instance
-                )
             };
 
             _devices = _renderSurfaces.SelectMany(r => r.GetDevices()).ToArray();
