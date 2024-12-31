@@ -293,7 +293,7 @@ namespace ShowControl.Animation
                     if (_mode == AnimationMode.SoundReactive)
                     {
                         //if (false)
-                        if ((e.CurrentLevel >= -40.0d || e.AverageLevel > -35.0d) && e.AmplitudeRatio > _lastAmplitudeRatio)
+                        if ((e.CurrentLevel >= -40.0d || e.AverageLevel > -35.0d)/* && e.AmplitudeRatio > _lastAmplitudeRatio*/)
                         {
                             const int multiplier = 2;
                             const int maxAnimations = 3;

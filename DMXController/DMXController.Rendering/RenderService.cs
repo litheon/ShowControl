@@ -168,6 +168,14 @@ namespace ShowControl.Rendering
                     Sheds.Instance,
                     Sheds.Instance,
                     Sheds.Instance,
+                    Sheds.Instance,
+                    Sheds.Instance,
+                    Sheds.Instance,
+                    Sheds.Instance,
+                    Sheds.Instance,
+                    Sheds.Instance,
+                    Sheds.Instance,
+                    Sheds.Instance,
                     Sheds.Instance
                 ),
             };
@@ -545,6 +553,64 @@ namespace ShowControl.Rendering
                 Color.MediumVioletRed,
 
                 Color.FromArgb(0xFF, 0xFF, 0xFF, 0xFF)
+            };
+
+            var warm = new Color[]
+            {
+ 
+                Color.OrangeRed,
+                Color.DarkOrange,
+
+                Color.Gold,
+                Color.DarkGoldenrod,
+
+
+                Color.Gold,
+                Color.Red,
+                Color.OrangeRed,
+                Color.Gold,
+                Color.OrangeRed,
+                Color.Gold,
+                Color.PaleGoldenrod,
+                Color.DarkGoldenrod,
+                Color.LightGoldenrodYellow,
+                Color.OrangeRed,
+                Color.Gold,
+                Color.OrangeRed,
+                Color.Gold,
+
+
+
+                Color.OrangeRed,
+                Color.Orange,
+                Color.DarkOrange,
+                Color.OrangeRed,
+                Color.Orange,
+                Color.DarkOrange,
+                Color.OrangeRed,
+                Color.Orange,
+                Color.DarkOrange,
+                Color.OrangeRed,
+                Color.Goldenrod,
+                Color.DarkGoldenrod,
+                Color.LightGoldenrodYellow,
+                Color.Orange,
+                Color.DarkOrange,
+                Color.OrangeRed,
+                Color.Orange,
+                Color.PaleGoldenrod,
+                Color.LightGoldenrodYellow,
+                Color.PaleGoldenrod,
+                Color.DarkOrange,
+
+                Color.Gold,
+
+                Color.PaleGoldenrod,
+                Color.Gold,
+                Color.Goldenrod,
+                Color.DarkGoldenrod,
+                Color.LightGoldenrodYellow,
+
             };
 
             var space = new Color[]
@@ -1137,7 +1203,8 @@ namespace ShowControl.Rendering
                 new RainbowAnimation(_devices.Length, dragonCyborg6, _audioService, _cts.Token),
                 new RainbowAnimation(_devices.Length, dragonCyborg3, _audioService, _cts.Token),
                 new RainbowAnimation(_devices.Length, dragonCyborg8, _audioService, _cts.Token),
-                new RainbowAnimation(_devices.Length, dragonCyborg9, _audioService, _cts.Token),
+                //new RainbowAnimation(_devices.Length, dragonCyborg9, _audioService, _cts.Token),
+                new RainbowAnimation(_devices.Length, warm, _audioService, _cts.Token),
 
                 //new VibrantAnimation(_devices.Length, _audioService, _cts.Token),
                 //new ColorShimmerAnimation(_devices.Length, warmColdRoygviv, _audioService, _cts.Token),
