@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Text;
 using System.Threading;
-using static System.Windows.Forms.AxHost;
 
 namespace ShowControl.Devices.Input
 {

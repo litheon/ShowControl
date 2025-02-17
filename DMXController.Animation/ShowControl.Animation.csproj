@@ -1,14 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
-    <TargetFramework>netcoreapp3.1</TargetFramework>
+    <TargetFramework>net8.0</TargetFramework>
     <Platforms>AnyCPU;x64;x86</Platforms>
   </PropertyGroup>
-
   <ItemGroup>
-    <ProjectReference Include="..\DMXController.Devices.Audio\ShowControl.Devices.Audio.csproj" />
+     <ProjectReference Include="..\DMXController.Devices.Audio\ShowControl.Devices.Audio.csproj" /> 
     <ProjectReference Include="..\DMXController.Devices.Input\ShowControl.Devices.Input.csproj" />
     <ProjectReference Include="..\ShowControl.Utilities\ShowControl.Utilities.csproj" />
   </ItemGroup>
-
 </Project>

@@ -8,7 +8,6 @@ using NAudio.CoreAudioApi;
 using NAudio.Dsp;
 using NAudio.Wave;
 using ShowControl.Utilities;
-using SoundTouch;
 
 namespace ShowControl.Devices.Audio
 {
@@ -51,7 +50,7 @@ namespace ShowControl.Devices.Audio
         private bool _stopped;
         public AudioService()
         {
-            _bpmDetect = new RealTimeBpmDetect(ChannelCount, SampleRate);
+            _bpmDetect = new FallbackBpmDetect();
             _bassAverageLevel = new SampleAverageLevelCalculator(0);
             _bassCurrentLevel = new SampleAverageLevelCalculator(Convert.ToInt32(Math.Round(BassCutOffHz / (SampleRate / FftLength))) - 1);
             _overallAverageLevel = new SampleAverageLevelCalculator(0);
