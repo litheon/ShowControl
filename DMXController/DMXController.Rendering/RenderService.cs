@@ -152,29 +152,21 @@ namespace ShowControl.Rendering
             {
                  RenderSurface.Create(
                     new RenderSettings(255),
-                    //BetopperDJNew.Instance,
-                    //BetopperDJNew.Instance,
-                    //BetopperDJNew.Instance,
-                    //BetopperDJNew.Instance,
-                    //BetopperDJNew.Instance,
-                    //BetopperDJNew.Instance,
-                    //BetopperDJNew.Instance,
-                    //BetopperDJNew.Instance,
-                    //BetopperDJNew.Instance
-                    Sheds.Instance,
-                    Sheds.Instance,
-                    Sheds.Instance,
-                    Sheds.Instance,
-                    Sheds.Instance,
-                    Sheds.Instance,
-                    Sheds.Instance,
-                    Sheds.Instance,
-                    Sheds.Instance,
-                    Sheds.Instance,
-                    Sheds.Instance,
-                    Sheds.Instance,
-                    Sheds.Instance,
-                    Sheds.Instance,
+                    //Sheds.Instance,
+                    //Sheds.Instance,
+                    //Sheds.Instance,
+                    //Sheds.Instance,
+                    //Sheds.Instance,
+                    //Sheds.Instance,
+                    //Sheds.Instance,
+                    //Sheds.Instance
+                    ChauvetFreedom.Instance,
+                    ChauvetFreedom.Instance,
+                    ChauvetFreedom.Instance,
+                    ChauvetFreedom.Instance,
+                    ChauvetFreedom.Instance,
+                    ChauvetFreedom.Instance,
+                    ChauvetFreedom.Instance,
                     Sheds.Instance,
                     Sheds.Instance
                 ),
@@ -1196,14 +1188,14 @@ namespace ShowControl.Rendering
                 //new RainbowAnimation(_devices.Length, roygbiv, _audioService, _cts.Token),
                 //new RainbowAnimation(_devices.Length, warmColdRoygviv, _audioService, _cts.Token),
                 new RainbowAnimation(_devices.Length, space, _audioService, _cts.Token),
-
+                //new UltraVioletStaticAnimation(_devices.Length),
                 new RainbowAnimation(_devices.Length, dragonCyborg2, _audioService, _cts.Token),
                 new RainbowAnimation(_devices.Length, dragonCyborg1, _audioService, _cts.Token),
                 new RainbowAnimation(_devices.Length, dragonCyborg5, _audioService, _cts.Token),
                 new RainbowAnimation(_devices.Length, dragonCyborg6, _audioService, _cts.Token),
-                new RainbowAnimation(_devices.Length, dragonCyborg3, _audioService, _cts.Token),
+                //new RainbowAnimation(_devices.Length, dragonCyborg3, _audioService, _cts.Token),
                 new RainbowAnimation(_devices.Length, dragonCyborg8, _audioService, _cts.Token),
-                //new RainbowAnimation(_devices.Length, dragonCyborg9, _audioService, _cts.Token),
+                new RainbowAnimation(_devices.Length, dragonCyborg9, _audioService, _cts.Token),
                 new RainbowAnimation(_devices.Length, warm, _audioService, _cts.Token),
 
                 //new VibrantAnimation(_devices.Length, _audioService, _cts.Token),
@@ -1257,6 +1249,7 @@ namespace ShowControl.Rendering
             while (!_cts.Token.IsCancellationRequested)
             {
                 renderSettings.MasterFader = _masterFader.InterlockedGet();
+                renderSettings.UV = 255;
                 foreach (IDmxOutputDevice outputDevice in _outputDevices)
                 {
                     IKeyAnimation keyAnimation = null;
