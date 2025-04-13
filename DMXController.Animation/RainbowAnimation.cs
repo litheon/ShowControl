@@ -34,7 +34,7 @@ namespace ShowControl.Animation
         int navigationColorIndex = 0;
 
         private readonly IAudioService _audioService;
-        private const int DefaultFrameCooldown = 6;
+        private const int DefaultFrameCooldown = 12;
         private int _frameCoolDown = 1;
         private double _beats = 0;
         private double _lastAmplitudeRatio = 0;
@@ -43,7 +43,7 @@ namespace ShowControl.Animation
         private readonly SmoothColorTransition _solidColorTransition;
         private readonly SmoothColorTransition _variableColorTransition;
 
-        bool _specialModesEnabled = false;
+        bool _specialModesEnabled = true;
 
         bool _padPressedReachedTarget = false;
 
@@ -295,9 +295,9 @@ namespace ShowControl.Animation
                         //if (false)
                         if ((e.CurrentLevel >= -40.0d || e.AverageLevel > -35.0d)/* && e.AmplitudeRatio > _lastAmplitudeRatio*/)
                         {
-                            const int multiplier = 2;
-                            const int maxAnimations = 3;
-                            const int minAnimations = 1;
+                            const int multiplier = 1;
+                            const int maxAnimations = 1;
+                            const int minAnimations = 0;
                             var levelFactor = Math.Round(e.AverageLevel / e.CurrentLevel * multiplier);
                             var level = Convert.ToInt32(Math.Min(Math.Max(levelFactor, minAnimations), maxAnimations));
                             if (level < 3)

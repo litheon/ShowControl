@@ -20,7 +20,17 @@ namespace ShowControl.Rendering
             {
                 return renderSettings;
             }
-            return new RenderSettings(Math.Min(renderSettings.MasterFader, target.MasterFader), Math.Max(renderSettings.UV, target.UV));
+            byte MasterFader = 0;
+            if (renderSettings.MasterFader <= target.MasterFader)
+            {
+                MasterFader = (byte)renderSettings.MasterFader;
+            }
+            else
+            {
+                MasterFader = Convert.ToByte((float)target.MasterFader / (float)renderSettings.MasterFader * byte.MaxValue);
+            }
+
+            return new RenderSettings(MasterFader, Math.Max(renderSettings.UV, target.UV));
         }
     }
 }

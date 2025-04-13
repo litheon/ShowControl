@@ -16,7 +16,7 @@ namespace ShowControl.Devices.DMX
         public byte SoundReactivitySensitivity { get; set; }
         public byte StrobeIntensity { get; set; }
         public byte MasterFader { get; set; }
-        public byte UltraViolet { get; set; }
+        public byte MaximumUltraViolet { get; set; }
         public byte White { get; set; }
         public byte Amber { get; set; }
 

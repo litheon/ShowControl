@@ -50,9 +50,15 @@ namespace ShowControl.Animation
                 {
                     for (int i = 0; i < current.Length; i++)
                     {
-                        if (Math.Abs(current[i].R - target[i].R) > _maxDistance ||
+                        if (Math.Abs(current[i].A - target[i].A) > _maxDistance ||
+                            Math.Abs(current[i].R - target[i].R) > _maxDistance ||
                             Math.Abs(current[i].G - target[i].G) > _maxDistance ||
                             Math.Abs(current[i].B - target[i].B) > _maxDistance)
+                        {
+                            System.Diagnostics.Debugger.Break();
+                        }
+                        if ((source[i].A < target[i].A && current[i].A < source[i].A) ||
+                            (source[i].A > target[i].A && current[i].A > source[i].A))
                         {
                             System.Diagnostics.Debugger.Break();
                         }
@@ -79,18 +85,20 @@ namespace ShowControl.Animation
                     CalculateMaxDistance();
                 }
 
+                var aRemainingDistance = Math.Abs(current[_maxDistanceIndex].A - target[_maxDistanceIndex].A);
                 var rRemainingDistance = Math.Abs(current[_maxDistanceIndex].R - target[_maxDistanceIndex].R);
                 var gRemainingDistance = Math.Abs(current[_maxDistanceIndex].G - target[_maxDistanceIndex].G);
                 var bRemainingDistance = Math.Abs(current[_maxDistanceIndex].B - target[_maxDistanceIndex].B);
 
-                var remainingDistance = Math.Max(rRemainingDistance, Math.Max(gRemainingDistance, bRemainingDistance));
+                var remainingDistance = Math.Max(Math.Max(rRemainingDistance, aRemainingDistance), Math.Max(gRemainingDistance, bRemainingDistance));
                 if (remainingDistance == 0)
                 {
                     if (System.Diagnostics.Debugger.IsAttached)
                     {
                         for (int i = 0; i < current.Length; i++)
                         {
-                            if (current[i].R != target[i].R ||
+                            if (current[i].A != target[i].A ||
+                                current[i].R != target[i].R ||
                                 current[i].G != target[i].G ||
                                 current[i].B != target[i].B)
                             {
@@ -101,6 +109,7 @@ namespace ShowControl.Animation
 
                     for (int i = 0; i < _remainingDistributed.Length; i++)
                     {
+                        _remainingDistributed[i].a = 0;
                         _remainingDistributed[i].r = 0;
                         _remainingDistributed[i].g = 0;
                         _remainingDistributed[i].b = 0;
@@ -108,6 +117,7 @@ namespace ShowControl.Animation
 
                     for (int i = 0; i < _skippedAnimations.Length; i++)
                     {
+                        _skippedAnimations[i].a = 0;
                         _skippedAnimations[i].r = 0;
                         _skippedAnimations[i].g = 0;
                         _skippedAnimations[i].b = 0;
@@ -116,20 +126,27 @@ namespace ShowControl.Animation
 
                 for (int i = 0; i < current.Length; i++)
                 {
+                    byte A = CalculateColorChange(current[i].A, source[i].A, target[i].A, remainingDistance, ref _skippedAnimations[i].a, ref _remainingDistributed[i].a);
                     byte R = CalculateColorChange(current[i].R, source[i].R, target[i].R, remainingDistance, ref _skippedAnimations[i].r, ref _remainingDistributed[i].r);
                     byte G = CalculateColorChange(current[i].G, source[i].G, target[i].G, remainingDistance, ref _skippedAnimations[i].g, ref _remainingDistributed[i].g);
                     byte B = CalculateColorChange(current[i].B, source[i].B, target[i].B, remainingDistance, ref _skippedAnimations[i].b, ref _remainingDistributed[i].b);
 
-                    current[i] = Color.FromArgb(0xFF, R, G, B);
+                    current[i] = Color.FromArgb(A, R, G, B);
                 }
 
                 if (System.Diagnostics.Debugger.IsAttached)
                 {
                     for (int i = 0; i < current.Length; i++)
                     {
-                        if (Math.Abs(current[i].R - target[i].R) > _maxDistance ||
+                        if (Math.Abs(current[i].A - target[i].A) > _maxDistance ||
+                            Math.Abs(current[i].R - target[i].R) > _maxDistance ||
                             Math.Abs(current[i].G - target[i].G) > _maxDistance ||
                             Math.Abs(current[i].B - target[i].B) > _maxDistance)
+                        {
+                            System.Diagnostics.Debugger.Break();
+                        }
+                        if ((source[i].A < target[i].A && current[i].A < source[i].A) ||
+                            (source[i].A > target[i].A && current[i].A > source[i].A))
                         {
                             System.Diagnostics.Debugger.Break();
                         }
@@ -162,6 +179,11 @@ namespace ShowControl.Animation
             _maxDistance = 0;
             for (int i = 0; i < _target.Length && i < _current.Length; i++)
             {
+                if (_source[i].A != _target[i].A)
+                {
+                    var originalADistance = Math.Abs(_target[i].A - _source[i].A);
+                    DetermineMaxDistanceIndex(ref _maxDistanceIndex, ref _maxDistance, i, originalADistance);
+                }
                 if (_source[i].R != _target[i].R)
                 {
                     var originalRDistance = Math.Abs(_target[i].R - _source[i].R);

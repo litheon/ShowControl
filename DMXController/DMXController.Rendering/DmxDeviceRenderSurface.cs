@@ -24,7 +24,7 @@ namespace ShowControl.Rendering
             var pixel = sourcePixels[0];
 
             _dmxDevice.Color = pixel.Color;
-            _dmxDevice.Mode = pixel.UV > 0 ? DmxDeviceMode.UV : DmxDeviceMode.RGB;
+            _dmxDevice.Mode = DmxDeviceMode.RGB;
             if (_dmxDevice.Mode == DmxDeviceMode.SoundReactive)
             {
                 _dmxDevice.SoundReactivitySensitivity = pixel.SoundReactivity;
@@ -32,7 +32,7 @@ namespace ShowControl.Rendering
             if (renderSettings != null)
             {
                 _dmxDevice.MasterFader = (byte)renderSettings.MasterFader;
-                _dmxDevice.UltraViolet = (byte)renderSettings.UV;
+                _dmxDevice.MaximumUltraViolet = (byte)renderSettings.UV;
             }
 
             var dmxVector = _dmxDevice.GetDMXVector();

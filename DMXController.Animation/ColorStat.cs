@@ -6,6 +6,7 @@ namespace ShowControl.Animation
 {
     public struct ColorStat
     {
+        public int a;
         public int r;
         public int g;
         public int b;
