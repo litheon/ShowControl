@@ -1208,13 +1208,12 @@ namespace ShowControl.Rendering
                 Color.FromArgb(Convert.ToInt32("0x1FE00206", 16)), // Redish
                 Color.FromArgb(0xFF, Color.Orange), // Orange
                 Color.FromArgb(Convert.ToInt32("0xA8FCC209", 16)), // Orangeish
-                Color.FromArgb(Convert.ToInt32("0x26F2DD41", 16)), // Yellowish
 
                 Color.FromArgb(Convert.ToInt32("0x4B03D901", 16)), // Brighter green
                 Color.FromArgb(Convert.ToInt32("0x9E07C4D9", 16)), // Background blue
                 Color.FromArgb(Convert.ToInt32("0x8B9178CF", 16)), // Faded purple
-                Color.FromArgb(Convert.ToInt32("0x72A951D6", 16)), // Richer purple
-                Color.FromArgb(Convert.ToInt32("0x26EC87FF", 16)), // Purple-pink
+                Color.FromArgb(Convert.ToInt32("0x72E823D6", 16)), // Richer purple
+                Color.FromArgb(Convert.ToInt32("0x26FF23FF", 16)), // Purple-pink
             };
 
             _keyAnimations = new IKeyAnimation[] {
