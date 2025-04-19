@@ -548,6 +548,26 @@ namespace ShowControl.Rendering
                 Color.FromArgb(0xFF, 0xFF, 0xFF, 0xFF)
             };
 
+            var frequentWarmColdRoygviv = new Color[]
+            {
+                Color.FromArgb(0xFE, Color.DarkRed),
+                Color.FromArgb(0xFD, Color.OrangeRed),
+                Color.FromArgb(0XFD, Color.Orange),
+
+                Color.FromArgb(0xC7, 0xFF, 0xFF, 0x00),
+                Color.FromArgb(0xF9, Color.Gold),
+                Color.FromArgb(0xB6, Color.DarkGoldenrod),
+
+                Color.FromArgb(0xB8, Color.Green),
+                Color.FromArgb(0xF8, Color.SeaGreen),
+
+                Color.LightBlue,
+                Color.FromArgb(0xA1, 0x00, 0x00, 0xFF),
+
+                Color.FromArgb(0x95, 0xFF, 0x00, 0xFF),
+                Color.FromArgb(0xD8, Color.Purple),
+            };
+
             var warm = new Color[]
             {
  
@@ -1183,21 +1203,35 @@ namespace ShowControl.Rendering
                 Color.FromArgb(Convert.ToInt32("0xEDEC87FF", 16)), // Purple-pink
             };
 
+            var frequentDragonCyborg9 = new Color[] //9
+            {
+                Color.FromArgb(Convert.ToInt32("0x1FE00206", 16)), // Redish
+                Color.FromArgb(0xFF, Color.Orange), // Orange
+                Color.FromArgb(Convert.ToInt32("0xA8FCC209", 16)), // Orangeish
+                Color.FromArgb(Convert.ToInt32("0x26F2DD41", 16)), // Yellowish
+
+                Color.FromArgb(Convert.ToInt32("0x4B03D901", 16)), // Brighter green
+                Color.FromArgb(Convert.ToInt32("0x9E07C4D9", 16)), // Background blue
+                Color.FromArgb(Convert.ToInt32("0x8B9178CF", 16)), // Faded purple
+                Color.FromArgb(Convert.ToInt32("0x72A951D6", 16)), // Richer purple
+                Color.FromArgb(Convert.ToInt32("0x26EC87FF", 16)), // Purple-pink
+            };
+
             _keyAnimations = new IKeyAnimation[] {
 
                 // Rainbow-Space
-                //new RainbowAnimation(_devices.Length, roygbiv, _audioService, _cts.Token),
-                //new RainbowAnimation(_devices.Length, warmColdRoygviv, _audioService, _cts.Token),
-                new RainbowAnimation(_devices.Length, space, _audioService, _cts.Token),
+                new RainbowAnimation(_devices.Length, roygbiv, _audioService, _cts.Token),
+                new RainbowAnimation(_devices.Length, frequentDragonCyborg9, _audioService, _cts.Token),
+                //new RainbowAnimation(_devices.Length, space, _audioService, _cts.Token),
                 //new UltraVioletStaticAnimation(_devices.Length),
-                new RainbowAnimation(_devices.Length, dragonCyborg2, _audioService, _cts.Token),
-                new RainbowAnimation(_devices.Length, dragonCyborg1, _audioService, _cts.Token),
-                new RainbowAnimation(_devices.Length, dragonCyborg5, _audioService, _cts.Token),
-                new RainbowAnimation(_devices.Length, dragonCyborg6, _audioService, _cts.Token),
+                //new RainbowAnimation(_devices.Length, dragonCyborg2, _audioService, _cts.Token),
+                //new RainbowAnimation(_devices.Length, dragonCyborg1, _audioService, _cts.Token),
+                //new RainbowAnimation(_devices.Length, dragonCyborg5, _audioService, _cts.Token),
+                //new RainbowAnimation(_devices.Length, dragonCyborg6, _audioService, _cts.Token),
                 //new RainbowAnimation(_devices.Length, dragonCyborg3, _audioService, _cts.Token),
-                new RainbowAnimation(_devices.Length, dragonCyborg8, _audioService, _cts.Token),
-                new RainbowAnimation(_devices.Length, dragonCyborg9, _audioService, _cts.Token),
-                new RainbowAnimation(_devices.Length, warm, _audioService, _cts.Token),
+                //new RainbowAnimation(_devices.Length, dragonCyborg8, _audioService, _cts.Token),
+                new RainbowAnimation(_devices.Length, frequentDragonCyborg9, _audioService, _cts.Token),
+                //new RainbowAnimation(_devices.Length, warm, _audioService, _cts.Token),
 
                 //new VibrantAnimation(_devices.Length, _audioService, _cts.Token),
                 //new ColorShimmerAnimation(_devices.Length, warmColdRoygviv, _audioService, _cts.Token),
