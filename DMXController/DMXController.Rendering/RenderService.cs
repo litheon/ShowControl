@@ -28,12 +28,15 @@ namespace ShowControl.Rendering
         private readonly IDmxDevice[] _devices;
 
         private readonly IRenderSurface[] _renderSurfaces;
+        private readonly IRenderSurface _pixelChannels;
+        private readonly IRenderSurface _parChannels;
 
         private readonly object _navigationLock = new object();
         private IMidiInputDevice _inputDevice;
         private NavigationLevel _navigationLevel;
         private int _activeKeyAnimation = -1;
         private IKeyAnimation[] _keyAnimations;
+        private IKeyAnimation[] _auxilaryKeyAnimations;
         private int _activeTransformAnimation = -1;
         private ITransformAnimation[] _transformAnimations;
         private PadState[] _padStates;
@@ -148,10 +151,84 @@ namespace ShowControl.Rendering
             _renderThread = new Thread(RenderThreadLoop);
             _tcs = new TaskCompletionSource<bool>();
             _cts = new CancellationTokenSource();
-            _renderSurfaces = new IRenderSurface[]
-            {
-                 RenderSurface.Create(
+
+            _pixelChannels = RenderSurface.Create(
                     new RenderSettings(127),
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance,
+                    AsteraTitan.Instance
+            );
+            _parChannels = RenderSurface.Create(
+                    new RenderSettings(127),
+                    AsteraAX3.Instance,
+                    AsteraAX3.Instance,
+                    AsteraAX3.Instance,
+                    AsteraAX3.Instance,
+                    AsteraAX3.Instance,
+                    AsteraAX3.Instance,
+                    AsteraAX3.Instance,
+                    AsteraAX3.Instance,
                     Sheds.Instance,
                     Sheds.Instance,
                     Sheds.Instance,
@@ -160,15 +237,13 @@ namespace ShowControl.Rendering
                     Sheds.Instance,
                     Sheds.Instance,
                     Sheds.Instance
-                    //ChauvetFreedom.Instance,
-                    //ChauvetFreedom.Instance,
-                    //ChauvetFreedom.Instance,
-                    //ChauvetFreedom.Instance,
-                    //ChauvetFreedom.Instance,
-                    //ChauvetFreedom.Instance,
-                    //ChauvetFreedom.Instance,
-                    //Sheds.Instance,
-                    //Sheds.Instance
+            );
+            _renderSurfaces = new IRenderSurface[]
+            {
+                 RenderSurface.Create(
+                    new RenderSettings(127),
+                    _pixelChannels,
+                    _parChannels
                 ),
             };
 
@@ -227,6 +302,8 @@ namespace ShowControl.Rendering
                     _padStates[_activeKeyAnimation].PadIllumination = PadIllumination.Solid;
                     var existingAnimation = _keyAnimations[_activeKeyAnimation];
                     existingAnimation.Stop();
+                    existingAnimation = _auxilaryKeyAnimations[_activeKeyAnimation];
+                    existingAnimation.Stop();
                 }
                 _padStates[index].PadIllumination = PadIllumination.Blink;
                 _activeKeyAnimation = index;
@@ -270,6 +347,7 @@ namespace ShowControl.Rendering
         private void SetNavigationLevel(NavigationLevel navigationLevel)
         {
             IAnimation animation = null;
+            IAnimation auxilaryAnimation = null;
             lock (_navigationLock)
             {
                 _navigationLevel = navigationLevel;
@@ -283,6 +361,7 @@ namespace ShowControl.Rendering
                 else if (navigationLevel == NavigationLevel.KeyAnimation && _activeKeyAnimation > -1)
                 {
                     animation = _keyAnimations[_activeKeyAnimation];
+                    auxilaryAnimation = _auxilaryKeyAnimations[_activeKeyAnimation];
                 }
                 else if (navigationLevel == NavigationLevel.TransformAnimation && _activeTransformAnimation > -1)
                 {
@@ -291,6 +370,7 @@ namespace ShowControl.Rendering
             }
 
             var deviceInitializationState = animation?.Start(_inputDevice.AsReadOnly());
+            auxilaryAnimation?.Start(_inputDevice.AsReadOnly());
             if (deviceInitializationState?.PadStates != null && deviceInitializationState.PadStates.Length > 0)
             {
                 _inputDevice.SetPadStates(deviceInitializationState.PadStates);
@@ -400,6 +480,7 @@ namespace ShowControl.Rendering
             if (_activeKeyAnimation > -1)
             {
                 _keyAnimations[_activeKeyAnimation].Stop();
+                _auxilaryKeyAnimations[_activeKeyAnimation].Stop();
             }
             if (_activeTransformAnimation > -1)
             {
@@ -416,6 +497,14 @@ namespace ShowControl.Rendering
                 {
                     disposableAnimation.Dispose();
                 }    
+            }
+            foreach (var animation in _auxilaryKeyAnimations)
+            {
+                var disposableAnimation = animation as IDisposable;
+                if (disposableAnimation != null)
+                {
+                    disposableAnimation.Dispose();
+                }
             }
             return _tcs.Task;
         }
@@ -624,6 +713,196 @@ namespace ShowControl.Rendering
                 Color.FromArgb(0x11, Color.DarkGoldenrod),
                 Color.FromArgb(0x62, Color.LightGoldenrodYellow),
 
+            };
+
+            var warmLucidas = new Color[]
+            {
+
+                Color.FromArgb(0xFF, Color.OrangeRed),
+                Color.FromArgb(0xFF, Color.DarkOrange),
+                Color.FromArgb(0xFF, Color.Gold),
+                Color.FromArgb(0xFF, Color.DarkGoldenrod),
+                Color.FromArgb(0x79, Color.Gold),
+                Color.FromArgb(0x4F, Color.Red),
+                Color.FromArgb(0xE1, Color.OrangeRed),
+                Color.FromArgb(0xDD, Color.Gold),
+
+                Color.FromArgb(0xFF, Color.OrangeRed),
+                Color.FromArgb(0xFF, Color.DarkOrange),
+                Color.FromArgb(0xFF, Color.Gold),
+                Color.FromArgb(0xFF, Color.DarkGoldenrod),
+                Color.FromArgb(0x79, Color.Gold),
+                Color.FromArgb(0x4F, Color.Red),
+                Color.FromArgb(0xE1, Color.OrangeRed),
+                Color.FromArgb(0xDD, Color.Gold),
+
+                Color.FromArgb(0xFF, Color.OrangeRed),
+                Color.FromArgb(0xFF, Color.DarkOrange),
+                Color.FromArgb(0xFF, Color.Gold),
+                Color.FromArgb(0xFF, Color.DarkGoldenrod),
+                Color.FromArgb(0x79, Color.Gold),
+                Color.FromArgb(0x4F, Color.Red),
+                Color.FromArgb(0xE1, Color.OrangeRed),
+                Color.FromArgb(0xDD, Color.Gold),
+
+                Color.FromArgb(0xFF, Color.OrangeRed),
+                Color.FromArgb(0xFF, Color.DarkOrange),
+                Color.FromArgb(0xFF, Color.Gold),
+                Color.FromArgb(0xFF, Color.DarkGoldenrod),
+                Color.FromArgb(0x79, Color.Gold),
+                Color.FromArgb(0x4F, Color.Red),
+                Color.FromArgb(0xE1, Color.OrangeRed),
+                Color.FromArgb(0xDD, Color.Gold),
+
+                Color.FromArgb(0x35, Color.OrangeRed),
+                Color.FromArgb(0x75, Color.Gold),
+                Color.FromArgb(0x57, Color.PaleGoldenrod),
+                Color.FromArgb(0x49, Color.DarkGoldenrod),
+                Color.FromArgb(0xE4, Color.OrangeRed),
+                Color.FromArgb(0x4C, Color.Gold),
+                Color.FromArgb(0xDC, Color.OrangeRed),
+                Color.FromArgb(0x2F, Color.Gold),
+
+                Color.FromArgb(0x35, Color.OrangeRed),
+                Color.FromArgb(0x75, Color.Gold),
+                Color.FromArgb(0x57, Color.PaleGoldenrod),
+                Color.FromArgb(0x49, Color.DarkGoldenrod),
+                Color.FromArgb(0xE4, Color.OrangeRed),
+                Color.FromArgb(0x4C, Color.Gold),
+                Color.FromArgb(0xDC, Color.OrangeRed),
+
+                Color.FromArgb(0x35, Color.OrangeRed),
+                Color.FromArgb(0x75, Color.Gold),
+                Color.FromArgb(0x57, Color.PaleGoldenrod),
+                Color.FromArgb(0x49, Color.DarkGoldenrod),
+                Color.FromArgb(0xE4, Color.OrangeRed),
+                Color.FromArgb(0x4C, Color.Gold),
+                Color.FromArgb(0xDC, Color.OrangeRed),
+
+                Color.FromArgb(0x35, Color.OrangeRed),
+                Color.FromArgb(0x75, Color.Gold),
+                Color.FromArgb(0x57, Color.PaleGoldenrod),
+                Color.FromArgb(0x49, Color.DarkGoldenrod),
+                Color.FromArgb(0xE4, Color.OrangeRed),
+                Color.FromArgb(0x4C, Color.Gold),
+                Color.FromArgb(0xDC, Color.OrangeRed),
+
+                Color.FromArgb(0x79, Color.OrangeRed),
+                Color.FromArgb(0x4F, Color.Orange),
+                Color.FromArgb(0xE1, Color.DarkOrange),
+                Color.FromArgb(0xDD, Color.OrangeRed),
+                Color.FromArgb(0x35, Color.Orange),
+                Color.FromArgb(0x75, Color.DarkOrange),
+                Color.FromArgb(0x57, Color.OrangeRed),
+                Color.FromArgb(0x49, Color.Orange),
+
+                Color.FromArgb(0x79, Color.OrangeRed),
+                Color.FromArgb(0x4F, Color.Orange),
+                Color.FromArgb(0xE1, Color.DarkOrange),
+                Color.FromArgb(0xDD, Color.OrangeRed),
+                Color.FromArgb(0x35, Color.Orange),
+                Color.FromArgb(0x75, Color.DarkOrange),
+                Color.FromArgb(0x57, Color.OrangeRed),
+                Color.FromArgb(0x49, Color.Orange),
+
+                Color.FromArgb(0x79, Color.OrangeRed),
+                Color.FromArgb(0x4F, Color.Orange),
+                Color.FromArgb(0xE1, Color.DarkOrange),
+                Color.FromArgb(0xDD, Color.OrangeRed),
+                Color.FromArgb(0x35, Color.Orange),
+                Color.FromArgb(0x75, Color.DarkOrange),
+                Color.FromArgb(0x57, Color.OrangeRed),
+                Color.FromArgb(0x49, Color.Orange),
+
+                Color.FromArgb(0x79, Color.OrangeRed),
+                Color.FromArgb(0x4F, Color.Orange),
+                Color.FromArgb(0xE1, Color.DarkOrange),
+                Color.FromArgb(0xDD, Color.OrangeRed),
+                Color.FromArgb(0x35, Color.Orange),
+                Color.FromArgb(0x75, Color.DarkOrange),
+                Color.FromArgb(0x57, Color.OrangeRed),
+                Color.FromArgb(0x49, Color.Orange),
+
+                Color.FromArgb(0xE3, Color.DarkOrange),
+                Color.FromArgb(0xE4, Color.OrangeRed),
+                Color.FromArgb(0x4C, Color.Goldenrod),
+                Color.FromArgb(0xDC, Color.DarkGoldenrod),
+                Color.FromArgb(0x2F, Color.LightGoldenrodYellow),
+                Color.FromArgb(0xAA, Color.Orange),
+                Color.FromArgb(0x65, Color.DarkOrange),
+                Color.FromArgb(0x8E, Color.OrangeRed),
+
+                Color.FromArgb(0xE3, Color.DarkOrange),
+                Color.FromArgb(0xE4, Color.OrangeRed),
+                Color.FromArgb(0x4C, Color.Goldenrod),
+                Color.FromArgb(0xDC, Color.DarkGoldenrod),
+                Color.FromArgb(0x2F, Color.LightGoldenrodYellow),
+                Color.FromArgb(0xAA, Color.Orange),
+                Color.FromArgb(0x65, Color.DarkOrange),
+                Color.FromArgb(0x8E, Color.OrangeRed),
+
+                Color.FromArgb(0xE3, Color.DarkOrange),
+                Color.FromArgb(0xE4, Color.OrangeRed),
+                Color.FromArgb(0x4C, Color.Goldenrod),
+                Color.FromArgb(0xDC, Color.DarkGoldenrod),
+                Color.FromArgb(0x2F, Color.LightGoldenrodYellow),
+                Color.FromArgb(0xAA, Color.Orange),
+                Color.FromArgb(0x65, Color.DarkOrange),
+                Color.FromArgb(0x8E, Color.OrangeRed),
+
+                Color.FromArgb(0xE3, Color.DarkOrange),
+                Color.FromArgb(0xE4, Color.OrangeRed),
+                Color.FromArgb(0x4C, Color.Goldenrod),
+                Color.FromArgb(0xDC, Color.DarkGoldenrod),
+                Color.FromArgb(0x2F, Color.LightGoldenrodYellow),
+                Color.FromArgb(0xAA, Color.Orange),
+                Color.FromArgb(0x65, Color.DarkOrange),
+                Color.FromArgb(0x8E, Color.OrangeRed),
+
+                Color.FromArgb(0xA1, Color.Orange),
+                Color.FromArgb(0xA8, Color.PaleGoldenrod),
+                Color.FromArgb(0x12, Color.LightGoldenrodYellow),
+                Color.FromArgb(0xD3, Color.PaleGoldenrod),
+                Color.FromArgb(0x71, Color.DarkOrange),
+                Color.FromArgb(0xf9, Color.Gold),
+                Color.FromArgb(0x8F, Color.PaleGoldenrod),
+                Color.FromArgb(0x25, Color.Gold),
+
+                Color.FromArgb(0xA1, Color.Orange),
+                Color.FromArgb(0xA8, Color.PaleGoldenrod),
+                Color.FromArgb(0x12, Color.LightGoldenrodYellow),
+                Color.FromArgb(0xD3, Color.PaleGoldenrod),
+                Color.FromArgb(0x71, Color.DarkOrange),
+                Color.FromArgb(0xf9, Color.Gold),
+                Color.FromArgb(0x8F, Color.PaleGoldenrod),
+                Color.FromArgb(0x25, Color.Gold),
+
+                Color.FromArgb(0xA1, Color.Orange),
+                Color.FromArgb(0xA8, Color.PaleGoldenrod),
+                Color.FromArgb(0x12, Color.LightGoldenrodYellow),
+                Color.FromArgb(0xD3, Color.PaleGoldenrod),
+                Color.FromArgb(0x71, Color.DarkOrange),
+                Color.FromArgb(0xf9, Color.Gold),
+                Color.FromArgb(0x8F, Color.PaleGoldenrod),
+                Color.FromArgb(0x25, Color.Gold),
+
+                Color.FromArgb(0xA1, Color.Orange),
+                Color.FromArgb(0xA8, Color.PaleGoldenrod),
+                Color.FromArgb(0x12, Color.LightGoldenrodYellow),
+                Color.FromArgb(0xD3, Color.PaleGoldenrod),
+                Color.FromArgb(0x71, Color.DarkOrange),
+                Color.FromArgb(0xf9, Color.Gold),
+                Color.FromArgb(0x8F, Color.PaleGoldenrod),
+                Color.FromArgb(0x25, Color.Gold),
+
+                Color.FromArgb(0xA1, Color.Orange),
+                Color.FromArgb(0xA8, Color.PaleGoldenrod),
+                Color.FromArgb(0x12, Color.LightGoldenrodYellow),
+                Color.FromArgb(0xD3, Color.PaleGoldenrod),
+                Color.FromArgb(0x71, Color.DarkOrange),
+                Color.FromArgb(0xf9, Color.Gold),
+                Color.FromArgb(0x8F, Color.PaleGoldenrod),
+                Color.FromArgb(0x25, Color.Gold),
             };
 
             var space = new Color[]
@@ -913,6 +1192,342 @@ namespace ShowControl.Rendering
                 Color.FromArgb(0xEF, 0xE0, 0x00, 0x00),
 
                 Color.FromArgb(0xB6, 0xFF, 0x16, 0x00),
+
+                Color.FromArgb(0xF9, 0xFF, 0x00, 0x00),
+                Color.FromArgb(0xc7, Color.DarkRed),
+
+                Color.FromArgb(0xD9, 0xFF, 0x18, 0x00),
+                Color.FromArgb(0xEF, 0xE0, 0x00, 0x00),
+
+                Color.FromArgb(0xB6, 0xFF, 0x16, 0x00),
+
+                Color.FromArgb(0xF9, 0xFF, 0x00, 0x00),
+                Color.FromArgb(0xc7, Color.DarkRed),
+
+                Color.FromArgb(0xD9, 0xFF, 0x18, 0x00),
+                Color.FromArgb(0xEF, 0xE0, 0x00, 0x00),
+
+                Color.FromArgb(0xB6, 0xFF, 0x16, 0x00),
+            };
+
+            var greens = new Color[]
+            {
+                Color.FromArgb(0xF9, 0x00, 0xFF, 0x00),
+                Color.FromArgb(0xc7, Color.ForestGreen),
+
+                Color.FromArgb(0xD9, Color.LawnGreen),
+                Color.FromArgb(0xEF, Color.PaleGreen),
+
+                Color.FromArgb(0xB6, Color.SeaGreen),
+
+                Color.FromArgb(0xF9, 0x00, 0xFF, 0x00),
+                Color.FromArgb(0xc7, Color.ForestGreen),
+
+                Color.FromArgb(0xD9, Color.LawnGreen),
+                Color.FromArgb(0xEF, Color.PaleGreen),
+
+                Color.FromArgb(0xB6, Color.SeaGreen),
+
+                Color.FromArgb(0xF9, 0x00, 0xFF, 0x00),
+                Color.FromArgb(0xc7, Color.ForestGreen),
+
+                Color.FromArgb(0xD9, Color.LawnGreen),
+                Color.FromArgb(0xEF, Color.PaleGreen),
+
+                Color.FromArgb(0xB6, Color.SeaGreen),
+            };
+
+            var redGreenWhite = new Color[]
+            {
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(0xFF, Color.White),
+
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(0xFF, Color.White),
+
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(0xFF, Color.White),
+
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(0xFF, Color.White),
+
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(0xFF, Color.White),
+
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(0xFF, Color.White),
+
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(0xFF, Color.White),
+
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(0xFF, Color.White),
+
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(0xFF, Color.White),
+
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(0xFF, Color.White),
+
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(0xFF, Color.White),
+
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(0xFF, Color.White),
+
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(0xFF, Color.White),
+
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(0xFF, Color.White),
+
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(0xFF, Color.White),
+
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(0xFF, Color.White),
+            };
+
+            var redGreenWhiteLong = new Color[]
+            {
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(0xD9, 0xFF, 0x18, 0x00),
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(0xF9, 0x00, 0xFF, 0x00),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(0xc7, Color.ForestGreen),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+
+                Color.FromArgb(0xF9, 0x00, 0xFF, 0x00),
+                Color.FromArgb(0xc7, Color.ForestGreen),
+
+                Color.FromArgb(0xD9, Color.LawnGreen),
+                Color.FromArgb(0xEF, Color.PaleGreen),
+
+                Color.FromArgb(0xB6, Color.SeaGreen),
+
+                Color.FromArgb(0xF9, 0x00, 0xFF, 0x00),
+                Color.FromArgb(0xc7, Color.ForestGreen),
+
+                Color.FromArgb(0xD9, Color.LawnGreen),
+                Color.FromArgb(0xEF, Color.PaleGreen),
+
+                Color.FromArgb(0xB6, Color.SeaGreen),
+
+                Color.FromArgb(0xF9, 0x00, 0xFF, 0x00),
+                Color.FromArgb(0xc7, Color.ForestGreen),
+
+                Color.FromArgb(0xD9, Color.LawnGreen),
+                Color.FromArgb(0xEF, Color.PaleGreen),
+
+                Color.FromArgb(0xB6, Color.SeaGreen),
+
+                Color.FromArgb(0xF9, 0x00, 0xFF, 0x00),
+                Color.FromArgb(0xc7, Color.ForestGreen),
+
+                Color.FromArgb(0xD9, Color.LawnGreen),
+                Color.FromArgb(0xEF, Color.PaleGreen),
+
+                Color.FromArgb(0xB6, Color.SeaGreen),
+
+                Color.FromArgb(0xF9, 0x00, 0xFF, 0x00),
+                Color.FromArgb(0xc7, Color.ForestGreen),
+
+                Color.FromArgb(0xD9, Color.LawnGreen),
+                Color.FromArgb(0xEF, Color.PaleGreen),
+
+                Color.FromArgb(0xB6, Color.SeaGreen),
+
+                Color.FromArgb(0xF9, 0x00, 0xFF, 0x00),
+                Color.FromArgb(0xc7, Color.ForestGreen),
+
+                Color.FromArgb(0xD9, Color.LawnGreen),
+                Color.FromArgb(0xEF, Color.PaleGreen),
+
+                Color.FromArgb(0xB6, Color.SeaGreen),
+
+                Color.FromArgb(0xF9, 0xFF, 0x00, 0x00),
+                Color.FromArgb(0xc7, Color.DarkRed),
+
+                Color.FromArgb(0xD9, 0xFF, 0x18, 0x00),
+                Color.FromArgb(0xEF, 0xE0, 0x00, 0x00),
+
+                Color.FromArgb(0xB6, 0xFF, 0x16, 0x00),
+
+                Color.FromArgb(0xF9, 0xFF, 0x00, 0x00),
+                Color.FromArgb(0xc7, Color.DarkRed),
+
+                Color.FromArgb(0xD9, 0xFF, 0x18, 0x00),
+                Color.FromArgb(0xEF, 0xE0, 0x00, 0x00),
+
+                Color.FromArgb(0xB6, 0xFF, 0x16, 0x00),
+
+                Color.FromArgb(0xF9, 0xFF, 0x00, 0x00),
+                Color.FromArgb(0xc7, Color.DarkRed),
+
+                Color.FromArgb(0xD9, 0xFF, 0x18, 0x00),
+                Color.FromArgb(0xEF, 0xE0, 0x00, 0x00),
+
+                Color.FromArgb(0xB6, 0xFF, 0x16, 0x00),
+
+                Color.FromArgb(0xF9, 0xFF, 0x00, 0x00),
+                Color.FromArgb(0xc7, Color.DarkRed),
+
+                Color.FromArgb(0xD9, 0xFF, 0x18, 0x00),
+                Color.FromArgb(0xEF, 0xE0, 0x00, 0x00),
+
+                Color.FromArgb(0xB6, 0xFF, 0x16, 0x00),
+
+                Color.FromArgb(0xF9, 0xFF, 0x00, 0x00),
+                Color.FromArgb(0xc7, Color.DarkRed),
+
+                Color.FromArgb(0xD9, 0xFF, 0x18, 0x00),
+                Color.FromArgb(0xEF, 0xE0, 0x00, 0x00),
+
+                Color.FromArgb(0xB6, 0xFF, 0x16, 0x00),
+
+                Color.FromArgb(0xF9, 0xFF, 0x00, 0x00),
+                Color.FromArgb(0xc7, Color.DarkRed),
+
+                Color.FromArgb(0xD9, 0xFF, 0x18, 0x00),
+                Color.FromArgb(0xEF, 0xE0, 0x00, 0x00),
+
+                Color.FromArgb(0xB6, 0xFF, 0x16, 0x00),
+
+                Color.FromArgb(0xF9, 0xFF, 0x00, 0x00),
+                Color.FromArgb(0xc7, Color.DarkRed),
+
+                Color.FromArgb(0xD9, 0xFF, 0x18, 0x00),
+                Color.FromArgb(0xEF, 0xE0, 0x00, 0x00),
+
+                Color.FromArgb(0xB6, 0xFF, 0x16, 0x00),
+
+                Color.FromArgb(0xF9, 0xFF, 0x00, 0x00),
+                Color.FromArgb(0xc7, Color.DarkRed),
+
+                Color.FromArgb(0xD9, 0xFF, 0x18, 0x00),
+                Color.FromArgb(0xEF, 0xE0, 0x00, 0x00),
+
+                Color.FromArgb(0xB6, 0xFF, 0x16, 0x00),
+
+                Color.FromArgb(0xF9, 0xFF, 0x00, 0x00),
+                Color.FromArgb(0xc7, Color.DarkRed),
+
+                Color.FromArgb(0xD9, 0xFF, 0x18, 0x00),
+                Color.FromArgb(0xEF, 0xE0, 0x00, 0x00),
+
+                Color.FromArgb(0xB6, 0xFF, 0x16, 0x00),
             };
 
             var bestButt = new Color[]
@@ -1036,8 +1651,189 @@ namespace ShowControl.Rendering
                 Color.FromArgb(Convert.ToInt32("0x28FF8533", 16)), // Bright orange
                 Color.FromArgb(Convert.ToInt32("0x74FF8C4F", 16)), // Less bright orange
                 Color.FromArgb(Convert.ToInt32("0x4AFF8533", 16)), // Bright orange
+            };
 
+            var dragonCyborg2Lucidas = new Color[] //2
+            {
+                Color.FromArgb(Convert.ToInt32("0xFA31F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0xBFFF8533", 16)), // Bright orange
+                Color.FromArgb(Convert.ToInt32("0x9AFF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0x9853CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0xE5CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0xF067FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0xCF31F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0x6FFF8533", 16)), // Bright orange
 
+                Color.FromArgb(Convert.ToInt32("0xFA31F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0xBFFF8533", 16)), // Bright orange
+                Color.FromArgb(Convert.ToInt32("0x9AFF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0x9853CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0xE5CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0xF067FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0xCF31F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0x6FFF8533", 16)), // Bright orange
+
+                Color.FromArgb(Convert.ToInt32("0xFA31F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0xBFFF8533", 16)), // Bright orange
+                Color.FromArgb(Convert.ToInt32("0x9AFF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0x9853CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0xE5CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0xF067FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0xCF31F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0x6FFF8533", 16)), // Bright orange
+
+                Color.FromArgb(Convert.ToInt32("0xFA31F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0xBFFF8533", 16)), // Bright orange
+                Color.FromArgb(Convert.ToInt32("0x9AFF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0x9853CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0xE5CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0xF067FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0xCF31F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0x6FFF8533", 16)), // Bright orange
+
+                Color.FromArgb(Convert.ToInt32("0xDAFF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0xFA53CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0xB3CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0x1167FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0x7831F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0x9353CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0x3167FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0x27CC8458", 16)), // Faded orange
+
+                Color.FromArgb(Convert.ToInt32("0xDAFF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0xFA53CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0xB3CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0x1167FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0x7831F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0x9353CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0x3167FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0x27CC8458", 16)), // Faded orange
+
+                Color.FromArgb(Convert.ToInt32("0xDAFF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0xFA53CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0xB3CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0x1167FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0x7831F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0x9353CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0x3167FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0x27CC8458", 16)), // Faded orange
+
+                Color.FromArgb(Convert.ToInt32("0xDAFF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0xFA53CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0xB3CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0x1167FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0x7831F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0x9353CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0x3167FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0x27CC8458", 16)), // Faded orange
+
+                Color.FromArgb(Convert.ToInt32("0x7331F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0x5A53CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0x7067FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0x8631F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0x65CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0xA253CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0x5967FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0x4DCC8458", 16)), // Faded orange
+
+                Color.FromArgb(Convert.ToInt32("0x7331F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0x5A53CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0x7067FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0x8631F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0x65CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0xA253CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0x5967FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0x4DCC8458", 16)), // Faded orange
+
+                Color.FromArgb(Convert.ToInt32("0x7331F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0x5A53CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0x7067FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0x8631F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0x65CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0xA253CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0x5967FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0x4DCC8458", 16)), // Faded orange
+
+                Color.FromArgb(Convert.ToInt32("0x7331F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0x5A53CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0x7067FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0x8631F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0x65CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0xA253CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0x5967FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0x4DCC8458", 16)), // Faded orange
+
+                Color.FromArgb(Convert.ToInt32("0x57FF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0x67FF8533", 16)), // Bright orange
+                Color.FromArgb(Convert.ToInt32("0xCD31F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0x45CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0xEAFF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0xC2FF8533", 16)), // Bright orange
+                Color.FromArgb(Convert.ToInt32("0x46CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0xCE31F5C1", 16)), // Blue-green
+
+                Color.FromArgb(Convert.ToInt32("0x57FF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0x67FF8533", 16)), // Bright orange
+                Color.FromArgb(Convert.ToInt32("0xCD31F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0x45CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0xEAFF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0xC2FF8533", 16)), // Bright orange
+                Color.FromArgb(Convert.ToInt32("0x46CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0xCE31F5C1", 16)), // Blue-green
+
+                Color.FromArgb(Convert.ToInt32("0x57FF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0x67FF8533", 16)), // Bright orange
+                Color.FromArgb(Convert.ToInt32("0xCD31F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0x45CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0xEAFF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0xC2FF8533", 16)), // Bright orange
+                Color.FromArgb(Convert.ToInt32("0x46CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0xCE31F5C1", 16)), // Blue-green
+
+                Color.FromArgb(Convert.ToInt32("0xACFF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0xCFFF8533", 16)), // Bright orange
+                Color.FromArgb(Convert.ToInt32("0xF1FF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0x28FF8533", 16)), // Bright orange
+                Color.FromArgb(Convert.ToInt32("0x74FF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0x4AFF8533", 16)), // Bright orange
+                Color.FromArgb(Convert.ToInt32("0x74FF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0x4AFF8533", 16)), // Bright orange
+            };
+
+            var dragonCyborg2LucidasLong = new Color[] //2
+            {
+                Color.FromArgb(Convert.ToInt32("0xBFFF8533", 16)), // Bright orange
+                Color.FromArgb(Convert.ToInt32("0x9AFF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0x9853CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0xE5CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0xBFFF8533", 16)), // Bright orange
+                Color.FromArgb(Convert.ToInt32("0x9AFF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0x9853CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0xE5CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0xBFFF8533", 16)), // Bright orange
+                Color.FromArgb(Convert.ToInt32("0x9AFF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0x9853CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0xE5CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0xBFFF8533", 16)), // Bright orange
+                Color.FromArgb(Convert.ToInt32("0x9AFF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0x9853CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0xE5CC8458", 16)), // Faded orange
+
+                Color.FromArgb(Convert.ToInt32("0x4DCC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0x57FF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0x67FF8533", 16)), // Bright orange
+                Color.FromArgb(Convert.ToInt32("0xCD31F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0x45CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0xEAFF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0xC2FF8533", 16)), // Bright orange
+                Color.FromArgb(Convert.ToInt32("0x46CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0xCE31F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0xACFF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0xCFFF8533", 16)), // Bright orange
+                Color.FromArgb(Convert.ToInt32("0xF1FF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0x28FF8533", 16)), // Bright orange
+                Color.FromArgb(Convert.ToInt32("0x74FF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0x4AFF8533", 16)), // Bright orange
             };
 
             var dragonCyborg3 = new Color[] //3
@@ -1079,6 +1875,184 @@ namespace ShowControl.Rendering
                 Color.FromArgb(Convert.ToInt32("0x87A63056", 16)), // Red-pink
                 Color.FromArgb(Convert.ToInt32("0x68FFA1D5", 16)), // Peach-pink
 
+            };
+
+            var dragonCyborg3Lucidas = new Color[] //3
+            {
+                Color.FromArgb(Convert.ToInt32("0xB0E57FEF", 16)), // Pinkish
+                Color.FromArgb(Convert.ToInt32("0xB9D62FDE", 16)), // Pinkish 2
+                Color.FromArgb(Convert.ToInt32("0xCFEB0DEC", 16)), // Pinkish 3
+                Color.FromArgb(Convert.ToInt32("0xC3E05D46", 16)), // Orangeish
+                Color.FromArgb(Convert.ToInt32("0x97A63056", 16)), // Red-pink
+                Color.FromArgb(Convert.ToInt32("0x87FF9480", 16)), // Peach
+                Color.FromArgb(Convert.ToInt32("0x71EA84D8", 16)), // Light pink
+                Color.FromArgb(Convert.ToInt32("0x22FFA1D5", 16)), // Peach-pink
+
+                Color.FromArgb(Convert.ToInt32("0xB0E57FEF", 16)), // Pinkish
+                Color.FromArgb(Convert.ToInt32("0xB9D62FDE", 16)), // Pinkish 2
+                Color.FromArgb(Convert.ToInt32("0xCFEB0DEC", 16)), // Pinkish 3
+                Color.FromArgb(Convert.ToInt32("0xC3E05D46", 16)), // Orangeish
+                Color.FromArgb(Convert.ToInt32("0x97A63056", 16)), // Red-pink
+                Color.FromArgb(Convert.ToInt32("0x87FF9480", 16)), // Peach
+                Color.FromArgb(Convert.ToInt32("0x71EA84D8", 16)), // Light pink
+                Color.FromArgb(Convert.ToInt32("0x22FFA1D5", 16)), // Peach-pink
+
+                Color.FromArgb(Convert.ToInt32("0xB0E57FEF", 16)), // Pinkish
+                Color.FromArgb(Convert.ToInt32("0xB9D62FDE", 16)), // Pinkish 2
+                Color.FromArgb(Convert.ToInt32("0xCFEB0DEC", 16)), // Pinkish 3
+                Color.FromArgb(Convert.ToInt32("0xC3E05D46", 16)), // Orangeish
+                Color.FromArgb(Convert.ToInt32("0x97A63056", 16)), // Red-pink
+                Color.FromArgb(Convert.ToInt32("0x87FF9480", 16)), // Peach
+                Color.FromArgb(Convert.ToInt32("0x71EA84D8", 16)), // Light pink
+                Color.FromArgb(Convert.ToInt32("0x22FFA1D5", 16)), // Peach-pink
+
+                Color.FromArgb(Convert.ToInt32("0xB0E57FEF", 16)), // Pinkish
+                Color.FromArgb(Convert.ToInt32("0xB9D62FDE", 16)), // Pinkish 2
+                Color.FromArgb(Convert.ToInt32("0xCFEB0DEC", 16)), // Pinkish 3
+                Color.FromArgb(Convert.ToInt32("0xC3E05D46", 16)), // Orangeish
+                Color.FromArgb(Convert.ToInt32("0x97A63056", 16)), // Red-pink
+                Color.FromArgb(Convert.ToInt32("0x87FF9480", 16)), // Peach
+                Color.FromArgb(Convert.ToInt32("0x71EA84D8", 16)), // Light pink
+                Color.FromArgb(Convert.ToInt32("0x22FFA1D5", 16)), // Peach-pink
+
+                Color.FromArgb(Convert.ToInt32("0xB0E57FEF", 16)), // Pinkish
+                Color.FromArgb(Convert.ToInt32("0xB9D62FDE", 16)), // Pinkish 2
+                Color.FromArgb(Convert.ToInt32("0xCFEB0DEC", 16)), // Pinkish 3
+                Color.FromArgb(Convert.ToInt32("0xC3E05D46", 16)), // Orangeish
+                Color.FromArgb(Convert.ToInt32("0x97A63056", 16)), // Red-pink
+                Color.FromArgb(Convert.ToInt32("0x87FF9480", 16)), // Peach
+                Color.FromArgb(Convert.ToInt32("0x71EA84D8", 16)), // Light pink
+                Color.FromArgb(Convert.ToInt32("0x22FFA1D5", 16)), // Peach-pink
+
+                Color.FromArgb(Convert.ToInt32("0xB0E57FEF", 16)), // Pinkish
+                Color.FromArgb(Convert.ToInt32("0xB9D62FDE", 16)), // Pinkish 2
+                Color.FromArgb(Convert.ToInt32("0xCFEB0DEC", 16)), // Pinkish 3
+                Color.FromArgb(Convert.ToInt32("0xC3E05D46", 16)), // Orangeish
+                Color.FromArgb(Convert.ToInt32("0x97A63056", 16)), // Red-pink
+                Color.FromArgb(Convert.ToInt32("0x87FF9480", 16)), // Peach
+                Color.FromArgb(Convert.ToInt32("0x71EA84D8", 16)), // Light pink
+                Color.FromArgb(Convert.ToInt32("0x22FFA1D5", 16)), // Peach-pink
+
+                Color.FromArgb(Convert.ToInt32("0xB0E57FEF", 16)), // Pinkish
+                Color.FromArgb(Convert.ToInt32("0xB9D62FDE", 16)), // Pinkish 2
+                Color.FromArgb(Convert.ToInt32("0xCFEB0DEC", 16)), // Pinkish 3
+                Color.FromArgb(Convert.ToInt32("0xC3E05D46", 16)), // Orangeish
+                Color.FromArgb(Convert.ToInt32("0x97A63056", 16)), // Red-pink
+                Color.FromArgb(Convert.ToInt32("0x87FF9480", 16)), // Peach
+                Color.FromArgb(Convert.ToInt32("0x71EA84D8", 16)), // Light pink
+                Color.FromArgb(Convert.ToInt32("0x22FFA1D5", 16)), // Peach-pink
+
+                Color.FromArgb(Convert.ToInt32("0xB0E57FEF", 16)), // Pinkish
+                Color.FromArgb(Convert.ToInt32("0xB9D62FDE", 16)), // Pinkish 2
+                Color.FromArgb(Convert.ToInt32("0xCFEB0DEC", 16)), // Pinkish 3
+                Color.FromArgb(Convert.ToInt32("0xC3E05D46", 16)), // Orangeish
+                Color.FromArgb(Convert.ToInt32("0x97A63056", 16)), // Red-pink
+                Color.FromArgb(Convert.ToInt32("0x87FF9480", 16)), // Peach
+                Color.FromArgb(Convert.ToInt32("0x71EA84D8", 16)), // Light pink
+                Color.FromArgb(Convert.ToInt32("0x22FFA1D5", 16)), // Peach-pink
+
+                Color.FromArgb(Convert.ToInt32("0x54BB264C", 16)), // Pink-red
+                Color.FromArgb(Convert.ToInt32("0xC5E57FEF", 16)), // Pinkish
+                Color.FromArgb(Convert.ToInt32("0x1AD62FDE", 16)), // Pinkish 2
+                Color.FromArgb(Convert.ToInt32("0xC5BB264C", 16)), // Pink-red
+                Color.FromArgb(Convert.ToInt32("0xAAEB0DEC", 16)), // Pinkish 3
+                Color.FromArgb(Convert.ToInt32("0x9BEA84D8", 16)), // Light pink
+                Color.FromArgb(Convert.ToInt32("0xD2BB264C", 16)), // Pink-red
+                Color.FromArgb(Convert.ToInt32("0xBBFFA1D5", 16)), // Peach-pink
+
+                Color.FromArgb(Convert.ToInt32("0x54BB264C", 16)), // Pink-red
+                Color.FromArgb(Convert.ToInt32("0xC5E57FEF", 16)), // Pinkish
+                Color.FromArgb(Convert.ToInt32("0x1AD62FDE", 16)), // Pinkish 2
+                Color.FromArgb(Convert.ToInt32("0xC5BB264C", 16)), // Pink-red
+                Color.FromArgb(Convert.ToInt32("0xAAEB0DEC", 16)), // Pinkish 3
+                Color.FromArgb(Convert.ToInt32("0x9BEA84D8", 16)), // Light pink
+                Color.FromArgb(Convert.ToInt32("0xD2BB264C", 16)), // Pink-red
+                Color.FromArgb(Convert.ToInt32("0xBBFFA1D5", 16)), // Peach-pink
+
+                Color.FromArgb(Convert.ToInt32("0x54BB264C", 16)), // Pink-red
+                Color.FromArgb(Convert.ToInt32("0xC5E57FEF", 16)), // Pinkish
+                Color.FromArgb(Convert.ToInt32("0x1AD62FDE", 16)), // Pinkish 2
+                Color.FromArgb(Convert.ToInt32("0xC5BB264C", 16)), // Pink-red
+                Color.FromArgb(Convert.ToInt32("0xAAEB0DEC", 16)), // Pinkish 3
+                Color.FromArgb(Convert.ToInt32("0x9BEA84D8", 16)), // Light pink
+                Color.FromArgb(Convert.ToInt32("0xD2BB264C", 16)), // Pink-red
+                Color.FromArgb(Convert.ToInt32("0xBBFFA1D5", 16)), // Peach-pink
+
+                Color.FromArgb(Convert.ToInt32("0x54BB264C", 16)), // Pink-red
+                Color.FromArgb(Convert.ToInt32("0xC5E57FEF", 16)), // Pinkish
+                Color.FromArgb(Convert.ToInt32("0x1AD62FDE", 16)), // Pinkish 2
+                Color.FromArgb(Convert.ToInt32("0xC5BB264C", 16)), // Pink-red
+                Color.FromArgb(Convert.ToInt32("0xAAEB0DEC", 16)), // Pinkish 3
+                Color.FromArgb(Convert.ToInt32("0x9BEA84D8", 16)), // Light pink
+                Color.FromArgb(Convert.ToInt32("0xD2BB264C", 16)), // Pink-red
+                Color.FromArgb(Convert.ToInt32("0xBBFFA1D5", 16)), // Peach-pink
+
+                Color.FromArgb(Convert.ToInt32("0xBBBB264C", 16)), // Pink-red
+                Color.FromArgb(Convert.ToInt32("0x83FFA1D5", 16)), // Peach-pink
+                Color.FromArgb(Convert.ToInt32("0x6ABB264C", 16)), // Pink-red
+                Color.FromArgb(Convert.ToInt32("0x8EE05D46", 16)), // Orangeish
+                Color.FromArgb(Convert.ToInt32("0x13A63056", 16)), // Red-pink
+                Color.FromArgb(Convert.ToInt32("0xB9FFA1D5", 16)), // Peach-pink
+                Color.FromArgb(Convert.ToInt32("0x1FBB264C", 16)), // Pink-red
+                Color.FromArgb(Convert.ToInt32("0x12E05D46", 16)), // Orangeish
+
+                Color.FromArgb(Convert.ToInt32("0xBBBB264C", 16)), // Pink-red
+                Color.FromArgb(Convert.ToInt32("0x83FFA1D5", 16)), // Peach-pink
+                Color.FromArgb(Convert.ToInt32("0x6ABB264C", 16)), // Pink-red
+                Color.FromArgb(Convert.ToInt32("0x8EE05D46", 16)), // Orangeish
+                Color.FromArgb(Convert.ToInt32("0x13A63056", 16)), // Red-pink
+                Color.FromArgb(Convert.ToInt32("0xB9FFA1D5", 16)), // Peach-pink
+                Color.FromArgb(Convert.ToInt32("0x1FBB264C", 16)), // Pink-red
+                Color.FromArgb(Convert.ToInt32("0x12E05D46", 16)), // Orangeish
+
+                Color.FromArgb(Convert.ToInt32("0xBBBB264C", 16)), // Pink-red
+                Color.FromArgb(Convert.ToInt32("0x83FFA1D5", 16)), // Peach-pink
+                Color.FromArgb(Convert.ToInt32("0x6ABB264C", 16)), // Pink-red
+                Color.FromArgb(Convert.ToInt32("0x8EE05D46", 16)), // Orangeish
+                Color.FromArgb(Convert.ToInt32("0x13A63056", 16)), // Red-pink
+                Color.FromArgb(Convert.ToInt32("0xB9FFA1D5", 16)), // Peach-pink
+                Color.FromArgb(Convert.ToInt32("0x1FBB264C", 16)), // Pink-red
+                Color.FromArgb(Convert.ToInt32("0x12E05D46", 16)), // Orangeish
+
+                Color.FromArgb(Convert.ToInt32("0xBBBB264C", 16)), // Pink-red
+                Color.FromArgb(Convert.ToInt32("0x83FFA1D5", 16)), // Peach-pink
+                Color.FromArgb(Convert.ToInt32("0x6ABB264C", 16)), // Pink-red
+                Color.FromArgb(Convert.ToInt32("0x8EE05D46", 16)), // Orangeish
+                Color.FromArgb(Convert.ToInt32("0x13A63056", 16)), // Red-pink
+                Color.FromArgb(Convert.ToInt32("0xB9FFA1D5", 16)), // Peach-pink
+                Color.FromArgb(Convert.ToInt32("0x1FBB264C", 16)), // Pink-red
+                Color.FromArgb(Convert.ToInt32("0x12E05D46", 16)), // Orangeish
+            };
+
+            var nochesCincoDeMayo1 = new Color[] //3
+            {
+                Color.FromArgb(Convert.ToInt32("0xffc95b", 16)), // Yellowish
+                Color.FromArgb(Convert.ToInt32("0xd71919", 16)), // Reddish
+                Color.FromArgb(Convert.ToInt32("0xf98f21", 16)), // Orangeish
+                Color.FromArgb(Convert.ToInt32("0x25bcc0", 16)), // Blueish
+                Color.FromArgb(Convert.ToInt32("0x234c91", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0x87FF9480", 16)), // Peach
+                Color.FromArgb(Convert.ToInt32("0xffc95b", 16)), // Yellowish
+                Color.FromArgb(Convert.ToInt32("0xd71919", 16)), // Reddish
+            };
+
+            var nochesCincoDeMayo1Long = new Color[] //3
+            {
+                Color.FromArgb(Convert.ToInt32("0xffc95b", 16)), // Yellowish
+                Color.FromArgb(Convert.ToInt32("0xf98f21", 16)), // Orangeish
+                Color.FromArgb(Convert.ToInt32("0xffc95b", 16)), // Yellowish
+                Color.FromArgb(Convert.ToInt32("0x21F5E13B", 16)), // Orange-yellowish
+                Color.FromArgb(Convert.ToInt32("0x8FED6259", 16)), // Redish
+                Color.FromArgb(Convert.ToInt32("0x7AE83D46", 16)), // Redish 2
+                Color.FromArgb(Convert.ToInt32("0x9DFFA44F", 16)), // Redish-orange
+                Color.FromArgb(Convert.ToInt32("0x9BEA84D8", 16)), // Light pink
+                Color.FromArgb(Convert.ToInt32("0x83AC77BD", 16)), // Washed purple
+                Color.FromArgb(Convert.ToInt32("0x6AEF2416", 16)), // Lenseflare redish
+                Color.FromArgb(Convert.ToInt32("0xd71919", 16)), // Reddish
+                Color.FromArgb(Convert.ToInt32("0x87FF9480", 16)), // Peach
+                Color.FromArgb(Convert.ToInt32("0xffc95b", 16)), // Yellowish
+                Color.FromArgb(Convert.ToInt32("0xd71919", 16)), // Reddish
+                Color.FromArgb(Convert.ToInt32("0xFFF8B532", 16)), // Golden orange
             };
 
             var dragonCyborg5 = new Color[] //5
@@ -1216,27 +2190,19 @@ namespace ShowControl.Rendering
                 Color.FromArgb(Convert.ToInt32("0x26FF23FF", 16)), // Purple-pink
             };
 
-            _keyAnimations = new IKeyAnimation[] {
-
-                // Rainbow-Space
-                new RainbowAnimation(_devices.Length, roygbiv, _audioService, _cts.Token),
-                new RainbowAnimation(_devices.Length, frequentDragonCyborg9, _audioService, _cts.Token),
-                //new RainbowAnimation(_devices.Length, space, _audioService, _cts.Token),
-                //new UltraVioletStaticAnimation(_devices.Length),
-                //new RainbowAnimation(_devices.Length, dragonCyborg2, _audioService, _cts.Token),
-                //new RainbowAnimation(_devices.Length, dragonCyborg1, _audioService, _cts.Token),
-                //new RainbowAnimation(_devices.Length, dragonCyborg5, _audioService, _cts.Token),
-                //new RainbowAnimation(_devices.Length, dragonCyborg6, _audioService, _cts.Token),
-                //new RainbowAnimation(_devices.Length, dragonCyborg3, _audioService, _cts.Token),
-                //new RainbowAnimation(_devices.Length, dragonCyborg8, _audioService, _cts.Token),
-                new RainbowAnimation(_devices.Length, frequentDragonCyborg9, _audioService, _cts.Token),
-                //new RainbowAnimation(_devices.Length, warm, _audioService, _cts.Token),
-
-                //new VibrantAnimation(_devices.Length, _audioService, _cts.Token),
-                //new ColorShimmerAnimation(_devices.Length, warmColdRoygviv, _audioService, _cts.Token),
-                //new ColorPaletteAnimation(_devices.Length, _audioService, _cts.Token),
-                //new RainbowAnimation(_devices.Length, bestButt, _audioService, _cts.Token),
-                //new UltraVioletStaticAnimation(_devices.Length)
+            _keyAnimations = new IKeyAnimation[]
+            {
+                new RainbowAnimation(_pixelChannels.TotalPixelCount, redGreenWhite, _audioService, _cts.Token),
+                new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg2Lucidas, _audioService, _cts.Token),
+                new RainbowAnimation(_pixelChannels.TotalPixelCount, nochesCincoDeMayo1, _audioService, _cts.Token),
+                new RainbowAnimation(_pixelChannels.TotalPixelCount, warmLucidas, _audioService, _cts.Token),
+            };
+            _auxilaryKeyAnimations = new IKeyAnimation[]
+            {
+                new RainbowAnimation(_parChannels.TotalPixelCount, redGreenWhiteLong, _audioService, _cts.Token),
+                new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg2LucidasLong, _audioService, _cts.Token),
+                new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg5, _audioService, _cts.Token),
+                new RainbowAnimation(_parChannels.TotalPixelCount, warm, _audioService, _cts.Token),
             };
 
             _transformAnimations = new ITransformAnimation[]
@@ -1287,11 +2253,15 @@ namespace ShowControl.Rendering
                 {
                     IKeyAnimation keyAnimation = null;
                     ITransformAnimation transformAnimation = null;
+                    IKeyAnimation auxilaryAnimation = null;
                     lock (_navigationLock)
                     {
                         keyAnimation = _activeKeyAnimation > -1 ? _keyAnimations[_activeKeyAnimation] : null;
+                        auxilaryAnimation = _activeKeyAnimation > -1 ? _auxilaryKeyAnimations[_activeKeyAnimation] : null;
                         transformAnimation = _activeTransformAnimation > -1 ? _transformAnimations[_activeTransformAnimation] : null;
                     }
+                    int pixelOffset = 0;
+                    int channelOffset = 0;
                     if (keyAnimation != null)
                     {
                         var frame = keyAnimation.GetNextFrame();
@@ -1299,17 +2269,20 @@ namespace ShowControl.Rendering
                         {
                             frame = transformAnimation.GetNextFrame(frame);
                         }
-                        int pixelOffset = 0;
-                        int channelOffset = 0;
                         var frameSpan = frame.AsSpan();
-                        for (int i = 0; i < _renderSurfaces.Length; i++)
-                        {
-                            var surface = _renderSurfaces[i];
+                        var surface = _pixelChannels;
                             
-                            surface.Render(frameSpan.Slice(pixelOffset, surface.TotalPixelCount), targetVector.AsSpan().Slice(channelOffset, surface.TotalChannelCount), renderSettings);
-                            pixelOffset += surface.TotalPixelCount;
-                            channelOffset += surface.TotalChannelCount;
-                        }
+                        surface.Render(frameSpan.Slice(pixelOffset, surface.TotalPixelCount), targetVector.AsSpan().Slice(channelOffset, surface.TotalChannelCount), renderSettings);
+                        pixelOffset += surface.TotalPixelCount;
+                        channelOffset += surface.TotalChannelCount;
+                    }
+                    if (auxilaryAnimation != null)
+                    {
+                        var frame = auxilaryAnimation.GetNextFrame();
+                        var frameSpan = frame.AsSpan();
+                        var surface = _parChannels;
+
+                        surface.Render(frameSpan, targetVector.AsSpan().Slice(channelOffset, surface.TotalChannelCount), renderSettings);
                     }
 
                     outputDevice.Write(targetVector);

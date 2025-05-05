@@ -43,7 +43,7 @@ namespace ShowControl.Animation
         private readonly SmoothColorTransition _solidColorTransition;
         private readonly SmoothColorTransition _variableColorTransition;
 
-        bool _specialModesEnabled = false;
+        bool _specialModesEnabled = true;
 
         bool _padPressedReachedTarget = false;
 
@@ -293,10 +293,10 @@ namespace ShowControl.Animation
                     if (_mode == AnimationMode.SoundReactive)
                     {
                         //if (false)
-                        if ((e.CurrentLevel >= -40.0d || e.AverageLevel > -35.0d)/* && e.AmplitudeRatio > _lastAmplitudeRatio*/)
+                        if ((e.CurrentLevel >= -45.0d || e.AverageLevel > -40.0d)/* && e.AmplitudeRatio > _lastAmplitudeRatio*/)
                         {
                             const int multiplier = 1;
-                            const int maxAnimations = 1;
+                            const int maxAnimations = 5;
                             const int minAnimations = 0;
                             var levelFactor = Math.Round(e.AverageLevel / e.CurrentLevel * multiplier);
                             var level = Convert.ToInt32(Math.Min(Math.Max(levelFactor, minAnimations), maxAnimations));
