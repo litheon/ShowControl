@@ -230,6 +230,8 @@ namespace ShowControl.Rendering
                     AsteraAX3.Instance,
                     AsteraAX3.Instance,
                     AsteraAX3.Instance,
+                    AsteraAX3.Instance,
+                    AsteraAX3.Instance,
                     Sheds.Instance,
                     Sheds.Instance,
                     Sheds.Instance,
@@ -402,7 +404,7 @@ namespace ShowControl.Rendering
                 {
                     ProcessPadPressed(e.ButtonDirection, e.PadNumber.Value);
                 }
-                else if (e.EventType == DeviceInputEventType.RotaryEncoder && e.RotaryNumber == 0)
+                else if (e.EventType == DeviceInputEventType.RotaryEncoder && e.RotaryNumber == 1)
                 {
                     var direction = e.RotaryDirection;
                     if (direction == RotaryDirection.Up)
@@ -414,7 +416,7 @@ namespace ShowControl.Rendering
                         _masterFader.InterlockedIncrement(0, byte.MaxValue);
                     }
                 }
-                else if (e.EventType == DeviceInputEventType.RotaryEncoder && e.RotaryNumber == 1)
+                else if (e.EventType == DeviceInputEventType.RotaryEncoder && e.RotaryNumber == 2)
                 {
                     var direction = e.RotaryDirection;
                     if (direction == RotaryDirection.Up)
