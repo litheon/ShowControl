@@ -1384,6 +1384,39 @@ namespace ShowControl.Rendering
                 Color.FromArgb(0xFF, Color.White),
             };
 
+            var redGreenWhiteAsymmetric = new Color[]
+            {
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(0xFF, Color.White),
+
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(0xFF, Color.White),
+
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(0xFF, Color.White),
+
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(0xFF, Color.White),
+
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(0xFF, Color.White),
+
+                Color.FromArgb(0xFF, Color.White),
+                Color.FromArgb(Convert.ToInt32("0x006847", 16)),
+                Color.FromArgb(0xFF, Color.White),
+            };
+
             var redGreenWhiteLong = new Color[]
             {
                 Color.FromArgb(Convert.ToInt32("0xce1127", 16)),
@@ -1800,6 +1833,134 @@ namespace ShowControl.Rendering
                 Color.FromArgb(Convert.ToInt32("0x4AFF8533", 16)), // Bright orange
             };
 
+            var dragonCyborg2Asymmetric = new Color[] //2
+            {
+                Color.FromArgb(Convert.ToInt32("0xFA31F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0xBFFF8533", 16)), // Bright orange
+                Color.FromArgb(Convert.ToInt32("0x9AFF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0x9853CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0xE5CC8458", 16)), // Faded orange
+
+
+                Color.FromArgb(Convert.ToInt32("0xFA31F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0xBFFF8533", 16)), // Bright orange
+
+                Color.FromArgb(Convert.ToInt32("0xF067FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0xCF31F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0x6FFF8533", 16)), // Bright orange
+
+                Color.FromArgb(Convert.ToInt32("0xFA31F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0xBFFF8533", 16)), // Bright orange
+                Color.FromArgb(Convert.ToInt32("0x9AFF8C4F", 16)), // Less bright orange
+
+                Color.FromArgb(Convert.ToInt32("0xF067FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0xCF31F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0x6FFF8533", 16)), // Bright orange
+
+                Color.FromArgb(Convert.ToInt32("0xFA31F5C1", 16)), // Blue-green
+
+                Color.FromArgb(Convert.ToInt32("0xE5CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0xF067FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0xCF31F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0x6FFF8533", 16)), // Bright orange
+
+                Color.FromArgb(Convert.ToInt32("0xDAFF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0xFA53CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0xB3CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0x1167FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0x7831F5C1", 16)), // Blue-green
+
+                Color.FromArgb(Convert.ToInt32("0x3167FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0x27CC8458", 16)), // Faded orange
+
+                Color.FromArgb(Convert.ToInt32("0xDAFF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0xFA53CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0xB3CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0x1167FFE3", 16)), // Tealish
+
+                Color.FromArgb(Convert.ToInt32("0x3167FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0x27CC8458", 16)), // Faded orange
+
+                Color.FromArgb(Convert.ToInt32("0xDAFF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0xFA53CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0xB3CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0x1167FFE3", 16)), // Tealish
+
+                Color.FromArgb(Convert.ToInt32("0x3167FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0x27CC8458", 16)), // Faded orange
+
+                Color.FromArgb(Convert.ToInt32("0xDAFF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0xFA53CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0xB3CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0x1167FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0x7831F5C1", 16)), // Blue-green
+
+                Color.FromArgb(Convert.ToInt32("0x3167FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0x27CC8458", 16)), // Faded orange
+
+                Color.FromArgb(Convert.ToInt32("0x7331F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0x5A53CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0x7067FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0x65CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0xA253CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0x5967FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0x4DCC8458", 16)), // Faded orange
+
+                Color.FromArgb(Convert.ToInt32("0x7331F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0x5A53CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0x7067FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0x8631F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0xA253CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0x5967FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0x4DCC8458", 16)), // Faded orange
+
+                Color.FromArgb(Convert.ToInt32("0x7331F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0x5A53CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0x7067FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0xA253CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0x5967FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0x4DCC8458", 16)), // Faded orange
+
+                Color.FromArgb(Convert.ToInt32("0x5A53CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0x7067FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0x8631F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0x65CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0xA253CCFF", 16)), // Dark blue
+                Color.FromArgb(Convert.ToInt32("0x5967FFE3", 16)), // Tealish
+                Color.FromArgb(Convert.ToInt32("0x4DCC8458", 16)), // Faded orange
+
+                Color.FromArgb(Convert.ToInt32("0x57FF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0x45CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0xEAFF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0xC2FF8533", 16)), // Bright orange
+                Color.FromArgb(Convert.ToInt32("0x46CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0xCE31F5C1", 16)), // Blue-green
+
+                Color.FromArgb(Convert.ToInt32("0x57FF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0x67FF8533", 16)), // Bright orange
+                Color.FromArgb(Convert.ToInt32("0xCD31F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0x45CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0xEAFF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0xCE31F5C1", 16)), // Blue-green
+
+                Color.FromArgb(Convert.ToInt32("0x57FF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0x67FF8533", 16)), // Bright orange
+                Color.FromArgb(Convert.ToInt32("0xCD31F5C1", 16)), // Blue-green
+                Color.FromArgb(Convert.ToInt32("0x45CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0xC2FF8533", 16)), // Bright orange
+                Color.FromArgb(Convert.ToInt32("0x46CC8458", 16)), // Faded orange
+                Color.FromArgb(Convert.ToInt32("0xCE31F5C1", 16)), // Blue-green
+
+                Color.FromArgb(Convert.ToInt32("0xACFF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0xCFFF8533", 16)), // Bright orange
+                Color.FromArgb(Convert.ToInt32("0xF1FF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0x28FF8533", 16)), // Bright orange
+                Color.FromArgb(Convert.ToInt32("0x74FF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0x4AFF8533", 16)), // Bright orange
+                Color.FromArgb(Convert.ToInt32("0x74FF8C4F", 16)), // Less bright orange
+                Color.FromArgb(Convert.ToInt32("0x4AFF8533", 16)), // Bright orange
+            };
+
             var dragonCyborg2LucidasLong = new Color[] //2
             {
                 Color.FromArgb(Convert.ToInt32("0xBFFF8533", 16)), // Bright orange
@@ -2036,6 +2197,40 @@ namespace ShowControl.Rendering
                 Color.FromArgb(Convert.ToInt32("0xd71919", 16)), // Reddish
             };
 
+            var nochesCincoDeMayo1Asymmetric = new Color[] //3
+            {
+                Color.FromArgb(Convert.ToInt32("0xffc95b", 16)), // Yellowish
+                Color.FromArgb(Convert.ToInt32("0xd71919", 16)), // Reddish
+                Color.FromArgb(Convert.ToInt32("0x25bcc0", 16)), // Blueish
+                Color.FromArgb(Convert.ToInt32("0x234c91", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0x87FF9480", 16)), // Peach
+                Color.FromArgb(Convert.ToInt32("0xffc95b", 16)), // Yellowish
+                Color.FromArgb(Convert.ToInt32("0xd71919", 16)), // Reddish
+
+                Color.FromArgb(Convert.ToInt32("0xffc95b", 16)), // Yellowish
+                Color.FromArgb(Convert.ToInt32("0xd71919", 16)), // Reddish
+                Color.FromArgb(Convert.ToInt32("0x25bcc0", 16)), // Blueish
+                Color.FromArgb(Convert.ToInt32("0x234c91", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0x87FF9480", 16)), // Peach
+                Color.FromArgb(Convert.ToInt32("0xffc95b", 16)), // Yellowish
+                Color.FromArgb(Convert.ToInt32("0xd71919", 16)), // Reddish
+
+                Color.FromArgb(Convert.ToInt32("0xffc95b", 16)), // Yellowish
+                Color.FromArgb(Convert.ToInt32("0xd71919", 16)), // Reddish
+                Color.FromArgb(Convert.ToInt32("0x25bcc0", 16)), // Blueish
+                Color.FromArgb(Convert.ToInt32("0x87FF9480", 16)), // Peach
+                Color.FromArgb(Convert.ToInt32("0xffc95b", 16)), // Yellowish
+                Color.FromArgb(Convert.ToInt32("0xd71919", 16)), // Reddish
+
+                Color.FromArgb(Convert.ToInt32("0xffc95b", 16)), // Yellowish
+                Color.FromArgb(Convert.ToInt32("0xd71919", 16)), // Reddish
+                Color.FromArgb(Convert.ToInt32("0xf98f21", 16)), // Orangeish
+                Color.FromArgb(Convert.ToInt32("0x234c91", 16)), // Blue
+                Color.FromArgb(Convert.ToInt32("0x87FF9480", 16)), // Peach
+                Color.FromArgb(Convert.ToInt32("0xffc95b", 16)), // Yellowish
+                Color.FromArgb(Convert.ToInt32("0xd71919", 16)), // Reddish
+            };
+
             var nochesCincoDeMayo1Long = new Color[] //3
             {
                 Color.FromArgb(Convert.ToInt32("0xffc95b", 16)), // Yellowish
@@ -2192,6 +2387,10 @@ namespace ShowControl.Rendering
 
             _keyAnimations = new IKeyAnimation[]
             {
+                new RainbowAnimation(_pixelChannels.TotalPixelCount, redGreenWhiteAsymmetric, _audioService, _cts.Token),
+                new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg2Asymmetric, _audioService, _cts.Token),
+                new RainbowAnimation(_pixelChannels.TotalPixelCount, nochesCincoDeMayo1Asymmetric, _audioService, _cts.Token),
+                new RainbowAnimation(_pixelChannels.TotalPixelCount, warmLucidas, _audioService, _cts.Token),
                 new RainbowAnimation(_pixelChannels.TotalPixelCount, redGreenWhite, _audioService, _cts.Token),
                 new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg2Lucidas, _audioService, _cts.Token),
                 new RainbowAnimation(_pixelChannels.TotalPixelCount, nochesCincoDeMayo1, _audioService, _cts.Token),
@@ -2199,6 +2398,10 @@ namespace ShowControl.Rendering
             };
             _auxilaryKeyAnimations = new IKeyAnimation[]
             {
+                new RainbowAnimation(_parChannels.TotalPixelCount, redGreenWhiteLong, _audioService, _cts.Token),
+                new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg2LucidasLong, _audioService, _cts.Token),
+                new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg5, _audioService, _cts.Token),
+                new RainbowAnimation(_parChannels.TotalPixelCount, warm, _audioService, _cts.Token),
                 new RainbowAnimation(_parChannels.TotalPixelCount, redGreenWhiteLong, _audioService, _cts.Token),
                 new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg2LucidasLong, _audioService, _cts.Token),
                 new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg5, _audioService, _cts.Token),
