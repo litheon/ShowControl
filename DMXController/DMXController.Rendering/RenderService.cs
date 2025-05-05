@@ -43,6 +43,7 @@ namespace ShowControl.Rendering
         private int _padTransitionStartIndex;
 
         private int _masterFader = 127;
+        private int _auxilaryMasterFader = 127;
 
         private Timer NavButtonBlinkTimer;
         private Timer RenderOperatatorTimer;
@@ -153,7 +154,7 @@ namespace ShowControl.Rendering
             _cts = new CancellationTokenSource();
 
             _pixelChannels = RenderSurface.Create(
-                    new RenderSettings(127),
+                    new RenderSettings(255),
                     AsteraTitan.Instance,
                     AsteraTitan.Instance,
                     AsteraTitan.Instance,
@@ -220,7 +221,7 @@ namespace ShowControl.Rendering
                     AsteraTitan.Instance
             );
             _parChannels = RenderSurface.Create(
-                    new RenderSettings(127),
+                    new RenderSettings(255),
                     AsteraAX3.Instance,
                     AsteraAX3.Instance,
                     AsteraAX3.Instance,
@@ -241,7 +242,7 @@ namespace ShowControl.Rendering
             _renderSurfaces = new IRenderSurface[]
             {
                  RenderSurface.Create(
-                    new RenderSettings(127),
+                    new RenderSettings(255),
                     _pixelChannels,
                     _parChannels
                 ),
@@ -401,7 +402,7 @@ namespace ShowControl.Rendering
                 {
                     ProcessPadPressed(e.ButtonDirection, e.PadNumber.Value);
                 }
-                else if (e.EventType == DeviceInputEventType.RotaryEncoder)
+                else if (e.EventType == DeviceInputEventType.RotaryEncoder && e.RotaryNumber == 0)
                 {
                     var direction = e.RotaryDirection;
                     if (direction == RotaryDirection.Up)
@@ -411,6 +412,18 @@ namespace ShowControl.Rendering
                     else if (direction == RotaryDirection.Down)
                     {
                         _masterFader.InterlockedIncrement(0, byte.MaxValue);
+                    }
+                }
+                else if (e.EventType == DeviceInputEventType.RotaryEncoder && e.RotaryNumber == 1)
+                {
+                    var direction = e.RotaryDirection;
+                    if (direction == RotaryDirection.Up)
+                    {
+                        _auxilaryMasterFader.InterlockedDecrement(0, byte.MaxValue);
+                    }
+                    else if (direction == RotaryDirection.Down)
+                    {
+                        _auxilaryMasterFader.InterlockedIncrement(0, byte.MaxValue);
                     }
                 }
             }
@@ -2394,7 +2407,7 @@ namespace ShowControl.Rendering
                 new RainbowAnimation(_pixelChannels.TotalPixelCount, redGreenWhite, _audioService, _cts.Token),
                 new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg2Lucidas, _audioService, _cts.Token),
                 new RainbowAnimation(_pixelChannels.TotalPixelCount, nochesCincoDeMayo1, _audioService, _cts.Token),
-                new RainbowAnimation(_pixelChannels.TotalPixelCount, warmLucidas, _audioService, _cts.Token),
+                new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg8, _audioService, _cts.Token),
             };
             _auxilaryKeyAnimations = new IKeyAnimation[]
             {
@@ -2405,7 +2418,7 @@ namespace ShowControl.Rendering
                 new RainbowAnimation(_parChannels.TotalPixelCount, redGreenWhiteLong, _audioService, _cts.Token),
                 new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg2LucidasLong, _audioService, _cts.Token),
                 new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg5, _audioService, _cts.Token),
-                new RainbowAnimation(_parChannels.TotalPixelCount, warm, _audioService, _cts.Token),
+                new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg8, _audioService, _cts.Token),
             };
 
             _transformAnimations = new ITransformAnimation[]
@@ -2448,10 +2461,8 @@ namespace ShowControl.Rendering
         private void RenderThreadLoop()
         {
             byte[] targetVector = new byte[512];
-            var renderSettings = new RenderSettings();
             while (!_cts.Token.IsCancellationRequested)
             {
-                renderSettings.MasterFader = _masterFader.InterlockedGet();
                 foreach (IDmxOutputDevice outputDevice in _outputDevices)
                 {
                     IKeyAnimation keyAnimation = null;
@@ -2467,6 +2478,8 @@ namespace ShowControl.Rendering
                     int channelOffset = 0;
                     if (keyAnimation != null)
                     {
+                        var renderSettings = new RenderSettings();
+                        renderSettings.MasterFader = _masterFader.InterlockedGet();
                         var frame = keyAnimation.GetNextFrame();
                         if (transformAnimation != null)
                         {
@@ -2481,6 +2494,8 @@ namespace ShowControl.Rendering
                     }
                     if (auxilaryAnimation != null)
                     {
+                        var renderSettings = new RenderSettings();
+                        renderSettings.MasterFader = _auxilaryMasterFader.InterlockedGet();
                         var frame = auxilaryAnimation.GetNextFrame();
                         var frameSpan = frame.AsSpan();
                         var surface = _parChannels;
