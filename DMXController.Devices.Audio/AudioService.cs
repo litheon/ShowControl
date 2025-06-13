@@ -17,7 +17,7 @@ namespace ShowControl.Devices.Audio
         public event EventHandler<AudioFrameProcessedEventArgs> AudioFrameProcessed;
 
         private readonly AsioOut _asioOut;
-        public const int SampleRate = 192000;
+        public const int SampleRate = 48000;
         private const int ChannelCount = 2;
 
         private const int SampleLevelWindowSeconds = 20;
@@ -63,21 +63,32 @@ namespace ShowControl.Devices.Audio
                 _copyBuffer[i] = new Point[FftLength];
             }
 
+            //var waveIns = Enumerable.Range(0, WaveInEvent.DeviceCount).Select(c => WaveInEvent.GetCapabilities(c));
+
+            //var waveIn = new WaveInEvent
+            //{
+            //    DeviceNumber = 0,
+            //    WaveFormat = new WaveFormat(44100, 2) // 44.1kHz mono
+            //};
+
+            //waveIn.DataAvailable += WaveIn_DataAvailable;
+            //waveIn.StartRecording();
+
             var drivers = AsioOut.GetDriverNames();
             var focusRite = drivers.FirstOrDefault(d => d.Contains("Focusrite USB"));
             var universalAudio = drivers.FirstOrDefault(d => d.Contains("Universal Audio Thunderbolt"));
             bool initialized = false;
-            if (focusRite != null)
+            if (universalAudio != null)
             {
                 try
                 {
 
-                    //_asioOut = new AsioOut(focusRite)
-                    _asioOut = new AsioOut(universalAudio)
+                    _asioOut = new AsioOut(focusRite)
+                    //_asioOut = new AsioOut(universalAudio)
                     {
-                        //InputChannelOffset = 2
+                        InputChannelOffset = 2
                         //InputChannelOffset = 8
-                        InputChannelOffset = 0
+                        //InputChannelOffset = 0
                     };
 
 
@@ -94,6 +105,51 @@ namespace ShowControl.Devices.Audio
             {
                 _bpmDetect = new FallbackBpmDetect();
             }
+        }
+
+        private void WaveIn_DataAvailable(object sender, WaveInEventArgs e)
+        {
+            int bytesPerSample = 2; // 16-bit
+            int sampleCount = e.BytesRecorded / bytesPerSample;
+
+            if (_activeSamples == null || _activeSamples.Length != sampleCount)
+            {
+                _samples1 = new float[sampleCount];
+                _samples2 = new float[sampleCount];
+                _samples3 = new float[sampleCount];
+                _samples4 = new float[sampleCount];
+                _activeSamples = _samples1;
+            }
+            for (int i = 0; i < _activeSamples.Length; i++)
+            {
+                short sample = BitConverter.ToInt16(e.Buffer, i * bytesPerSample);
+                float sample32 = sample / 32768f; // Normalize to [-1, 1]
+                _activeSamples[i] = sample32;
+                _activeBuffer[_fftPos].X = (float)(sample32 * FastFourierTransform.HammingWindow(_fftPos, _activeBuffer.Length));
+                _activeBuffer[_fftPos].Y = 0;
+                _fftPos++;
+                if (_fftPos >= _activeBuffer.Length)
+                {
+                    FftProcessed();
+                }
+            }
+            //if (_activeSamples == _samples1)
+            //{
+            //    _activeSamples = _samples2;
+            //}
+            //else if (_activeSamples == _samples2)
+            //{
+            //    _activeSamples = _samples3;
+            //}
+            //else if (_activeSamples == _samples3)
+            //{
+            //    _activeSamples = _samples4;
+            //}
+            //else
+            //{
+            //    _activeSamples = _samples1;
+            //}
+            _bpmDetect.InputSamples(_activeSamples.AsSpan(), sampleCount / ChannelCount);
         }
 
         public AudioService(EventHandler<AudioFrameProcessedEventArgs> audioFrameProcessedEventHandler) : this()
