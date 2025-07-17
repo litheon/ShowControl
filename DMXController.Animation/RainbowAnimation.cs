@@ -47,12 +47,15 @@ namespace ShowControl.Animation
 
         bool _padPressedReachedTarget = false;
 
+        bool _fastAnimate = false;
+
         bool _disposed = false;
         public RainbowAnimation(
             int pixelCount,
             Color[] colors,
             IAudioService audioService,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            bool fastAnimate = false)
         {
             _rootFrame = new Pixel[pixelCount];
 
@@ -91,6 +94,7 @@ namespace ShowControl.Animation
                 j = (j + 1) % _colors.Length;
             }
 
+            _fastAnimate = fastAnimate;
             _cancellationToken = cancellationToken;
 
             SetMode(AnimationMode.Automatic);
@@ -112,7 +116,19 @@ namespace ShowControl.Animation
             {
                 _frameAnimateEvent.WaitOne();
                 _automationTimer.Change(Timeout.Infinite, Timeout.Infinite);
-                Animate(forward: true, fromInput: false);
+                if (_fastAnimate)
+                {
+                    Animate(forward: true, fromInput: false);
+                    Animate(forward: true, fromInput: false);
+                    Animate(forward: true, fromInput: false);
+                    Animate(forward: true, fromInput: false);
+                    Animate(forward: true, fromInput: false);
+                }
+                else
+                {
+                    Animate(forward: true, fromInput: false);
+                }
+                
                 _automationTimer.Change(20, Timeout.Infinite);
             }
             _automationTimer.Dispose();
@@ -293,10 +309,10 @@ namespace ShowControl.Animation
                     if (_mode == AnimationMode.SoundReactive)
                     {
                         //if (false)
-                        if ((e.CurrentLevel >= -45.0d || e.AverageLevel > -40.0d)/* && e.AmplitudeRatio > _lastAmplitudeRatio*/)
+                        if ((e.CurrentLevel >= -35.0d || e.AverageLevel > -40.0d)/* && e.AmplitudeRatio > _lastAmplitudeRatio*/)
                         {
-                            const int multiplier = 20;
-                            const int maxAnimations = 40;
+                            const int multiplier = 15;
+                            const int maxAnimations = 30;
                             const int minAnimations = 1;
                             var levelFactor = Math.Round(e.AverageLevel / e.CurrentLevel * multiplier);
                             var level = Convert.ToInt32(Math.Min(Math.Max(levelFactor, minAnimations), maxAnimations));
@@ -407,11 +423,24 @@ namespace ShowControl.Animation
 
         public override void RotaryTurned(RotaryDirection direction, byte rotaryNumber, byte? value)
         {
-            if (rotaryNumber == 1 && direction != RotaryDirection.None)
+            if (_fastAnimate)
             {
-                for (int i = 0; i < 10; i++)
+                if (rotaryNumber == 2 && direction != RotaryDirection.None)
                 {
-                    Animate(direction == RotaryDirection.Up, fromInput: true);
+                    for (int i = 0; i < 20; i++)
+                    {
+                        Animate(direction == RotaryDirection.Up, fromInput: true);
+                    }
+                }
+            }
+            else
+            {
+                if (rotaryNumber == 1 && direction != RotaryDirection.None)
+                {
+                    for (int i = 0; i < 10; i++)
+                    {
+                        Animate(direction == RotaryDirection.Up, fromInput: true);
+                    }
                 }
             }
         }

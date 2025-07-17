@@ -17,7 +17,7 @@ namespace ShowControl.Devices.Audio
         public event EventHandler<AudioFrameProcessedEventArgs> AudioFrameProcessed;
 
         private readonly AsioOut _asioOut;
-        public const int SampleRate = 48000;
+        public const int SampleRate = 192000;
         private const int ChannelCount = 2;
 
         private const int SampleLevelWindowSeconds = 20;
@@ -77,7 +77,7 @@ namespace ShowControl.Devices.Audio
             var drivers = AsioOut.GetDriverNames();
             var focusRite = drivers.FirstOrDefault(d => d.Contains("Focusrite USB"));
             var universalAudio = drivers.FirstOrDefault(d => d.Contains("Universal Audio Thunderbolt"));
-            bool initialized = false;
+            bool initialized = true;
             if (universalAudio != null)
             {
                 try

@@ -42,8 +42,8 @@ namespace ShowControl.Rendering
         private PadState[] _padStates;
         private int _padTransitionStartIndex;
 
-        private int _masterFader = 127;
-        private int _auxilaryMasterFader = 127;
+        private int _masterFader = 15;
+        private int _auxilaryMasterFader = 251;
 
         private Timer NavButtonBlinkTimer;
         private Timer RenderOperatatorTimer;
@@ -155,6 +155,135 @@ namespace ShowControl.Rendering
 
             _pixelChannels = RenderSurface.Create(
                     new RenderSettings(255),
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance
+
+            );
+            _parChannels = RenderSurface.Create(
+                    new RenderSettings(255),
+                    Sheds.Instance,
+                    Sheds.Instance,
+                    Sheds.Instance,
                     Sheds.Instance,
                     Sheds.Instance,
                     Sheds.Instance,
@@ -164,12 +293,6 @@ namespace ShowControl.Rendering
                     Sheds.Instance,
                     Sheds.Instance,
                     Sheds.Instance
-
-            );
-            _parChannels = RenderSurface.Create(
-                    new RenderSettings(255),
-                    WS2812B.Instance,
-                    WS2812B.Instance
             );
             _renderSurfaces = new IRenderSurface[]
             {
@@ -362,17 +485,22 @@ namespace ShowControl.Rendering
             else
             {
                 IAnimation activeKeyAnimation = null;
+                IAnimation activeAuxilaryAnimation = null;
                 IAnimation activeTransformAnimation = null;
                 lock (_navigationLock)
                 {
                     if (_navigationLevel == NavigationLevel.KeyAnimation)
                     {
                         activeKeyAnimation = _activeKeyAnimation > -1 ? _keyAnimations[_activeKeyAnimation] : null;
+                        activeAuxilaryAnimation = _activeKeyAnimation > -1 ? _auxilaryKeyAnimations[_activeKeyAnimation] : null;
                         activeTransformAnimation = _activeTransformAnimation > -1 ? _transformAnimations[_activeTransformAnimation] : null;
                     }
                 }
                 var midiAwareKeyAnimation = activeKeyAnimation as MidiAwareAnimation;
                 midiAwareKeyAnimation?.MidiAware_OnMessageReceived(sender, e);
+
+                var midiAuxillaryKeyAnimation = activeAuxilaryAnimation as MidiAwareAnimation;
+                midiAuxillaryKeyAnimation?.MidiAware_OnMessageReceived(sender, e);
 
                 var midiAwareTransformAnimation = activeTransformAnimation as MidiAwareAnimation;
                 midiAwareTransformAnimation?.MidiAware_OnMessageReceived(sender, e);
@@ -477,7 +605,7 @@ namespace ShowControl.Rendering
 
             var warmColdRoygviv = new Color[]
             {
-                Color.FromArgb(0xFF, 0xFF, 0x00, 0x00),
+                Color.FromArgb(0xFF, 0xFF, 0xFF, 0xFF),
                 Color.FromArgb(0xFE, Color.DarkRed),
                 Color.FromArgb(0xFD, Color.OrangeRed),
 
@@ -2330,26 +2458,37 @@ namespace ShowControl.Rendering
                 Color.FromArgb(Convert.ToInt32("0x26FF23FF", 16)), // Purple-pink
             };
 
+            var plc = new Color[]
+            {
+                Color.FromArgb(Convert.ToInt32("0xA8FCC209", 16)), // Orangeish
+                Color.FromArgb(Convert.ToInt32("0x72E823D6", 16)), // Richer purple
+                Color.FromArgb(Convert.ToInt32("0x26FF23FF", 16)), // Purple-pink
+                Color.FromArgb(Convert.ToInt32("0xD458D969", 16)), // Green
+                Color.FromArgb(0XFD, Color.Orange),
+                Color.FromArgb(0xD8, Color.Purple),
+                Color.FromArgb(0xA1, 0x00, 0x00, 0xFF),
+            };
+
             _keyAnimations = new IKeyAnimation[]
             {
-                new RainbowAnimation(_pixelChannels.TotalPixelCount, warmColdRoygviv, _audioService, _cts.Token),
-                new RainbowAnimation(_pixelChannels.TotalPixelCount, nochesCincoDeMayo1Long, _audioService, _cts.Token),
-                new RainbowAnimation(_pixelChannels.TotalPixelCount, frequentWarmColdRoygviv, _audioService, _cts.Token),
-                new RainbowAnimation(_pixelChannels.TotalPixelCount, warmLucidas, _audioService, _cts.Token),
-                new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg9, _audioService, _cts.Token),
-                new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg2Lucidas, _audioService, _cts.Token),
-                new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg6, _audioService, _cts.Token),
-                new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg8, _audioService, _cts.Token),
+                //new RainbowAnimation(_pixelChannels.TotalPixelCount, plc, _audioService, _cts.Token, fastAnimate: true),
+                //new RainbowAnimation(_pixelChannels.TotalPixelCount, nochesCincoDeMayo1Long, _audioService, _cts.Token, fastAnimate: true),
+                new RainbowAnimation(_pixelChannels.TotalPixelCount, frequentWarmColdRoygviv, _audioService, _cts.Token, fastAnimate: true),
+                new RainbowAnimation(_pixelChannels.TotalPixelCount, warmLucidas, _audioService, _cts.Token, fastAnimate: true),
+                new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg9, _audioService, _cts.Token, fastAnimate: true),
+                new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg2Lucidas, _audioService, _cts.Token, fastAnimate: true),
+                new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg6, _audioService, _cts.Token, fastAnimate: true),
+                new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg8, _audioService, _cts.Token, fastAnimate: true),
             };
             _auxilaryKeyAnimations = new IKeyAnimation[]
             {
-                new RainbowAnimation(_parChannels.TotalPixelCount, redGreenWhiteLong, _audioService, _cts.Token),
-                new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg2LucidasLong, _audioService, _cts.Token),
-                new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg5, _audioService, _cts.Token),
-                new RainbowAnimation(_parChannels.TotalPixelCount, warm, _audioService, _cts.Token),
-                new RainbowAnimation(_parChannels.TotalPixelCount, redGreenWhiteLong, _audioService, _cts.Token),
-                new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg2LucidasLong, _audioService, _cts.Token),
-                new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg5, _audioService, _cts.Token),
+                //new RainbowAnimation(_parChannels.TotalPixelCount, plc, _audioService, _cts.Token),
+                //new RainbowAnimation(_parChannels.TotalPixelCount, nochesCincoDeMayo1Long, _audioService, _cts.Token),
+                new RainbowAnimation(_parChannels.TotalPixelCount, frequentWarmColdRoygviv, _audioService, _cts.Token),
+                new RainbowAnimation(_parChannels.TotalPixelCount, warmLucidas, _audioService, _cts.Token),
+                new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg9, _audioService, _cts.Token),
+                new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg2Lucidas, _audioService, _cts.Token),
+                new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg6, _audioService, _cts.Token),
                 new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg8, _audioService, _cts.Token),
             };
 
