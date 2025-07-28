@@ -4,6 +4,7 @@ using System.Text;
 //using Windows.Devices.Midi;
 //using Windows.Devices.Enumeration;
 using System.Linq;
+using RtMidi.Core.Devices.Infos;
 
 namespace ShowControl.Devices.Input
 {
@@ -17,8 +18,8 @@ namespace ShowControl.Devices.Input
         private List<IMidiInputDevice> _devices;
         private Dictionary<string, List<IMidiInputDevice>> _deviceDictionary;
 
-        private readonly Dictionary<string, Func<int, int, int, IMidiInputDevice>> _supportedDevices = new Dictionary<string, Func<int, int, int, IMidiInputDevice>>() {
-            { "ATOM", (dId, iId, oId) => new PresonusAtom(dId, iId, oId) }
+        private readonly Dictionary<string, Func<IMidiInputDeviceInfo, IMidiOutputDeviceInfo, int, IMidiInputDevice>> _supportedDevices = new Dictionary<string, Func<IMidiInputDeviceInfo, IMidiOutputDeviceInfo, int, IMidiInputDevice>>() {
+            { "ATOM", (i, o, dId) => new PresonusAtom(dId, i, o) }
         };
 
         public InputService()
@@ -79,12 +80,12 @@ namespace ShowControl.Devices.Input
                     var device = midiInDevices[i];
                     if (_initialized && _deviceDictionary.TryGetValue(device.DeviceName, out var midiInputDevices))
                     {
-                        midiInputDevices.First().Reconnect(device.MidiInDeviceIndex, device.MidiOutDeviceIndex);
+                        midiInputDevices.First().Reconnect(device.MidiInDeviceInfo, device.MidiOutDeviceInfo);
                     }
                     else
                     {
                         var constructor = _supportedDevices[device.DeviceName];
-                        var constructedDevice = constructor(i, device.MidiInDeviceIndex, device.MidiOutDeviceIndex);
+                        var constructedDevice = constructor(device.MidiInDeviceInfo, device.MidiOutDeviceInfo, i);
                         constructedDevice.OnInputReceived += ConstructedDevice_OnInputReceived;
                         if (!_deviceDictionary.ContainsKey(device.DeviceName))
                         {

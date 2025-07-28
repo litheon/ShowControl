@@ -11,6 +11,8 @@ namespace ShowControl.Devices.Output
         private UInt64 _handle = 0;
 #elif WIN32
         private uint _handle = 0;
+#elif ARM64
+        private UInt64 _handle = 0;
 #endif
         public uint Id { get; private set; }
 
@@ -66,109 +68,169 @@ namespace ShowControl.Devices.Output
         }
 
 
-        [DllImport("FTD2XX.dll")]
 #if WIN64
+        [DllImport("FTD2XX.dll")]
         private static extern FT_STATUS FT_Open(uint uiPort, ref UInt64 ftHandle);
 #elif WIN32
+        [DllImport("FTD2XX.dll")]
         private static extern FT_STATUS FT_Open(uint uiPort, ref uint ftHandle);
+#elif ARM64
+        [DllImport("ftd2xx")]
+        private static extern FT_STATUS FT_Open(uint uiPort, ref UInt64 ftHandle);
 #endif
 
-        [DllImport("FTD2XX.dll")]
 #if WIN64
+        [DllImport("FTD2XX.dll")]
         private static extern FT_STATUS FT_ResetDevice(UInt64 ftHandle);
 #elif WIN32
+        [DllImport("FTD2XX.dll")]
         private static extern FT_STATUS FT_ResetDevice(uint ftHandle);
+#elif ARM64
+        [DllImport("ftd2xx")]
+        private static extern FT_STATUS FT_ResetDevice(UInt64 ftHandle);
 #endif
 
-        [DllImport("FTD2XX.dll")]
 #if WIN64
+        [DllImport("FTD2XX.dll")]
         private static extern FT_STATUS FT_Close(UInt64 ftHandle);
 #elif WIN32
+        [DllImport("FTD2XX.dll")]
         private static extern FT_STATUS FT_Close(uint ftHandle);
+#elif ARM64
+        [DllImport("ftd2xx")]
+        private static extern FT_STATUS FT_Close(UInt64 ftHandle);
 #endif
 
-        [DllImport("FTD2XX.dll")]
 #if WIN64
+        [DllImport("FTD2XX.dll")]
         private static extern FT_STATUS FT_Read(UInt64 ftHandle, IntPtr lpBuffer, UInt32 dwBytesToRead, ref UInt32 lpdwBytesReturned);
 #elif WIN32
+        [DllImport("FTD2XX.dll")]
         private static extern FT_STATUS FT_Read(uint ftHandle, IntPtr lpBuffer, UInt32 dwBytesToRead, ref UInt32 lpdwBytesReturned);
+#elif ARM64
+        [DllImport("ftd2xx")]
+        private static extern FT_STATUS FT_Read(UInt64 ftHandle, IntPtr lpBuffer, UInt32 dwBytesToRead, ref UInt32 lpdwBytesReturned);
 #endif
 
-        [DllImport("FTD2XX.dll")]
 #if WIN64
+        [DllImport("FTD2XX.dll")]
         private static extern FT_STATUS FT_Write(UInt64 ftHandle, IntPtr lpBuffer, UInt32 dwBytesToRead, ref UInt32 lpdwBytesWritten);
 #elif WIN32
+        [DllImport("FTD2XX.dll")]
         private static extern FT_STATUS FT_Write(uint ftHandle, IntPtr lpBuffer, UInt32 dwBytesToRead, ref UInt32 lpdwBytesWritten);
+#elif ARM64
+        [DllImport("ftd2xx")]
+        private static extern FT_STATUS FT_Write(UInt64 ftHandle, IntPtr lpBuffer, UInt32 dwBytesToRead, ref UInt32 lpdwBytesWritten);
 #endif
 
-        [DllImport("FTD2XX.dll")]
 #if WIN64
+        [DllImport("FTD2XX.dll")]
         private static extern FT_STATUS FT_SetDataCharacteristics(UInt64 ftHandle, byte uWordLength, byte uStopBits, byte uParity);
 #elif WIN32
+        [DllImport("FTD2XX.dll")]
         private static extern FT_STATUS FT_SetDataCharacteristics(uint ftHandle, byte uWordLength, byte uStopBits, byte uParity);
+#elif ARM64
+        [DllImport("ftd2xx")]
+        private static extern FT_STATUS FT_SetDataCharacteristics(UInt64 ftHandle, byte uWordLength, byte uStopBits, byte uParity);
 #endif
 
-        [DllImport("FTD2XX.dll")]
 #if WIN64
+        [DllImport("FTD2XX.dll")]
         private static extern FT_STATUS FT_SetFlowControl(UInt64 ftHandle, char usFlowControl, byte uXon, byte uXoff);
 #elif WIN32
+        [DllImport("FTD2XX.dll")]
         private static extern FT_STATUS FT_SetFlowControl(uint ftHandle, char usFlowControl, byte uXon, byte uXoff);
+#elif ARM64
+        [DllImport("ftd2xx")]
+        private static extern FT_STATUS FT_SetFlowControl(UInt64 ftHandle, char usFlowControl, byte uXon, byte uXoff);
 #endif
 
-        [DllImport("FTD2XX.dll")]
 #if WIN64
+        [DllImport("FTD2XX.dll")]
         private static extern FT_STATUS FT_GetModemStatus(UInt64 ftHandle, ref UInt32 lpdwModemStatus);
 #elif WIN32
+        [DllImport("FTD2XX.dll")]
         private static extern FT_STATUS FT_GetModemStatus(uint ftHandle, ref UInt32 lpdwModemStatus);
+#elif ARM64
+        [DllImport("ftd2xx")]
+        private static extern FT_STATUS FT_GetModemStatus(UInt64 ftHandle, ref UInt32 lpdwModemStatus);
 #endif
 
-        [DllImport("FTD2XX.dll")]
 #if WIN64
+        [DllImport("FTD2XX.dll")]
         private static extern FT_STATUS FT_Purge(UInt64 ftHandle, UInt32 dwMask);
 #elif WIN32
+        [DllImport("FTD2XX.dll")]
         private static extern FT_STATUS FT_Purge(uint ftHandle, UInt32 dwMask);
+#elif ARM64
+        [DllImport("ftd2xx")]
+        private static extern FT_STATUS FT_Purge(UInt64 ftHandle, UInt32 dwMask);
 #endif
 
-        [DllImport("FTD2XX.dll")]
 #if WIN64
+        [DllImport("FTD2XX.dll")]
         private static extern FT_STATUS FT_ClrRts(UInt64 ftHandle);
 #elif WIN32
+        [DllImport("FTD2XX.dll")]
         private static extern FT_STATUS FT_ClrRts(uint ftHandle);
+#elif ARM64
+        [DllImport("ftd2xx")]
+        private static extern FT_STATUS FT_ClrRts(UInt64 ftHandle);
 #endif
 
-        [DllImport("FTD2XX.dll")]
 #if WIN64
+        [DllImport("FTD2XX.dll")]
         private static extern FT_STATUS FT_SetBreakOn(UInt64 ftHandle);
 #elif WIN32
+        [DllImport("FTD2XX.dll")]
         private static extern FT_STATUS FT_SetBreakOn(uint ftHandle);
+#elif ARM64
+        [DllImport("ftd2xx")]
+        private static extern FT_STATUS FT_SetBreakOn(UInt64 ftHandle);
 #endif
 
-        [DllImport("FTD2XX.dll")]
 #if WIN64
+        [DllImport("FTD2XX.dll")]
         private static extern FT_STATUS FT_SetBreakOff(UInt64 ftHandle);
 #elif WIN32
+        [DllImport("FTD2XX.dll")]
         private static extern FT_STATUS FT_SetBreakOff(uint ftHandle);
+#elif ARM64
+        [DllImport("ftd2xx")]
+        private static extern FT_STATUS FT_SetBreakOff(UInt64 ftHandle);
 #endif
 
-        [DllImport("FTD2XX.dll")]
 #if WIN64
+        [DllImport("FTD2XX.dll")]
         private static extern FT_STATUS FT_GetStatus(UInt64 ftHandle, ref UInt32 lpdwAmountInRxQueue, ref UInt32 lpdwAmountInTxQueue, ref UInt32 lpdwEventStatus);
 #elif WIN32
+        [DllImport("FTD2XX.dll")]
         private static extern FT_STATUS FT_GetStatus(uint ftHandle, ref UInt32 lpdwAmountInRxQueue, ref UInt32 lpdwAmountInTxQueue, ref UInt32 lpdwEventStatus);
+#elif ARM64
+        [DllImport("ftd2xx")]
+        private static extern FT_STATUS FT_GetStatus(UInt64 ftHandle, ref UInt32 lpdwAmountInRxQueue, ref UInt32 lpdwAmountInTxQueue, ref UInt32 lpdwEventStatus);
 #endif
 
-        [DllImport("FTD2XX.dll")]
 #if WIN64
+        [DllImport("FTD2XX.dll")]
         private static extern FT_STATUS FT_SetDivisor(UInt64 ftHandle, char usDivisor);
 #elif WIN32
+        [DllImport("FTD2XX.dll")]
         private static extern FT_STATUS FT_SetDivisor(uint ftHandle, char usDivisor);
+#elif ARM64
+        [DllImport("ftd2xx")]
+        private static extern FT_STATUS FT_SetDivisor(UInt64 ftHandle, char usDivisor);
 #endif
 
-        [DllImport("FTD2XX.dll")]
 #if WIN64
+        [DllImport("FTD2XX.dll")]
         private static extern FT_STATUS FT_SetTimeouts(UInt64 ftHandle, UInt32 readTimeout, UInt32 writeTimeout);
 #elif WIN32
+        [DllImport("FTD2XX.dll")]
         private static extern FT_STATUS FT_SetTimeouts(uint ftHandle, UInt32 readTimeout, UInt32 writeTimeout);
+#elif ARM64
+        [DllImport("libftd2xx")]
+        private static extern FT_STATUS FT_SetTimeouts(UInt64 ftHandle, UInt32 readTimeout, UInt32 writeTimeout);
 #endif
 
         private const byte BITS_8 = 8;

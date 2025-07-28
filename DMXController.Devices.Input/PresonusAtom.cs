@@ -1,4 +1,5 @@
 ﻿using NAudio.Midi;
+using RtMidi.Core.Devices.Infos;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -36,7 +37,7 @@ namespace ShowControl.Devices.Input
 
         private const int FirstPadNoteNumber = 36;
         private const int LastPadNoteNumber = 52;
-        public PresonusAtom(int deviceId, int midiInDeviceId, int midiOutDeviceId) : base(midiInDeviceId, midiOutDeviceId)
+        public PresonusAtom(int deviceId, IMidiInputDeviceInfo midiInDeviceInfo, IMidiOutputDeviceInfo midiOutDeviceInfo) : base(midiInDeviceInfo, midiOutDeviceInfo)
         {
             _midiInputTranslation = new MidiInputTranslation(
                 new MidiInputMapping(
@@ -136,11 +137,11 @@ namespace ShowControl.Devices.Input
         private void InitializeInterface()
         {
             var advancedControlModeSignal = new NoteEvent(0, channel: 16, commandCode: MidiCommandCode.NoteOff, noteNumber: 0, velocity: 127);
-            _midiOut.Send(advancedControlModeSignal.GetAsShortMessage());
-            _midiIn.Start();
+            //_midiOut.Send(advancedControlModeSignal.GetAsShortMessage());
+            _midiOut.Send(new RtMidi.Core.Messages.NoteOffMessage(RtMidi.Core.Enums.Channel.Channel16, RtMidi.Core.Enums.Key.Key0, velocity: 127));
         }
 
-        public override void Reconnect(int inDeviceNo, int outDeviceNo)
+        public override void Reconnect(IMidiInputDeviceInfo inDeviceNo, IMidiOutputDeviceInfo outDeviceNo)
         {
             base.Reconnect(inDeviceNo, outDeviceNo);
             InitializeInterface();
@@ -176,7 +177,7 @@ namespace ShowControl.Devices.Input
             {
                 bytes.AddRange(new ControlChangeEvent(absoluteTime: 0, channel: 1, controller: (MidiController)(item), 0).GetMidiMessageAsByteArray());
             }
-            _midiOut.SendBuffer(bytes.ToArray());
+            //_midiOut.SendBuffer(bytes.ToArray());
         }
 
         public void SetPadState(int index, PadState padState)
@@ -196,7 +197,7 @@ namespace ShowControl.Devices.Input
             bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 2, noteNumber: padNote, velocity: red, duration: 0).GetMidiMessageAsByteArray());
             bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 3, noteNumber: padNote, velocity: green, duration: 0).GetMidiMessageAsByteArray());
             bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 4, noteNumber: padNote, velocity: blue, duration: 0).GetMidiMessageAsByteArray());
-            _midiOut.SendBuffer(bytes.ToArray());
+            //_midiOut.SendBuffer(bytes.ToArray());
         }
 
         public void SetPadStates(PadState[] states)
@@ -220,7 +221,7 @@ namespace ShowControl.Devices.Input
                 bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 3, noteNumber: padNote, velocity: green, duration: 0).GetMidiMessageAsByteArray());
                 bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 4, noteNumber: padNote, velocity: blue, duration: 0).GetMidiMessageAsByteArray());
             }
-            _midiOut.SendBuffer(bytes.ToArray());
+            //_midiOut.SendBuffer(bytes.ToArray());
         }
 
         internal override void MidiIn_MessageReceived(object sender, MidiInMessageEventArgs e)
@@ -271,7 +272,7 @@ namespace ShowControl.Devices.Input
             if (_buttonTranslation.ContainsKey(button))
             {
                 _buttonIllumination[button] = state;
-                _midiOut.SendBuffer(new ControlChangeEvent(absoluteTime: 0, channel: 1, controller: (MidiController)_buttonTranslation[button], state == LightState.On ? (int)PresonusAtomPadIlluminationType.Solid : 0).GetMidiMessageAsByteArray());
+                //_midiOut.SendBuffer(new ControlChangeEvent(absoluteTime: 0, channel: 1, controller: (MidiController)_buttonTranslation[button], state == LightState.On ? (int)PresonusAtomPadIlluminationType.Solid : 0).GetMidiMessageAsByteArray());
             }
         }
 
@@ -288,7 +289,7 @@ namespace ShowControl.Devices.Input
             }
             if (bytes.Count > 0)
             {
-                _midiOut.SendBuffer(bytes.ToArray());
+                //_midiOut.SendBuffer(bytes.ToArray());
             }
         }
 

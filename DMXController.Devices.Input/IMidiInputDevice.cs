@@ -1,4 +1,5 @@
 ﻿using System;
+using RtMidi.Core.Devices.Infos;
 
 namespace ShowControl.Devices.Input
 {
@@ -32,7 +33,7 @@ namespace ShowControl.Devices.Input
         public LightState? GetButtonIllumination(Button button);
         public void ClearInterface();
         public void Stop();
-        public void Reconnect(int inDeviceNo, int outDeviceNo);
+        public void Reconnect(IMidiInputDeviceInfo inDeviceNo, IMidiOutputDeviceInfo outDeviceNo);
         public event EventHandler<DeviceInputEventArgs> OnInputReceived;
     }
 }

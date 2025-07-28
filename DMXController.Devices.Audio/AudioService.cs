@@ -50,6 +50,8 @@ namespace ShowControl.Devices.Audio
         private bool _stopped;
         public AudioService()
         {
+            return;
+            
             _bpmDetect = new FallbackBpmDetect();
             _bassAverageLevel = new SampleAverageLevelCalculator(0);
             _bassCurrentLevel = new SampleAverageLevelCalculator(Convert.ToInt32(Math.Round(BassCutOffHz / (SampleRate / FftLength))) - 1);

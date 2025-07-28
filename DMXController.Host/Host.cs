@@ -9,6 +9,7 @@ using ShowControl.Devices.Input;
 using ShowControl.Devices.Audio;
 using NAudio.Dsp;
 using ShowControl.Devices.DMX;
+using Serilog;
 
 namespace ShowControl.Host
 {
@@ -17,7 +18,11 @@ namespace ShowControl.Host
         [STAThread]
         public static Task Main(string[] args)
         {
-
+            Log.Logger = new LoggerConfiguration()
+            .MinimumLevel.Debug() // Set the minimum level to Debug
+            .WriteTo.Debug()
+            .CreateLogger();
+            
             var builder = CreateHostBuilder(args);
             return builder.RunConsoleAsync();
         }
@@ -38,6 +43,7 @@ namespace ShowControl.Host
                         .AddSingleton<IDmxDeviceEnumerator, DmxDeviceEnumerator>()
                         .AddSingleton<IInputService, InputService>()
                         .AddSingleton<IAudioService, AudioService>()
+                        .AddLogging()
                         .AddHostedService<RenderService>());
 
         static IHostBuilder CreateHostBuilder(string[] args, EventHandler<AudioFrameProcessedEventArgs> audioFrameProcessedEventHandler, Action<IDmxDevice[]> devices) =>
@@ -49,6 +55,7 @@ namespace ShowControl.Host
                         .AddSingleton<IInputService, InputService>()
                         .AddSingleton<IAudioService, AudioService>((_) => new AudioService(audioFrameProcessedEventHandler))
                         .AddSingleton((_) => devices)
+                        .AddLogging()
                         .AddHostedService<RenderService>());
 
 

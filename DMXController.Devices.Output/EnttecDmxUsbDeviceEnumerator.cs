@@ -8,8 +8,16 @@ namespace ShowControl.Devices.Output
 {
     public class EnttecDmxUsbDeviceEnumerator : Ftdi, IEnttecDmxUsbDeviceEnumerator
     {
+#if WIN64
         [DllImport("FTD2XX.dll")]
         private static extern FT_STATUS FT_ListDevices(IntPtr pvArg1, IntPtr pvArg2, UInt32 flags);
+#elif WIN32
+        [DllImport("FTD2XX.dll")]
+        private static extern FT_STATUS FT_ListDevices(IntPtr pvArg1, IntPtr pvArg2, UInt32 flags);
+#elif ARM64
+        [DllImport("ftd2xx")]
+        private static extern FT_STATUS FT_ListDevices(IntPtr pvArg1, IntPtr pvArg2, UInt32 flags);
+#endif
 
         public IEnttecDmxUsbDevice[] GetDmxOutputDevices(CancellationToken cancellationToken)
         {

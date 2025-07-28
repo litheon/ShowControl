@@ -1,7 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Linq;
 using NAudio.Midi;
+using RtMidi.Core;
+using RtMidi.Core.Devices.Infos;
+using System.Runtime.InteropServices;
 
 namespace ShowControl.Devices.Input
 {
@@ -9,30 +13,33 @@ namespace ShowControl.Devices.Input
     {
         public static MidiInOutDevice[] GetMidiDevices()
         {
-            Dictionary<string, Tuple<int, MidiOutCapabilities>> midiOutDevices = new Dictionary<string, Tuple<int, MidiOutCapabilities>>();
-            Dictionary<string, Tuple<int, MidiInCapabilities>> midiInDevices = new Dictionary<string, Tuple<int, MidiInCapabilities>>();
-            var midiInDeviceCount = MidiIn.NumberOfDevices;
-            for (int i = 0; i < midiInDeviceCount; i++)
+            var a = MidiDeviceManager.Default.GetAvailableMidiApis();
+            var defaulta = MidiDeviceManager.Default;
+            //GetPortCount(0u);
+            var inDevices = defaulta.InputDevices.ToArray();
+            var count = inDevices.Count();
+            var outDevices = MidiDeviceManager.Default.OutputDevices.ToArray();
+            Dictionary<string, IMidiOutputDeviceInfo> midiOutDevices = new Dictionary<string, IMidiOutputDeviceInfo>();
+            Dictionary<string, IMidiInputDeviceInfo> midiInDevices = new Dictionary<string, IMidiInputDeviceInfo>();
+            for (int i = 0; i < inDevices.Length; i++)
             {
-                var device = MidiIn.DeviceInfo(i);
-                midiInDevices.Add(device.ProductName, new Tuple<int, MidiInCapabilities>(i, device));
+                var device = inDevices[i];
+                midiInDevices.Add(device.Name, device);
             }
 
-            var midiOutDeviceCount = MidiOut.NumberOfDevices;
-            for (int i = 0; i < midiOutDeviceCount; i++)
+            for (int i = 0; i < outDevices.Length; i++)
             {
-                var device = MidiOut.DeviceInfo(i);
-                midiOutDevices.Add(device.ProductName, new Tuple<int, MidiOutCapabilities>(i, device));
+                var device = outDevices[i];
+                midiOutDevices.Add(device.Name, device);
             }
             List<MidiInOutDevice> devices = new List<MidiInOutDevice>(midiOutDevices.Count);
             foreach (var kvPair in midiOutDevices)
             {
                 if (midiInDevices.ContainsKey(kvPair.Key))
                 {
-                    var productName = kvPair.Value.Item2.ProductName;
-                    var outIndex = kvPair.Value.Item1;
-                    var inIndex = midiInDevices[kvPair.Key].Item1;
-                    devices.Add(new MidiInOutDevice(inIndex, outIndex, productName));
+                    var outDevice = kvPair.Value;
+                    var inDevice = midiInDevices[kvPair.Key];
+                    devices.Add(new MidiInOutDevice(inDevice, outDevice, outDevice.Name));
                 }
             }
             return devices.ToArray();
