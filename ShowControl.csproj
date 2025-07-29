@@ -15,6 +15,7 @@
     <Compile Remove="ShowControl.ControlPanel\**" />
     <Compile Remove="ShowControl.Utilities\**" />
     <Compile Remove="ShowControl.Devices.Input.Windows\**" />
+    <Compile Remove="RtMidi.Core\**" />
     <EmbeddedResource Remove="DMXController.Animation\**" />
     <EmbeddedResource Remove="DMXController.Devices.Audio\**" />
     <EmbeddedResource Remove="DMXController.Devices.DMX\**" />
@@ -35,6 +36,9 @@
     <None Remove="ShowControl.ControlPanel\**" />
     <None Remove="ShowControl.Utilities\**" />
     <None Remove="ShowControl.Devices.Input.Windows\**" />
+    <None Remove="RtMidi.Core\**" />
+    <None Remove="RtMidi.Core\RtMidi.Core.Tests\**" />
+    <None Remove="RtMidi.Core\RtMidi.Core.Samples\**" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="DMXController.Host\ShowControl.Host.csproj" />

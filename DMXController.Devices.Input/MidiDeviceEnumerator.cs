@@ -15,7 +15,6 @@ namespace ShowControl.Devices.Input
         {
             var a = MidiDeviceManager.Default.GetAvailableMidiApis();
             var defaulta = MidiDeviceManager.Default;
-            //GetPortCount(0u);
             var inDevices = defaulta.InputDevices.ToArray();
             var count = inDevices.Count();
             var outDevices = MidiDeviceManager.Default.OutputDevices.ToArray();

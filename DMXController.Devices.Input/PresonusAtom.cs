@@ -5,6 +5,10 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Text;
 using System.Threading;
+using RtMidi.Core.Devices;
+using RtIMidiInputDevice = RtMidi.Core.Devices.IMidiInputDevice;
+using RtIMidiOutputDevice = RtMidi.Core.Devices.IMidiOutputDevice;
+using RtMidi.Core.Messages;
 
 namespace ShowControl.Devices.Input
 {
@@ -41,92 +45,92 @@ namespace ShowControl.Devices.Input
         {
             _midiInputTranslation = new MidiInputTranslation(
                 new MidiInputMapping(
-                    new ControlChangeEvent(0, 1, (MidiController)PresonusAtomButton.Up, ButtonPressControllerValue),
+                    new ControlChangeMessage((RtMidi.Core.Enums.Channel)1, (int)PresonusAtomButton.Up, ButtonPressControllerValue),
                     (_) => new DeviceInputEventArgs(this, NavigationButton.Up, ButtonDirection.Press)
                 ),
                 new MidiInputMapping(
-                    new ControlChangeEvent(0, 1, (MidiController)PresonusAtomButton.Up, ButtonReleaseControllerValue),
+                    new ControlChangeMessage((RtMidi.Core.Enums.Channel)1, (int)PresonusAtomButton.Up, ButtonReleaseControllerValue),
                     (_) => new DeviceInputEventArgs(this, NavigationButton.Up, ButtonDirection.Release)
                 ),
                 new MidiInputMapping(
-                    new ControlChangeEvent(0, 1, (MidiController)PresonusAtomButton.Down, ButtonPressControllerValue),
+                    new ControlChangeMessage((RtMidi.Core.Enums.Channel)1, (int)PresonusAtomButton.Down, ButtonPressControllerValue),
                     (_) => new DeviceInputEventArgs(this, NavigationButton.Down, ButtonDirection.Press)
                 ),
                 new MidiInputMapping(
-                    new ControlChangeEvent(0, 1, (MidiController)PresonusAtomButton.Down, ButtonReleaseControllerValue),
+                    new ControlChangeMessage((RtMidi.Core.Enums.Channel)1, (int)PresonusAtomButton.Down, ButtonReleaseControllerValue),
                     (_) => new DeviceInputEventArgs(this, NavigationButton.Down, ButtonDirection.Release)
                 ),
                 new MidiInputMapping(
-                    new ControlChangeEvent(0, 1, (MidiController)PresonusAtomButton.Left, ButtonPressControllerValue),
+                    new ControlChangeMessage((RtMidi.Core.Enums.Channel)1, (int)PresonusAtomButton.Left, ButtonPressControllerValue),
                     (_) => new DeviceInputEventArgs(this, NavigationButton.Left, ButtonDirection.Press)
                 ),
                 new MidiInputMapping(
-                    new ControlChangeEvent(0, 1, (MidiController)PresonusAtomButton.Left, ButtonReleaseControllerValue),
+                    new ControlChangeMessage((RtMidi.Core.Enums.Channel)1, (int)PresonusAtomButton.Left, ButtonReleaseControllerValue),
                     (_) => new DeviceInputEventArgs(this, NavigationButton.Left, ButtonDirection.Release)
                 ),
                 new MidiInputMapping(
-                    new ControlChangeEvent(0, 1, (MidiController)PresonusAtomButton.Right, ButtonPressControllerValue),
+                    new ControlChangeMessage((RtMidi.Core.Enums.Channel)1, (int)PresonusAtomButton.Right, ButtonPressControllerValue),
                     (_) => new DeviceInputEventArgs(this, NavigationButton.Right, ButtonDirection.Press)
                 ),
                 new MidiInputMapping(
-                    new ControlChangeEvent(0, 1, (MidiController)PresonusAtomButton.Right, ButtonReleaseControllerValue),
+                    new ControlChangeMessage((RtMidi.Core.Enums.Channel)1, (int)PresonusAtomButton.Right, ButtonReleaseControllerValue),
                     (_) => new DeviceInputEventArgs(this, NavigationButton.Right, ButtonDirection.Release)
                 ),
                 new MidiInputMapping(
-                    new ControlChangeEvent(0, 1, (MidiController)PresonusAtomButton.Select, ButtonPressControllerValue),
+                    new ControlChangeMessage((RtMidi.Core.Enums.Channel)1, (int)PresonusAtomButton.Select, ButtonPressControllerValue),
                     (_) => new DeviceInputEventArgs(this, NavigationButton.Select, ButtonDirection.Press)
                 ),
                 new MidiInputMapping(
-                    new ControlChangeEvent(0, 1, (MidiController)PresonusAtomButton.Select, ButtonReleaseControllerValue),
+                    new ControlChangeMessage((RtMidi.Core.Enums.Channel)1, (int)PresonusAtomButton.Select, ButtonReleaseControllerValue),
                     (_) => new DeviceInputEventArgs(this, NavigationButton.Select, ButtonDirection.Release)
                 ),
                 new MidiInputMapping(
-                    new ControlChangeEvent(0, 1, (MidiController)PresonusAtomButton.Zoom, ButtonPressControllerValue),
+                    new ControlChangeMessage((RtMidi.Core.Enums.Channel)1, (int)PresonusAtomButton.Zoom, ButtonPressControllerValue),
                     (_) => new DeviceInputEventArgs(this, NavigationButton.Zoom, ButtonDirection.Press)
                 ),
                 new MidiInputMapping(
-                    new ControlChangeEvent(0, 1, (MidiController)PresonusAtomButton.Zoom, ButtonReleaseControllerValue),
+                    new ControlChangeMessage((RtMidi.Core.Enums.Channel)1, (int)PresonusAtomButton.Zoom, ButtonReleaseControllerValue),
                     (_) => new DeviceInputEventArgs(this, NavigationButton.Zoom, ButtonDirection.Release)
                 ),
                 new MidiInputMapping(
-                    new ControlChangeEvent(0, 1, (MidiController)PresonusAtomButton.Play, ButtonPressControllerValue),
+                    new ControlChangeMessage((RtMidi.Core.Enums.Channel)1, (int)PresonusAtomButton.Play, ButtonPressControllerValue),
                     (_) => new DeviceInputEventArgs(this, TransportButton.Play, ButtonDirection.Press)
                 ),
                 new MidiInputMapping(
-                    new ControlChangeEvent(0, 1, (MidiController)PresonusAtomButton.Play, ButtonReleaseControllerValue),
+                    new ControlChangeMessage((RtMidi.Core.Enums.Channel)1, (int)PresonusAtomButton.Play, ButtonReleaseControllerValue),
                     (_) => new DeviceInputEventArgs(this, TransportButton.Play, ButtonDirection.Release)
                 ),
                 new MidiInputMapping(
-                    new ControlChangeEvent(0, 1, (MidiController)RotaryEncoder1, RotaryDownControllerValue),
-                    (cce) => new DeviceInputEventArgs(this, RotaryDirection.Down, (byte)((byte)cce.Controller - RotaryEncoderOffset), null)
+                    new ControlChangeMessage((RtMidi.Core.Enums.Channel)1, RotaryEncoder1, RotaryDownControllerValue),
+                    (cce) => new DeviceInputEventArgs(this, RotaryDirection.Down, (byte)((byte)cce.Control - RotaryEncoderOffset), null)
                 ),
                 new MidiInputMapping(
-                    new ControlChangeEvent(0, 1, (MidiController)RotaryEncoder1, RotaryUpControllerValue),
-                    (cce) => new DeviceInputEventArgs(this, RotaryDirection.Up, (byte)((byte)cce.Controller - RotaryEncoderOffset), null)
+                    new ControlChangeMessage((RtMidi.Core.Enums.Channel)1, RotaryEncoder1, RotaryUpControllerValue),
+                    (cce) => new DeviceInputEventArgs(this, RotaryDirection.Up, (byte)((byte)cce.Control - RotaryEncoderOffset), null)
                 ),
                 new MidiInputMapping(
-                    new ControlChangeEvent(0, 1, (MidiController)RotaryEncoder2, RotaryDownControllerValue),
-                    (cce) => new DeviceInputEventArgs(this, RotaryDirection.Down, (byte)((byte)cce.Controller - RotaryEncoderOffset), null)
+                    new ControlChangeMessage((RtMidi.Core.Enums.Channel)1, RotaryEncoder2, RotaryDownControllerValue),
+                    (cce) => new DeviceInputEventArgs(this, RotaryDirection.Down, (byte)((byte)cce.Control - RotaryEncoderOffset), null)
                 ),
                 new MidiInputMapping(
-                    new ControlChangeEvent(0, 1, (MidiController)RotaryEncoder2, RotaryUpControllerValue),
-                    (cce) => new DeviceInputEventArgs(this, RotaryDirection.Up, (byte)((byte)cce.Controller - RotaryEncoderOffset), null)
+                    new ControlChangeMessage((RtMidi.Core.Enums.Channel)1, RotaryEncoder2, RotaryUpControllerValue),
+                    (cce) => new DeviceInputEventArgs(this, RotaryDirection.Up, (byte)((byte)cce.Control - RotaryEncoderOffset), null)
                 ),
                 new MidiInputMapping(
-                    new ControlChangeEvent(0, 1, (MidiController)RotaryEncoder3, RotaryDownControllerValue),
-                    (cce) => new DeviceInputEventArgs(this, RotaryDirection.Down, (byte)((byte)cce.Controller - RotaryEncoderOffset), null)
+                    new ControlChangeMessage((RtMidi.Core.Enums.Channel)1, RotaryEncoder3, RotaryDownControllerValue),
+                    (cce) => new DeviceInputEventArgs(this, RotaryDirection.Down, (byte)((byte)cce.Control - RotaryEncoderOffset), null)
                 ),
                 new MidiInputMapping(
-                    new ControlChangeEvent(0, 1, (MidiController)RotaryEncoder3, RotaryUpControllerValue),
-                    (cce) => new DeviceInputEventArgs(this, RotaryDirection.Up, (byte)((byte)cce.Controller - RotaryEncoderOffset), null)
+                    new ControlChangeMessage((RtMidi.Core.Enums.Channel)1, RotaryEncoder3, RotaryUpControllerValue),
+                    (cce) => new DeviceInputEventArgs(this, RotaryDirection.Up, (byte)((byte)cce.Control - RotaryEncoderOffset), null)
                 ),
                 new MidiInputMapping(
-                    new ControlChangeEvent(0, 1, (MidiController)RotaryEncoder4, RotaryDownControllerValue),
-                    (cce) => new DeviceInputEventArgs(this, RotaryDirection.Down, (byte)((byte)cce.Controller - RotaryEncoderOffset), null)
+                    new ControlChangeMessage((RtMidi.Core.Enums.Channel)1, RotaryEncoder4, RotaryDownControllerValue),
+                    (cce) => new DeviceInputEventArgs(this, RotaryDirection.Down, (byte)((byte)cce.Control - RotaryEncoderOffset), null)
                 ),
                 new MidiInputMapping(
-                    new ControlChangeEvent(0, 1, (MidiController)RotaryEncoder4, RotaryUpControllerValue),
-                    (cce) => new DeviceInputEventArgs(this, RotaryDirection.Up, (byte)((byte)cce.Controller - RotaryEncoderOffset), null)
+                    new ControlChangeMessage((RtMidi.Core.Enums.Channel)1, RotaryEncoder4, RotaryUpControllerValue),
+                    (cce) => new DeviceInputEventArgs(this, RotaryDirection.Up, (byte)((byte)cce.Control - RotaryEncoderOffset), null)
                 )
             );
 
@@ -177,7 +181,7 @@ namespace ShowControl.Devices.Input
             {
                 bytes.AddRange(new ControlChangeEvent(absoluteTime: 0, channel: 1, controller: (MidiController)(item), 0).GetMidiMessageAsByteArray());
             }
-            //_midiOut.SendBuffer(bytes.ToArray());
+            _midiOut.Send(bytes.ToArray());
         }
 
         public void SetPadState(int index, PadState padState)
@@ -197,7 +201,7 @@ namespace ShowControl.Devices.Input
             bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 2, noteNumber: padNote, velocity: red, duration: 0).GetMidiMessageAsByteArray());
             bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 3, noteNumber: padNote, velocity: green, duration: 0).GetMidiMessageAsByteArray());
             bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 4, noteNumber: padNote, velocity: blue, duration: 0).GetMidiMessageAsByteArray());
-            //_midiOut.SendBuffer(bytes.ToArray());
+            _midiOut.Send(bytes.ToArray());
         }
 
         public void SetPadStates(PadState[] states)
@@ -221,39 +225,40 @@ namespace ShowControl.Devices.Input
                 bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 3, noteNumber: padNote, velocity: green, duration: 0).GetMidiMessageAsByteArray());
                 bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 4, noteNumber: padNote, velocity: blue, duration: 0).GetMidiMessageAsByteArray());
             }
-            //_midiOut.SendBuffer(bytes.ToArray());
+            _midiOut.Send(bytes.ToArray());
         }
 
-        internal override void MidiIn_MessageReceived(object sender, MidiInMessageEventArgs e)
+        internal void MidiIn_MessageReceived(object sender, MidiInMessageEventArgs e)
         {
-            if (e.MidiEvent.CommandCode == MidiCommandCode.ControlChange)
+
+        }
+
+        internal override void NoteOnMessageHandler(RtIMidiInputDevice sender, in NoteOnMessage msg)
+        {
+            if ((int)msg.Key >= FirstPadNoteNumber && (int)msg.Key <= LastPadNoteNumber)
             {
-                var controlChangeEvent = e.MidiEvent as ControlChangeEvent;
-                var eventArgs = _midiInputTranslation.Translate(controlChangeEvent);
-                if (eventArgs != null)
-                {
-                    OnInputReceived?.Invoke(this, eventArgs);
-                }
+                // Pad press event
+                byte padIndex = (byte)((int)msg.Key - FirstPadNoteNumber);
+                OnInputReceived?.Invoke(this, new DeviceInputEventArgs(this, ButtonDirection.Press, padIndex, msg.Velocity));
             }
-            else if (e.MidiEvent.CommandCode == MidiCommandCode.NoteOn)
+        }
+
+        internal override void NoteOffMessageHandler(RtIMidiInputDevice sender, in NoteOffMessage msg)
+        {
+            if ((int)msg.Key >= FirstPadNoteNumber && (int)msg.Key <= LastPadNoteNumber)
             {
-                var noteOnEvent = e.MidiEvent as NoteOnEvent;
-                if (noteOnEvent.NoteNumber >= FirstPadNoteNumber && noteOnEvent.NoteNumber <= LastPadNoteNumber)
-                {
-                    // Pad press event
-                    byte padIndex = (byte)(noteOnEvent.NoteNumber - FirstPadNoteNumber);
-                    OnInputReceived?.Invoke(this, new DeviceInputEventArgs(this, ButtonDirection.Press, padIndex, noteOnEvent.Velocity));
-                }
+                // Pad press event
+                byte padIndex = (byte)((int)msg.Key - FirstPadNoteNumber);
+                OnInputReceived?.Invoke(this, new DeviceInputEventArgs(this, ButtonDirection.Release, padIndex, msg.Velocity));
             }
-            else if (e.MidiEvent.CommandCode == MidiCommandCode.NoteOff)
+        }
+
+        internal override void ControlChangeMessageHandler(RtIMidiInputDevice sender, in ControlChangeMessage msg)
+        {
+            var eventArgs = _midiInputTranslation.Translate(msg);
+            if (eventArgs != null)
             {
-                var noteOnEvent = e.MidiEvent as NoteEvent;
-                if (noteOnEvent.NoteNumber >= FirstPadNoteNumber && noteOnEvent.NoteNumber <= LastPadNoteNumber)
-                {
-                    // Pad press event
-                    byte padIndex = (byte)(noteOnEvent.NoteNumber - FirstPadNoteNumber);
-                    OnInputReceived?.Invoke(this, new DeviceInputEventArgs(this, ButtonDirection.Release, padIndex, noteOnEvent.Velocity));
-                }
+                OnInputReceived?.Invoke(this, eventArgs);
             }
         }
 
@@ -272,7 +277,7 @@ namespace ShowControl.Devices.Input
             if (_buttonTranslation.ContainsKey(button))
             {
                 _buttonIllumination[button] = state;
-                //_midiOut.SendBuffer(new ControlChangeEvent(absoluteTime: 0, channel: 1, controller: (MidiController)_buttonTranslation[button], state == LightState.On ? (int)PresonusAtomPadIlluminationType.Solid : 0).GetMidiMessageAsByteArray());
+                _midiOut.Send(new ControlChangeEvent(absoluteTime: 0, channel: 1, controller: (MidiController)_buttonTranslation[button], state == LightState.On ? (int)PresonusAtomPadIlluminationType.Solid : 0).GetMidiMessageAsByteArray());
             }
         }
 
@@ -289,7 +294,7 @@ namespace ShowControl.Devices.Input
             }
             if (bytes.Count > 0)
             {
-                //_midiOut.SendBuffer(bytes.ToArray());
+                _midiOut.Send(bytes.ToArray());
             }
         }
 

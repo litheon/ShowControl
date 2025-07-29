@@ -23,6 +23,8 @@ namespace ShowControl.Devices.Input
             _midiIn = inDeviceNo.CreateDevice();
             _midiOut = outDeviceNo.CreateDevice();
             _midiIn.NoteOn += NoteOnMessageHandler;
+            _midiIn.NoteOff += NoteOffMessageHandler;
+            _midiIn.ControlChange += ControlChangeMessageHandler;
             _midiIn.Open();
             _midiOut.Open();
         }
@@ -59,12 +61,10 @@ namespace ShowControl.Devices.Input
             }
         }
 
-        private void NoteOnMessageHandler(RtIMidiInputDevice sender, in NoteOnMessage msg)
-        {
-            var val = ((0x09 & 0xFF) << 4) | (((int)msg.Channel + 1) & 0xFF) << 4 | (((int)msg.Key + 1) & 0xFF) << 8 | (msg.Velocity & 0xFF) << 16;
-            MidiIn_MessageReceived(sender, new MidiInMessageEventArgs(val, 0));
-        } 
+        internal abstract void NoteOnMessageHandler(RtIMidiInputDevice sender, in NoteOnMessage msg);
 
-        internal abstract void MidiIn_MessageReceived(object sender, MidiInMessageEventArgs e);
+        internal abstract void NoteOffMessageHandler(RtIMidiInputDevice sender, in NoteOffMessage msg);
+
+        internal abstract void ControlChangeMessageHandler(RtIMidiInputDevice sender, in ControlChangeMessage msg);
     }
 }

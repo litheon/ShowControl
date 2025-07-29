@@ -4,6 +4,7 @@
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
     <Platforms>AnyCPU;x64;x86</Platforms>
+    <EnableWindowsTargeting>True</EnableWindowsTargeting>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\DMXController.Host\ShowControl.Host.csproj" />

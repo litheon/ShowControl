@@ -298,8 +298,23 @@ namespace ShowControl.Rendering
             {
                  RenderSurface.Create(
                     new RenderSettings(255),
-                    _pixelChannels,
-                    _parChannels
+                    //Sheds.Instance,
+                    //Sheds.Instance,
+                    //Sheds.Instance,
+                    //Sheds.Instance,
+                    //Sheds.Instance,
+                    //Sheds.Instance,
+                    //Sheds.Instance,
+                    //Sheds.Instance
+                    Sheds.Instance,
+                    Sheds.Instance,
+                    ChauvetFreedom.Instance,
+                    ChauvetFreedom.Instance,
+                    ChauvetFreedom.Instance,
+                    ChauvetFreedom.Instance,
+                    ChauvetFreedom.Instance,
+                    ChauvetFreedom.Instance,
+                    ChauvetFreedom.Instance
                 ),
             };
 

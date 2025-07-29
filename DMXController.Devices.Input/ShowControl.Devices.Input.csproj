@@ -5,11 +5,13 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="NAudio" Version="2.2.1" />
-    <PackageReference Include="RtMidi.Core" Version="1.0.53" />
   </ItemGroup>
   <ItemGroup>
         <Content Include="librtmidi.dylib">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         </Content>
     </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../RtMidi.Core/RtMidi.Core/RtMidi.Core.csproj" />
+  </ItemGroup>
 </Project>
