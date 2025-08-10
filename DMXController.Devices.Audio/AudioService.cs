@@ -82,6 +82,7 @@ namespace ShowControl.Devices.Audio
             {
                 _copyBuffer[i] = new Point[FftLength];
             }
+            //_bpmDetect = new RealTimeBpmDetect(ChannelCount, SampleRate);
             _bpmDetect = new FallbackBpmDetect();
             _bassAverageLevel = new SampleAverageLevelCalculator(0);
             _bassCurrentLevel = new SampleAverageLevelCalculator(Convert.ToInt32(Math.Round(BassCutOffHz / (SampleRate / FftLength))) - 1);
@@ -162,7 +163,7 @@ namespace ShowControl.Devices.Audio
             Marshal.Copy(input, _activeSamples, 0, (int)frameCount * (ChannelCount + ChannelOffset));
             for (int i = 0; i < frameCount; i++)
             {
-                var sample = (_activeSamples[i * ChannelCount + ChannelOffset] + _activeSamples[i * ChannelCount + ChannelOffset + 1]) / 2;
+                var sample = (_activeSamples[i * (ChannelCount + ChannelOffset) + ChannelOffset] + _activeSamples[i * (ChannelCount + ChannelOffset) + ChannelOffset + 1]) / 2;
                 _activeBuffer[_fftPos].X = (float)(sample * FastFourierTransform.HammingWindow(_fftPos, _activeBuffer.Length));
                 _activeBuffer[_fftPos].Y = 0;
                 _fftPos++;
@@ -174,8 +175,8 @@ namespace ShowControl.Devices.Audio
             Span<float> channelArray = stackalloc float[Convert.ToInt32(frameCount * ChannelCount)];
             for (int i = 0; i < frameCount; i++)
             {
-                channelArray[i * ChannelCount + ChannelOffset] = _activeSamples[i * ChannelCount + ChannelOffset];
-                channelArray[i * ChannelCount + ChannelOffset + 1] = _activeSamples[i * ChannelCount + ChannelOffset + 1];
+                channelArray[i * ChannelOffset] = _activeSamples[i * (ChannelCount + ChannelOffset) + ChannelOffset];
+                channelArray[i * ChannelOffset + 1] = _activeSamples[i * (ChannelCount + ChannelOffset) + ChannelOffset + 1];
             }
             _bpmDetect.InputSamples(channelArray, Convert.ToInt32(frameCount * 2));
             return StreamCallbackResult.Continue;
