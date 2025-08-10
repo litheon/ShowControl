@@ -75,7 +75,8 @@ namespace ShowControl.Devices.Input
             var midiInDevices = MidiDeviceEnumerator.GetMidiDevices();
             for (int i = 0; i < midiInDevices.Length; i++)
             {
-                if (_supportedDevices.ContainsKey(midiInDevices[i].DeviceName))
+                var key = midiInDevices[i].DeviceName.Trim();
+                if (_supportedDevices.ContainsKey(key))
                 {
                     var device = midiInDevices[i];
                     if (_initialized && _deviceDictionary.TryGetValue(device.DeviceName, out var midiInputDevices))
@@ -84,14 +85,14 @@ namespace ShowControl.Devices.Input
                     }
                     else
                     {
-                        var constructor = _supportedDevices[device.DeviceName];
+                        var constructor = _supportedDevices[key];
                         var constructedDevice = constructor(device.MidiInDeviceInfo, device.MidiOutDeviceInfo, i);
                         constructedDevice.OnInputReceived += ConstructedDevice_OnInputReceived;
-                        if (!_deviceDictionary.ContainsKey(device.DeviceName))
+                        if (!_deviceDictionary.ContainsKey(key))
                         {
-                            _deviceDictionary.Add(device.DeviceName, new List<IMidiInputDevice>());
+                            _deviceDictionary.Add(key, new List<IMidiInputDevice>());
                         }
-                        _deviceDictionary[device.DeviceName].Add(constructedDevice);
+                        _deviceDictionary[key].Add(constructedDevice);
                     }
                 }
             }

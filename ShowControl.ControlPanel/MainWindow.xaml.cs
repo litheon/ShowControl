@@ -34,9 +34,15 @@ namespace ShowControl.ControlPanel
         PointCollection points2;
         PointCollection activePoints;
         private readonly Task<IHost> _hostTask;
+        int x = 10;
         public MainWindow()
         {
             InitializeComponent();
+            while(!System.Diagnostics.Debugger.IsAttached && x > 0)
+            {
+                Thread.Sleep(1000);
+                x--;
+            }
             _hostTask = Host.Host.Main(new string[] { }, OnAudioFrameProcessed, HandleDevices);
             Initialize();
         }

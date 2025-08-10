@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
-    <Platforms>AnyCPU;x64;x86</Platforms>
+    <Platforms>AnyCPU;x64;x86;ARM64</Platforms>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="NAudio" Version="2.2.1" />
@@ -12,6 +12,6 @@
         </Content>
     </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../RtMidi.Core/RtMidi.Core/RtMidi.Core.csproj" />
+    <ProjectReference Include="..\..\RtMidi.Core\RtMidi.Core\RtMidi.Core.csproj" />
   </ItemGroup>
 </Project>
