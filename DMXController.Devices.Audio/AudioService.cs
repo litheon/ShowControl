@@ -18,7 +18,9 @@ namespace ShowControl.Devices.Audio
         public event EventHandler<AudioFrameProcessedEventArgs> AudioFrameProcessed;
 
         private readonly AsioOut _asioOut;
-        public const int SampleRate = 44100;
+        public const int SampleRate = 192000;
+
+        private const int ChannelOffset = 2;
         private const int ChannelCount = 2;
 
         private const int SampleLevelWindowSeconds = 20;
@@ -57,15 +59,24 @@ namespace ShowControl.Devices.Audio
             t = new Timer(callback);
             t.Change(4000, Timeout.Infinite);
             PortAudio.Initialize();
+            int deviceIndex = 0;
+            for (int i = 0; i < PortAudio.DeviceCount; i++)
+            {
+                var inputDevice = PortAudio.GetDeviceInfo(i);
+                if (inputDevice.name.Contains("Scarlett 18i20 USB"))
+                {
+                    deviceIndex = i;
+                    break;
+                }
+            }
             var inputParameters = new StreamParameters
             {
-                device = PortAudio.DefaultInputDevice,
-                channelCount = ChannelCount,
+                device = deviceIndex,
+                channelCount = ChannelOffset + ChannelCount,
                 sampleFormat = SampleFormat.Float32,
-                suggestedLatency = PortAudio.GetDeviceInfo(PortAudio.DefaultInputDevice).defaultHighInputLatency,
-                hostApiSpecificStreamInfo = IntPtr.Zero
+                suggestedLatency = PortAudio.GetDeviceInfo(deviceIndex).defaultHighInputLatency,
+                hostApiSpecificStreamInfo = IntPtr.Zero,
             };
-            var inputDevice = PortAudio.GetDeviceInfo(PortAudio.DefaultInputDevice);
             _activeBuffer = _fftBuffer;
             for (int i = 0; i < _copyBuffer.Length; i++)
             {
@@ -76,7 +87,7 @@ namespace ShowControl.Devices.Audio
             _bassCurrentLevel = new SampleAverageLevelCalculator(Convert.ToInt32(Math.Round(BassCutOffHz / (SampleRate / FftLength))) - 1);
             _overallAverageLevel = new SampleAverageLevelCalculator(0);
             _overallAverageLevelAverage = new SampleAverageLevelCalculator(0);
-            _stream = new PortAudioSharp.Stream(inputParameters, null, SampleRate, 0, StreamFlags.NoFlag, new Stream.Callback(Callback), null);
+            _stream = new PortAudioSharp.Stream(inputParameters, null, SampleRate, Convert.ToUInt32(_fftBuffer.Length), StreamFlags.NoFlag, new Stream.Callback(Callback), null);
             return;
             
 
@@ -142,20 +153,19 @@ namespace ShowControl.Devices.Audio
 
         private StreamCallbackResult Callback(IntPtr input, IntPtr output, uint frameCount, ref StreamCallbackTimeInfo e, StreamCallbackFlags f, IntPtr d)
         {
-
             if (_activeSamples == null)
             {
                 _samples1 = new float[frameCount * 2];
                 _activeSamples = _samples1;
             }
-            if (_activeSamples.Length < frameCount * ChannelCount)
+            if (_activeSamples.Length < Convert.ToInt32(frameCount) * (ChannelCount + ChannelOffset))
             {
-                Array.Resize(ref _activeSamples, Convert.ToInt32(frameCount * ChannelCount));
+                Array.Resize(ref _activeSamples, Convert.ToInt32(frameCount) * (ChannelCount + ChannelOffset));
             }
-            Marshal.Copy(input, _activeSamples, 0, (int)frameCount * ChannelCount);
+            Marshal.Copy(input, _activeSamples, 0, (int)frameCount * (ChannelCount + ChannelOffset));
             for (int i = 0; i < _activeSamples.Length / ChannelCount; i++)
             {
-                var sample = (_activeSamples[i] + _activeSamples[i + frameCount]) / 2;
+                var sample = (_activeSamples[ChannelOffset + i] + _activeSamples[ChannelOffset + 1 + i]) / 2;
                 _activeBuffer[_fftPos].X = (float)(sample * FastFourierTransform.HammingWindow(_fftPos, _activeBuffer.Length));
                 _activeBuffer[_fftPos].Y = 0;
                 _fftPos++;
