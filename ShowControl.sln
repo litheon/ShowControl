@@ -27,6 +27,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RtMidi.Core", "..\RtMidi.Co
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PortAudioSharp", "..\PortAudioSharp2\PortAudioSharp\PortAudioSharp.csproj", "{8530B932-285D-444A-B286-CAAD13E84FBB}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SoundTouch.Net", "..\soundtouch.net\src\SoundTouch.Net\SoundTouch.Net.csproj", "{280A0811-1EE4-498E-9D9A-78EFCA593945}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -231,6 +233,22 @@ Global
 		{8530B932-285D-444A-B286-CAAD13E84FBB}.Release|x64.Build.0 = Release|Any CPU
 		{8530B932-285D-444A-B286-CAAD13E84FBB}.Release|x86.ActiveCfg = Release|Any CPU
 		{8530B932-285D-444A-B286-CAAD13E84FBB}.Release|x86.Build.0 = Release|Any CPU
+		{280A0811-1EE4-498E-9D9A-78EFCA593945}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{280A0811-1EE4-498E-9D9A-78EFCA593945}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{280A0811-1EE4-498E-9D9A-78EFCA593945}.Debug|ARM64.ActiveCfg = Debug|Any CPU
+		{280A0811-1EE4-498E-9D9A-78EFCA593945}.Debug|ARM64.Build.0 = Debug|Any CPU
+		{280A0811-1EE4-498E-9D9A-78EFCA593945}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{280A0811-1EE4-498E-9D9A-78EFCA593945}.Debug|x64.Build.0 = Debug|Any CPU
+		{280A0811-1EE4-498E-9D9A-78EFCA593945}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{280A0811-1EE4-498E-9D9A-78EFCA593945}.Debug|x86.Build.0 = Debug|Any CPU
+		{280A0811-1EE4-498E-9D9A-78EFCA593945}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{280A0811-1EE4-498E-9D9A-78EFCA593945}.Release|Any CPU.Build.0 = Release|Any CPU
+		{280A0811-1EE4-498E-9D9A-78EFCA593945}.Release|ARM64.ActiveCfg = Release|Any CPU
+		{280A0811-1EE4-498E-9D9A-78EFCA593945}.Release|ARM64.Build.0 = Release|Any CPU
+		{280A0811-1EE4-498E-9D9A-78EFCA593945}.Release|x64.ActiveCfg = Release|Any CPU
+		{280A0811-1EE4-498E-9D9A-78EFCA593945}.Release|x64.Build.0 = Release|Any CPU
+		{280A0811-1EE4-498E-9D9A-78EFCA593945}.Release|x86.ActiveCfg = Release|Any CPU
+		{280A0811-1EE4-498E-9D9A-78EFCA593945}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
