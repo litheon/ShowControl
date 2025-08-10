@@ -311,8 +311,8 @@ namespace ShowControl.Animation
                         //if (false)
                         if ((e.CurrentLevel >= -35.0d || e.AverageLevel > -40.0d)/* && e.AmplitudeRatio > _lastAmplitudeRatio*/)
                         {
-                            const int multiplier = 15;
-                            const int maxAnimations = 30;
+                            int multiplier = _fastAnimate ? 15 : 2;
+                            int maxAnimations = _fastAnimate ? 30 : 3;
                             const int minAnimations = 1;
                             var levelFactor = Math.Round(e.AverageLevel / e.CurrentLevel * multiplier);
                             var level = Convert.ToInt32(Math.Min(Math.Max(levelFactor, minAnimations), maxAnimations));
