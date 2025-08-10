@@ -2,11 +2,13 @@
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using NAudio.CoreAudioApi;
 using NAudio.Dsp;
 using NAudio.Wave;
+using PortAudioSharp;
 using ShowControl.Utilities;
 
 namespace ShowControl.Devices.Audio
@@ -16,7 +18,7 @@ namespace ShowControl.Devices.Audio
         public event EventHandler<AudioFrameProcessedEventArgs> AudioFrameProcessed;
 
         private readonly AsioOut _asioOut;
-        public const int SampleRate = 192000;
+        public const int SampleRate = 44100;
         private const int ChannelCount = 2;
 
         private const int SampleLevelWindowSeconds = 20;
@@ -48,21 +50,35 @@ namespace ShowControl.Devices.Audio
 
         private readonly object _disposalLock = new object();
         private bool _stopped;
+        private Timer t;
+        private Stream _stream;
         public AudioService()
         {
-            return;
-            
+            t = new Timer(callback);
+            t.Change(4000, Timeout.Infinite);
+            PortAudio.Initialize();
+            var inputParameters = new StreamParameters
+            {
+                device = PortAudio.DefaultInputDevice,
+                channelCount = ChannelCount,
+                sampleFormat = SampleFormat.Float32,
+                suggestedLatency = PortAudio.GetDeviceInfo(PortAudio.DefaultInputDevice).defaultHighInputLatency,
+                hostApiSpecificStreamInfo = IntPtr.Zero
+            };
+            var inputDevice = PortAudio.GetDeviceInfo(PortAudio.DefaultInputDevice);
+            _activeBuffer = _fftBuffer;
+            for (int i = 0; i < _copyBuffer.Length; i++)
+            {
+                _copyBuffer[i] = new Point[FftLength];
+            }
             _bpmDetect = new FallbackBpmDetect();
             _bassAverageLevel = new SampleAverageLevelCalculator(0);
             _bassCurrentLevel = new SampleAverageLevelCalculator(Convert.ToInt32(Math.Round(BassCutOffHz / (SampleRate / FftLength))) - 1);
             _overallAverageLevel = new SampleAverageLevelCalculator(0);
             _overallAverageLevelAverage = new SampleAverageLevelCalculator(0);
-            _activeBuffer = _fftBuffer;
-
-            for (int i = 0; i < _copyBuffer.Length; i++)
-            {
-                _copyBuffer[i] = new Point[FftLength];
-            }
+            _stream = new PortAudioSharp.Stream(inputParameters, null, SampleRate, 0, StreamFlags.NoFlag, new Stream.Callback(Callback), null);
+            return;
+            
 
             //var waveIns = Enumerable.Range(0, WaveInEvent.DeviceCount).Select(c => WaveInEvent.GetCapabilities(c));
 
@@ -108,49 +124,15 @@ namespace ShowControl.Devices.Audio
             }
         }
 
-        private void WaveIn_DataAvailable(object sender, WaveInEventArgs e)
+        private void StreamFinishedCallback(IntPtr userData)
         {
-            int bytesPerSample = 2; // 16-bit
-            int sampleCount = e.BytesRecorded / bytesPerSample;
-
-            if (_activeSamples == null || _activeSamples.Length != sampleCount)
-            {
-                _samples1 = new float[sampleCount];
-                _samples2 = new float[sampleCount];
-                _samples3 = new float[sampleCount];
-                _samples4 = new float[sampleCount];
-                _activeSamples = _samples1;
-            }
-            for (int i = 0; i < _activeSamples.Length; i++)
-            {
-                short sample = BitConverter.ToInt16(e.Buffer, i * bytesPerSample);
-                float sample32 = sample / 32768f; // Normalize to [-1, 1]
-                _activeSamples[i] = sample32;
-                _activeBuffer[_fftPos].X = (float)(sample32 * FastFourierTransform.HammingWindow(_fftPos, _activeBuffer.Length));
-                _activeBuffer[_fftPos].Y = 0;
-                _fftPos++;
-                if (_fftPos >= _activeBuffer.Length)
-                {
-                    FftProcessed();
-                }
-            }
-            //if (_activeSamples == _samples1)
-            //{
-            //    _activeSamples = _samples2;
-            //}
-            //else if (_activeSamples == _samples2)
-            //{
-            //    _activeSamples = _samples3;
-            //}
-            //else if (_activeSamples == _samples3)
-            //{
-            //    _activeSamples = _samples4;
-            //}
-            //else
-            //{
-            //    _activeSamples = _samples1;
-            //}
-            _bpmDetect.InputSamples(_activeSamples.AsSpan(), sampleCount / ChannelCount);
+            int x = 0;
+        }
+        private void callback(object? v)
+        {
+            _stream.SetFinishedCallback(StreamFinishedCallback);
+            _stream.Start();
+            int x = 0;
         }
 
         public AudioService(EventHandler<AudioFrameProcessedEventArgs> audioFrameProcessedEventHandler) : this()
@@ -158,16 +140,36 @@ namespace ShowControl.Devices.Audio
             AudioFrameProcessed += audioFrameProcessedEventHandler;
         }
 
-        private void AsioOut_AudioAvailable(object sender, AsioAudioAvailableEventArgs e)
+        private StreamCallbackResult Callback(IntPtr input, IntPtr output, uint frameCount, ref StreamCallbackTimeInfo e, StreamCallbackFlags f, IntPtr d)
         {
-            if (_activeSamples == null || _activeSamples.Length != e.SamplesPerBuffer * ChannelCount)
+
+            if (_activeSamples == null)
             {
-                _samples1 = new float[e.SamplesPerBuffer * 2];
-                _samples2 = new float[e.SamplesPerBuffer * 2];
-                _samples3 = new float[e.SamplesPerBuffer * 2];
-                _samples4 = new float[e.SamplesPerBuffer * 2];
+                _samples1 = new float[frameCount * 2];
                 _activeSamples = _samples1;
             }
+            if (_activeSamples.Length < frameCount * ChannelCount)
+            {
+                Array.Resize(ref _activeSamples, Convert.ToInt32(frameCount * ChannelCount));
+            }
+            Marshal.Copy(input, _activeSamples, 0, (int)frameCount * ChannelCount);
+            for (int i = 0; i < _activeSamples.Length / ChannelCount; i++)
+            {
+                var sample = (_activeSamples[i] + _activeSamples[i + frameCount]) / 2;
+                _activeBuffer[_fftPos].X = (float)(sample * FastFourierTransform.HammingWindow(_fftPos, _activeBuffer.Length));
+                _activeBuffer[_fftPos].Y = 0;
+                _fftPos++;
+                if (_fftPos >= _activeBuffer.Length)
+                {
+                    FftProcessed();
+                }
+            }
+            _bpmDetect.InputSamples(_activeSamples.AsSpan(), Convert.ToInt32(frameCount * 2));
+            return StreamCallbackResult.Continue;
+        }
+
+        private void AsioOut_AudioAvailable(object sender, AsioAudioAvailableEventArgs e)
+        {
             e.GetAsInterleavedSamples(_activeSamples);
             for (int i = 0; i < _activeSamples.Length / ChannelCount; i++)
             {

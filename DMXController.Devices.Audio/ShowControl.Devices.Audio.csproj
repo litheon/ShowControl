@@ -7,6 +7,7 @@
     <PackageReference Include="NAudio" Version="2.2.1" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\PortAudioSharp2\PortAudioSharp\PortAudioSharp.csproj" />
     <ProjectReference Include="..\ShowControl.Utilities\ShowControl.Utilities.csproj" />
   </ItemGroup>
 </Project>
