@@ -13,10 +13,7 @@ namespace ShowControl.Devices.Input
     {
         public static MidiInOutDevice[] GetMidiDevices()
         {
-            var a = MidiDeviceManager.Default.GetAvailableMidiApis();
-            var defaulta = MidiDeviceManager.Default;
-            var inDevices = defaulta.InputDevices.ToArray();
-            var count = inDevices.Count();
+            var inDevices = MidiDeviceManager.Default.InputDevices.ToArray();
             var outDevices = MidiDeviceManager.Default.OutputDevices.ToArray();
             Dictionary<string, IMidiOutputDeviceInfo> midiOutDevices = new Dictionary<string, IMidiOutputDeviceInfo>();
             Dictionary<string, IMidiInputDeviceInfo> midiInDevices = new Dictionary<string, IMidiInputDeviceInfo>();

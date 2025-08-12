@@ -39,11 +39,6 @@ namespace ShowControl.Devices.Input
             _midiOut.Open();
         }
 
-        private void _midiIn_ErrorReceived(object sender, MidiInMessageEventArgs e)
-        {
-            int x = 0;
-        }
-
         public void Dispose()
         {
             Stop();

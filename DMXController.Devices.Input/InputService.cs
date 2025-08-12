@@ -11,6 +11,7 @@ namespace ShowControl.Devices.Input
     public class InputService : IInputService
     {
         private bool _initialized = false;
+        // Need some way of receiving device connected events on Mac and PC
         //private DeviceWatcher _watcher;
         public event EventHandler<DeviceInputEventArgs> OnInputReceived;
         public event EventHandler OnInputDeviceReconnected;

@@ -45,7 +45,7 @@ namespace ShowControl.Devices.Audio
         public const int FftLength = 4096;
         private int _fftPos;
         private readonly int _m = (int)Math.Log(FftLength, 2.0);
-        private readonly Complex[] _activeBuffer = new Complex[FftLength];
+        private readonly Complex[] _fftBuffer = new Complex[FftLength];
 
         private readonly IBpmDetect _bpmDetect;
 
@@ -84,7 +84,6 @@ namespace ShowControl.Devices.Audio
                 _copyBuffer[i] = new Point[FftLength];
             }
             _bpmDetect = new RealTimeBpmDetect(ChannelCount, SampleRate);
-            //_bpmDetect = new FallbackBpmDetect();
             _bassAverageLevel = new SampleAverageLevelCalculator(0);
             _bassCurrentLevel = new SampleAverageLevelCalculator(Convert.ToInt32(Math.Round(BassCutOffHz / (SampleRate / FftLength))) - 1);
             _overallAverageLevel = new SampleAverageLevelCalculator(0);
@@ -97,10 +96,12 @@ namespace ShowControl.Devices.Audio
 
         private void StreamFinishedCallback(IntPtr userData)
         {
+            // Need error handling + logging + restart
             int x = 0;
         }
         private void callback(object? v)
         {
+            // Starting the stream shouldn't need to be in response to a timer event
             _stream.SetFinishedCallback(StreamFinishedCallback);
             _processingThread.Start();
             _stream.Start();
@@ -114,6 +115,7 @@ namespace ShowControl.Devices.Audio
 
         private StreamCallbackResult Callback(IntPtr input, IntPtr output, uint frameCount, ref StreamCallbackTimeInfo e, StreamCallbackFlags f, IntPtr d)
         {
+            // Need error handling + logging
             var bufferArray = _audioPool.Rent(Convert.ToInt32(frameCount) * (ChannelCount + ChannelOffset));
             Marshal.Copy(input, bufferArray, 0, (int)frameCount * (ChannelCount + ChannelOffset));
             _signalQueue.Enqueue(new AudioProcessSignal(bufferArray, Convert.ToInt32(frameCount)));
@@ -124,6 +126,7 @@ namespace ShowControl.Devices.Audio
         {
             while (true)
             {
+                // Should have proper signaling that doesn't waste CPU cycles in the event of an empty queue
                 if (_signalQueue.TryDequeue(out var processSigntal))
                 {
                     DoProcessing(processSigntal.frameCount, processSigntal.sharedArray);
@@ -131,15 +134,15 @@ namespace ShowControl.Devices.Audio
                 }
             }
         }
-        private void DoProcessing(int frameCount, float[] array)
+        private void DoProcessing(int frameCount, float[] samples)
         {
             for (int i = 0; i < frameCount; i++)
             {
-                var sample = (array[i * (ChannelCount + ChannelOffset) + ChannelOffset] + array[i * (ChannelCount + ChannelOffset) + ChannelOffset + 1]) / 2;
-                _activeBuffer[_fftPos].X = (float)(sample * FastFourierTransform.HammingWindow(_fftPos, _activeBuffer.Length));
-                _activeBuffer[_fftPos].Y = 0;
+                var sample = (samples[i * (ChannelCount + ChannelOffset) + ChannelOffset] + samples[i * (ChannelCount + ChannelOffset) + ChannelOffset + 1]) / 2;
+                _fftBuffer[_fftPos].X = (float)(sample * FastFourierTransform.HammingWindow(_fftPos, _fftBuffer.Length));
+                _fftBuffer[_fftPos].Y = 0;
                 _fftPos++;
-                if (_fftPos >= _activeBuffer.Length)
+                if (_fftPos >= _fftBuffer.Length)
                 {
                     FftProcessed();
                 }
@@ -147,8 +150,8 @@ namespace ShowControl.Devices.Audio
             Span<float> channelArray = stackalloc float[Convert.ToInt32(frameCount * ChannelCount)];
             for (int i = 0; i < frameCount; i++)
             {
-                channelArray[i * ChannelOffset] = array[i * (ChannelCount + ChannelOffset) + ChannelOffset];
-                channelArray[i * ChannelOffset + 1] = array[i * (ChannelCount + ChannelOffset) + ChannelOffset + 1];
+                channelArray[i * ChannelOffset] = samples[i * (ChannelCount + ChannelOffset) + ChannelOffset];
+                channelArray[i * ChannelOffset + 1] = samples[i * (ChannelCount + ChannelOffset) + ChannelOffset + 1];
             }
             _bpmDetect.InputSamples(channelArray, Convert.ToInt32(frameCount));
         }
@@ -156,16 +159,16 @@ namespace ShowControl.Devices.Audio
         private void FftProcessed()
         {
             _fftPos = 0;
-            FastFourierTransform.FFT(true, _m, _activeBuffer);
-            double width = SampleRate / _activeBuffer.Length;
+            FastFourierTransform.FFT(true, _m, _fftBuffer);
+            double width = SampleRate / _fftBuffer.Length;
             double seconds = 1 / width;
             double Hz = 0;
             int copyBufferIndex = _copyBufferIndex.InterlockedGet();
-            for (int j = 0; j < _activeBuffer.Length; j++)
+            for (int j = 0; j < _fftBuffer.Length; j++)
             {
                 _copyBuffer[copyBufferIndex][j].X = Hz == 0 ? Math.Log10(5) / Math.Log10(20000) : Math.Log10(Hz) / Math.Log10(20000);
 
-                var level = Math.Abs(Math.Sqrt(Math.Pow(_activeBuffer[j].Y, 2) + Math.Pow(_activeBuffer[j].X, 2)));
+                var level = Math.Abs(Math.Sqrt(Math.Pow(_fftBuffer[j].Y, 2) + Math.Pow(_fftBuffer[j].X, 2)));
                 CalculateAverageLevel(Hz, level, seconds);
 
                 _copyBuffer[copyBufferIndex][j].Y = 20 * Math.Log10(level);
@@ -177,6 +180,8 @@ namespace ShowControl.Devices.Audio
             var amplitudeRatio = _overallAverageLevel.SampleAverage / _overallAverageLevelAverage.SampleAverage;
 
             var audioFrameProcessedEventArgs = new AudioFrameProcessedEventArgs(_copyBuffer[copyBufferIndex], width, bpm, averageLevelDb, currentLevelDb, amplitudeRatio, seconds);
+            // It's somewhat hacky to delegate this to the thread pool
+            // Could have a dedicated thread with the proper synchronization to make the calls to subscribers
             Task.Run(() => AudioFrameProcessed?.Invoke(this, audioFrameProcessedEventArgs));
             _copyBufferIndex.InterlockedIncrement(0, _copyBuffer.Length - 1);
         }

@@ -7,6 +7,7 @@ namespace ShowControl.Devices.Input
 {
     public static class MidiMessageExtensions
     {
+        // Get rid of NAudio.Midi completley
         public static byte[] GetMidiMessageAsByteArray(this NoteOnEvent noteOnEvent)
         {
             int message = noteOnEvent.GetAsShortMessage();
