@@ -8,7 +8,6 @@ namespace ShowControl.Devices.Audio
 {
     public class AudioFrameProcessedEventArgs : EventArgs, IDisposable
     {
-        // Potentially use ArrayPool and instead of point return an object that's IDisposable with a property of the points
         public AudioSpectrum AudioSpectrum { get; private set; }
         public double WidthPerBand { get; private set; }
         public float Bpm { get; private set; }

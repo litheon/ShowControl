@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Buffers;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -32,6 +33,7 @@ namespace ShowControl.Devices.Output
         private readonly CancellationToken _cancellationToken;
         private readonly AutoResetEvent _workWaitEvent;
         private readonly AutoResetEvent _frameWrittenEvent;
+        private ArrayPool<byte> _dmxBufferPool = ArrayPool<byte>.Shared;
         internal EnttecDmxUsbDevice(uint deviceId, CancellationToken token)
         {
             Id = deviceId;
@@ -287,8 +289,7 @@ namespace ShowControl.Devices.Output
             {
                 throw new ArgumentException("Buffer size is too large");
             }
-            // Use ArrayPool for this array
-            byte[] lastBuffer = new byte[BufferSize];
+            byte[] lastBuffer = _dmxBufferPool.Rent(BufferSize);
             lock (_dmxBuffer)
             {
                 Array.Copy(_dmxBuffer, 1, lastBuffer, 0, _dmxBuffer.Length - 1);
@@ -307,6 +308,7 @@ namespace ShowControl.Devices.Output
                     break;
                 }
             }
+            _dmxBufferPool.Return(lastBuffer);
         }
     }
 }
