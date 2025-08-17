@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="ShowControl.ControlPanel.Maui.MainPage">
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <Border Grid.Column="1" WidthRequest="1001">
+            <Polyline x:Name="polyline" Stroke="DarkBlue" StrokeThickness="3" Height="600" Width="1000" />
+        </Border>
+        <VerticalStackLayout Grid.Column="0">
+            <Label x:Name="Bpm" Width="200" Text="BPM"></Label>
+            <Label x:Name="AmplitudeRatio" Width="200" Text="Amplitude Ratio"></Label>
+            <Label x:Name="BassAmplitudeCurrent" Width="200" Text="Current Bass Amplitude"></Label>
+            <Label x:Name="BassAmplitudeAverage" Width="200" Text="Average Bass Amplitude"></Label>
+            <Label x:Name="Addresses" Width="400" Text="Devices"></Label>
+        </VerticalStackLayout>
+    </Grid>
+
+</ContentPage>
