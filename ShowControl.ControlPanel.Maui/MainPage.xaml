@@ -9,7 +9,7 @@
             <ColumnDefinition Width="Auto" />
         </Grid.ColumnDefinitions>
         <Border Grid.Column="1" WidthRequest="1001">
-            <Polyline x:Name="polyline" Stroke="DarkBlue" StrokeThickness="3" Height="600" Width="1000" />
+            <Polyline x:Name="polyline" Stroke="Red" StrokeThickness="3" Height="600" Width="1000" />
         </Border>
         <VerticalStackLayout Grid.Column="0">
             <Label x:Name="Bpm" Width="200" Text="BPM"></Label>

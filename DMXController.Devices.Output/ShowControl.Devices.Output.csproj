@@ -15,12 +15,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <DefineConstants>TRACE;WIN64</DefineConstants>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
+  <PropertyGroup>
     <DefineConstants>TRACE;ARM64</DefineConstants>
   </PropertyGroup>
-  <ItemGroup>
-        <Content Include="libftd2xx.dylib">
-            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-        </Content>
-    </ItemGroup>
 </Project>

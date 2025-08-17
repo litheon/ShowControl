@@ -1,5 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-
+  <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">
+    <DefineConstants>TRACE;ARM64</DefineConstants>
+  </PropertyGroup>
 	<PropertyGroup>
 		<TargetFrameworks>net8.0-maccatalyst</TargetFrameworks>
 		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">$(TargetFrameworks);net8.0-windows10.0.19041.0</TargetFrameworks>
@@ -66,4 +68,22 @@
 	  <ProjectReference Include="..\DMXController.Host\ShowControl.Host.csproj" />
 	</ItemGroup>
 
+	<ItemGroup>
+		<NativeReference Include="Platforms/MacCatalyst/librtmidi.dylib">
+			<Kind>Dynamic</Kind>
+			<ForceLoad>true</ForceLoad>
+		</NativeReference>
+		<NativeReference Include="Platforms/MacCatalyst/libportaudio.dylib">
+			<Kind>Dynamic</Kind>
+			<ForceLoad>true</ForceLoad>
+		</NativeReference>
+		<NativeReference Include="Platforms/MacCatalyst/libftd2xx.dylib">
+			<Kind>Dynamic</Kind>
+			<ForceLoad>true</ForceLoad>
+		</NativeReference>
+		<NativeReference Include="Platforms/MacCatalyst/foobar.dylib">
+			<Kind>Dynamic</Kind>
+			<ForceLoad>true</ForceLoad>
+		</NativeReference>
+	</ItemGroup>
 </Project>
