@@ -287,6 +287,7 @@ namespace ShowControl.Devices.Output
             {
                 throw new ArgumentException("Buffer size is too large");
             }
+            // Use ArrayPool for this array
             byte[] lastBuffer = new byte[BufferSize];
             lock (_dmxBuffer)
             {
