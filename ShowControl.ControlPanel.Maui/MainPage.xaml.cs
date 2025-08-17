@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using Point = ShowControl.Devices.Audio.Point;
 using GraphicsPoint = Microsoft.Maui.Graphics.Point;
+using ShowControl.Devices.Input;
 
 namespace ShowControl.ControlPanel.Maui
 {
@@ -44,6 +45,7 @@ namespace ShowControl.ControlPanel.Maui
         private async void Initialize()
         {
             var result = await _hostTask;
+            result.Services.GetRequiredService<IInputService>().DoPlatformInitalization();
         }
 
         private async void MainWindow_Closing(object sender, EventArgs e)

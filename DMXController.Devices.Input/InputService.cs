@@ -27,6 +27,10 @@ namespace ShowControl.Devices.Input
             _deviceDictionary = new Dictionary<string, List<IMidiInputDevice>>();
             ConstructMidiDevices();
             _devices = new List<IMidiInputDevice>(_deviceDictionary.SelectMany(d => d.Value));
+        }
+
+        public void DoPlatformInitalization()
+        {
             #if WINDOWS
             PlatformInitialization();
             #endif

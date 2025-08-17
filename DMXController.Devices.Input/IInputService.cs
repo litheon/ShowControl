@@ -9,6 +9,8 @@ namespace ShowControl.Devices.Input
         public event EventHandler OnInputDeviceReconnected;
         public event EventHandler<DeviceInputEventArgs> OnInputReceived;
         public IEnumerable<IMidiInputDevice> Devices { get; }
+
+        public void DoPlatformInitalization();
         public void Stop();
     }
 }

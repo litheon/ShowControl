@@ -316,7 +316,7 @@ namespace ShowControl.Animation
                             const int minAnimations = 1;
                             var levelFactor = Math.Round(e.AverageLevel / e.CurrentLevel * multiplier);
                             var level = Convert.ToInt32(Math.Min(Math.Max(levelFactor, minAnimations), maxAnimations));
-                            if (level < 3)
+                            if (level > 3)
                             {
                                 for (int i = 0; i < level; i++)
                                 {
