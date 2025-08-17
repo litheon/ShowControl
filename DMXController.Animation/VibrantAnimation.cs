@@ -109,58 +109,61 @@ namespace ShowControl.Animation
             //option 2: from left to right each frequency range is graphed on the lights, with, for example the left most
             //light being off is zero while the right most light being on is 100
             //large bands will be mapped to individual colors(e.g.RGB), and those bands' amplitude will be graphed from L to R
-            var secondsSinceLastBassOverride = (DateTime.Now.Ticks - _lastBassOverride) / TimeSpan.TicksPerSecond;
-
-            if (_lastBassOverride == 0 || secondsSinceLastBassOverride >= BassOverrideSeconds)
+            using (e)
             {
-                if (e.AverageLevel < -42.0d)
-                {
-                    Interlocked.Exchange(ref _frameCountAnimationThreshold, AnimationFrameCountMaximum);
-                }
-                else if (e.Bpm > 50)
-                {
-                    var bpmMatch = 1000 / (e.Bpm / 60 * 16);
-                    var result = Convert.ToInt32(Math.Round(bpmMatch));
-                    Interlocked.Exchange(ref _frameCountAnimationThreshold, result);
-                }
-                else if (e.Bpm > 0)
-                {
-                    Interlocked.Exchange(ref _frameCountAnimationThreshold, AnimationFrameCountMaximum);
-                }
-            }
+                var secondsSinceLastBassOverride = (DateTime.Now.Ticks - _lastBassOverride) / TimeSpan.TicksPerSecond;
 
-            lock (_modeLock)
-            {
-                if (_mode == AnimationMode.Manual)
+                if (_lastBassOverride == 0 || secondsSinceLastBassOverride >= BassOverrideSeconds)
                 {
-                    return;
+                    if (e.AverageLevel < -42.0d)
+                    {
+                        Interlocked.Exchange(ref _frameCountAnimationThreshold, AnimationFrameCountMaximum);
+                    }
+                    else if (e.Bpm > 50)
+                    {
+                        var bpmMatch = 1000 / (e.Bpm / 60 * 16);
+                        var result = Convert.ToInt32(Math.Round(bpmMatch));
+                        Interlocked.Exchange(ref _frameCountAnimationThreshold, result);
+                    }
+                    else if (e.Bpm > 0)
+                    {
+                        Interlocked.Exchange(ref _frameCountAnimationThreshold, AnimationFrameCountMaximum);
+                    }
                 }
-            }
 
-            if (1 / (e.CurrentLevel / e.AverageLevel) > 1.3 && e.CurrentLevel > -35.0d && (/*_frameCoolDown <= 0 || */secondsSinceLastBassOverride >= BassOverrideSeconds) )
-            {
-                SetNextFrameWithSingleColor(_vibrantColors[_random.Next() % _vibrantColors.Length]);
+                lock (_modeLock)
+                {
+                    if (_mode == AnimationMode.Manual)
+                    {
+                        return;
+                    }
+                }
 
-                //if (secondsSinceLastBassOverride >= BassOverrideSeconds && _frameCoolDown > 0)
-                //{
+                if (1 / (e.CurrentLevel / e.AverageLevel) > 1.3 && e.CurrentLevel > -35.0d && (/*_frameCoolDown <= 0 || */secondsSinceLastBassOverride >= BassOverrideSeconds))
+                {
+                    SetNextFrameWithSingleColor(_vibrantColors[_random.Next() % _vibrantColors.Length]);
+
+                    //if (secondsSinceLastBassOverride >= BassOverrideSeconds && _frameCoolDown > 0)
+                    //{
                     Interlocked.Exchange(ref _frameCountAnimationThreshold, 0);
                     Interlocked.Exchange(ref _currentFrameCountAnimationThreshold, 0);
                     _lastBassOverride = DateTime.Now.Ticks;
-                //}
-                //else
+                    //}
+                    //else
+                    //{
+                    //    _frameCoolDown = DefaultFrameCooldown;
+                    //}
+                }
+                //else if (_frameCoolDown >= 1)
                 //{
-                //    _frameCoolDown = DefaultFrameCooldown;
+                //    Interlocked.Exchange(ref _currentFrameCountAnimationThreshold, 0);
+                //    _frameCoolDown--;
+                //}
+                //else if (_frameCoolDown == 0)
+                //{
+                //    _frameCoolDown = -1;
                 //}
             }
-            //else if (_frameCoolDown >= 1)
-            //{
-            //    Interlocked.Exchange(ref _currentFrameCountAnimationThreshold, 0);
-            //    _frameCoolDown--;
-            //}
-            //else if (_frameCoolDown == 0)
-            //{
-            //    _frameCoolDown = -1;
-            //}
         }
 
         private void SetMode(AnimationMode mode)

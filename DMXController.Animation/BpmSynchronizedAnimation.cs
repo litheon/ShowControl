@@ -39,14 +39,17 @@ namespace ShowControl.Animation
 
         private void AudioService_OnAudioFrameProcessed(object sender, AudioFrameProcessedEventArgs e)
         {
-            _bpm = e.Bpm;
-            if (_bpm <= 40f)
+            using(e)
             {
-                _timerEnabledEvent.Reset();
-            }
-            else
-            {
-                _timerEnabledEvent.Set();
+                _bpm = e.Bpm;
+                if (_bpm <= 40f)
+                {
+                    _timerEnabledEvent.Reset();
+                }
+                else
+                {
+                    _timerEnabledEvent.Set();
+                }
             }
         }
 

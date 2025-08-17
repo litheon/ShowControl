@@ -7,8 +7,6 @@ using RtMidi.Core.Devices.Infos;
 using RtMidi.Core.Messages;
 using RtIMidiInputDevice = RtMidi.Core.Devices.IMidiInputDevice;
 using RtIMidiOutputDevice = RtMidi.Core.Devices.IMidiOutputDevice;
-using NAudio.Midi;
-using System.Collections;
 
 
 namespace ShowControl.Devices.Input
@@ -35,6 +33,9 @@ namespace ShowControl.Devices.Input
             _midiOut.Dispose();
             _midiIn = inDeviceNo.CreateDevice();
             _midiOut = outDeviceNo.CreateDevice();
+            _midiIn.NoteOn += NoteOnMessageHandler;
+            _midiIn.NoteOff += NoteOffMessageHandler;
+            _midiIn.ControlChange += ControlChangeMessageHandler;
             _midiIn.Open();
             _midiOut.Open();
         }

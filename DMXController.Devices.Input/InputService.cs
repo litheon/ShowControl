@@ -1,18 +1,16 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
-//using Windows.Devices.Midi;
-//using Windows.Devices.Enumeration;
 using System.Linq;
 using RtMidi.Core.Devices.Infos;
 
 namespace ShowControl.Devices.Input
 {
-    public class InputService : IInputService
+    public partial class InputService : IInputService
     {
         private bool _initialized = false;
         // Need some way of receiving device connected events on Mac and PC
-        //private DeviceWatcher _watcher;
+
         public event EventHandler<DeviceInputEventArgs> OnInputReceived;
         public event EventHandler OnInputDeviceReconnected;
 
@@ -25,40 +23,17 @@ namespace ShowControl.Devices.Input
 
         public InputService()
         {
-            //var selector = MidiInPort.GetDeviceSelector();
-            //_watcher = DeviceInformation.CreateWatcher(selector);
-            //_watcher.Added += _watcher_Added;
-            //_watcher.Removed += _watcher_Removed;
-            //_watcher.Updated += _watcher_Updated;
-            //_watcher.Start();
+
             _deviceDictionary = new Dictionary<string, List<IMidiInputDevice>>();
             ConstructMidiDevices();
             _devices = new List<IMidiInputDevice>(_deviceDictionary.SelectMany(d => d.Value));
+            #if WINDOWS
+            PlatformInitialization();
+            #endif
+            #if MAC
+            PlatformInitialization();
+            #endif
         }
-
-        //private void _watcher_Updated(DeviceWatcher sender, DeviceInformationUpdate args)
-        //{
-            
-        //}
-
-        //private void _watcher_Removed(DeviceWatcher sender, DeviceInformationUpdate args)
-        //{
-            
-        //}
-
-        //private void _watcher_Added(DeviceWatcher sender, DeviceInformation args)
-        //{
-        //    if (_initialized)
-        //    {
-        //        lock(_devices)
-        //        {
-        //            ConstructMidiDevices();
-        //            _devices = new List<IMidiInputDevice>(_deviceDictionary.SelectMany(d => d.Value));
-        //        }
-
-        //        OnInputDeviceReconnected?.Invoke(this, EventArgs.Empty);
-        //    }
-        //}
 
         public IEnumerable<IMidiInputDevice> Devices
         {
@@ -80,7 +55,7 @@ namespace ShowControl.Devices.Input
                 if (_supportedDevices.ContainsKey(key))
                 {
                     var device = midiInDevices[i];
-                    if (_initialized && _deviceDictionary.TryGetValue(device.DeviceName, out var midiInputDevices))
+                    if (_initialized && _deviceDictionary.TryGetValue(key, out var midiInputDevices))
                     {
                         midiInputDevices.First().Reconnect(device.MidiInDeviceInfo, device.MidiOutDeviceInfo);
                     }

@@ -77,12 +77,12 @@ namespace ShowControl.ControlPanel
 
         private void OnAudioFrameProcessed(object sender, AudioFrameProcessedEventArgs e)
         {
-            if (fftChartPoints == null || fftChartPoints.Length != e.AudioSpectrum.Length)
+            if (fftChartPoints == null || fftChartPoints.Length != e.AudioSpectrum.Points.Length)
             {
-                fftChartPoints = new Point[e.AudioSpectrum.Length];
+                Array.Resize(ref fftChartPoints, e.AudioSpectrum.Points.Length);
             }
 
-            Array.Copy(e.AudioSpectrum, fftChartPoints, fftChartPoints.Length);
+            Array.Copy(e.AudioSpectrum.Points, fftChartPoints, fftChartPoints.Length);
             
             Dispatcher.Invoke(() => {
                 Bpm.Text = string.Format("BPM: {0}", e.Bpm);

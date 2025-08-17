@@ -7,9 +7,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using NAudio.CoreAudioApi;
 using NAudio.Dsp;
-using NAudio.Wave;
 using PortAudioSharp;
 using ShowControl.Utilities;
 
@@ -19,9 +17,7 @@ namespace ShowControl.Devices.Audio
     {
         public event EventHandler<AudioFrameProcessedEventArgs> AudioFrameProcessed;
 
-        private readonly AsioOut _asioOut;
         public const int SampleRate = 192000;
-
         private const int ChannelOffset = 2;
         private const int ChannelCount = 2;
 
@@ -30,6 +26,7 @@ namespace ShowControl.Devices.Audio
 
         private const double BassCutOffHz = 250.0d;
         private const double MidRangeCutOffHz = 5000.0d;
+
         private readonly SampleAverageLevelCalculator _bassAverageLevel;
         private readonly SampleAverageLevelCalculator _bassCurrentLevel;
         private readonly SampleAverageLevelCalculator _overallAverageLevel;
@@ -37,10 +34,8 @@ namespace ShowControl.Devices.Audio
 
         private static ArrayPool<float> _audioPool = ArrayPool<float>.Shared;
         private static ArrayPool<Complex> _fftPool = ArrayPool<Complex>.Shared;
+        private readonly ArrayPool<Point> _pointPool = ArrayPool<Point>.Shared;
         private static float[] _activeSamples;
-
-        private int _copyBufferIndex;
-        private readonly Point[][] _copyBuffer = new Point[4][];
 
         public const int FftLength = 4096;
         private int _fftPos;
@@ -52,20 +47,33 @@ namespace ShowControl.Devices.Audio
         private record AudioProcessSignal(float[] sharedArray, int frameCount);
         private readonly object _disposalLock = new object();
         private bool _stopped;
-        private Timer t;
         private Stream _stream;
-        private Thread _processingThread;
+        private Thread _audioProcessingThread;
+        private Thread _audioDispatchThread;
+        private ManualResetEvent _signalQueueChangeEvent = new ManualResetEvent(false);
         ConcurrentQueue<AudioProcessSignal> _signalQueue;
+        private ManualResetEvent _audioQueueChangeEvent = new ManualResetEvent(false);
+        ConcurrentQueue<AudioFrameProcessedEventArgs> _audioFrameEventArgsQueue;
+        private CancellationTokenSource _cancellationTokenSource;
         public AudioService()
         {
-            t = new Timer(callback);
-            t.Change(4000, Timeout.Infinite);
+            _cancellationTokenSource = new CancellationTokenSource();
+            _bpmDetect = new RealTimeBpmDetect(ChannelCount, SampleRate);
+            _bassAverageLevel = new SampleAverageLevelCalculator(0);
+            _bassCurrentLevel = new SampleAverageLevelCalculator(Convert.ToInt32(Math.Round(BassCutOffHz / (SampleRate / FftLength))) - 1);
+            _overallAverageLevel = new SampleAverageLevelCalculator(0);
+            _overallAverageLevelAverage = new SampleAverageLevelCalculator(0);
+            _activeSamples = new float[FftLength * ChannelCount];
+            _audioProcessingThread = new Thread(ProcessingThreadStart);
+            _audioDispatchThread = new Thread(DispatchThreadStart);
+            _signalQueue = new ConcurrentQueue<AudioProcessSignal>();
+            _audioFrameEventArgsQueue = new ConcurrentQueue<AudioFrameProcessedEventArgs>();
             PortAudio.Initialize();
             int deviceIndex = 0;
             for (int i = 0; i < PortAudio.DeviceCount; i++)
             {
                 var inputDevice = PortAudio.GetDeviceInfo(i);
-                if (inputDevice.name.Contains("Focusrite USB ASIO") || inputDevice.name.Contains("Scarlett"))
+                if (inputDevice.name.Contains("Focusrite USB ASIO") || inputDevice.name.Contains("Scarlett") || inputDevice.name.Contains("Universal Audio Thunderbolt"))
                 {
                     deviceIndex = i;
                     break;
@@ -79,33 +87,18 @@ namespace ShowControl.Devices.Audio
                 suggestedLatency = PortAudio.GetDeviceInfo(deviceIndex).defaultLowInputLatency,
                 hostApiSpecificStreamInfo = IntPtr.Zero,
             };
-            for (int i = 0; i < _copyBuffer.Length; i++)
-            {
-                _copyBuffer[i] = new Point[FftLength];
-            }
-            _bpmDetect = new RealTimeBpmDetect(ChannelCount, SampleRate);
-            _bassAverageLevel = new SampleAverageLevelCalculator(0);
-            _bassCurrentLevel = new SampleAverageLevelCalculator(Convert.ToInt32(Math.Round(BassCutOffHz / (SampleRate / FftLength))) - 1);
-            _overallAverageLevel = new SampleAverageLevelCalculator(0);
-            _overallAverageLevelAverage = new SampleAverageLevelCalculator(0);
             _stream = new PortAudioSharp.Stream(inputParameters, null, SampleRate, 0, StreamFlags.NoFlag, new Stream.Callback(Callback), null);
-            _activeSamples = new float[FftLength * ChannelCount];
-            _processingThread = new Thread(ProcessingThreadStart);
-            _signalQueue = new ConcurrentQueue<AudioProcessSignal>();
+            _stream.SetFinishedCallback(StreamFinishedCallback);
+            _audioDispatchThread.Start();
+            _audioProcessingThread.Start();
+            _stream.Start();
         }
 
         private void StreamFinishedCallback(IntPtr userData)
         {
-            // Need error handling + logging + restart
-            int x = 0;
-        }
-        private void callback(object? v)
-        {
-            // Starting the stream shouldn't need to be in response to a timer event
-            _stream.SetFinishedCallback(StreamFinishedCallback);
-            _processingThread.Start();
+            //TODO: Logging
+            _stream.Stop();
             _stream.Start();
-            int x = 0;
         }
 
         public AudioService(EventHandler<AudioFrameProcessedEventArgs> audioFrameProcessedEventHandler) : this()
@@ -115,25 +108,54 @@ namespace ShowControl.Devices.Audio
 
         private StreamCallbackResult Callback(IntPtr input, IntPtr output, uint frameCount, ref StreamCallbackTimeInfo e, StreamCallbackFlags f, IntPtr d)
         {
-            // Need error handling + logging
-            var bufferArray = _audioPool.Rent(Convert.ToInt32(frameCount) * (ChannelCount + ChannelOffset));
-            Marshal.Copy(input, bufferArray, 0, (int)frameCount * (ChannelCount + ChannelOffset));
-            _signalQueue.Enqueue(new AudioProcessSignal(bufferArray, Convert.ToInt32(frameCount)));
-            return StreamCallbackResult.Continue;
+            try
+            {
+                var bufferArray = _audioPool.Rent(Convert.ToInt32(frameCount) * (ChannelCount + ChannelOffset));
+                Marshal.Copy(input, bufferArray, 0, (int)frameCount * (ChannelCount + ChannelOffset));
+                _signalQueue.Enqueue(new AudioProcessSignal(bufferArray, Convert.ToInt32(frameCount)));
+                _signalQueueChangeEvent.Set();
+                return StreamCallbackResult.Continue;
+            }
+            catch
+            {
+                //TODO: Logging
+                return StreamCallbackResult.Abort;
+            }
         }
 
         private void ProcessingThreadStart()
         {
-            while (true)
+            while (!_cancellationTokenSource.IsCancellationRequested)
             {
-                // Should have proper signaling that doesn't waste CPU cycles in the event of an empty queue
-                if (_signalQueue.TryDequeue(out var processSigntal))
+                _signalQueueChangeEvent.WaitOne();
+                if (_signalQueue.TryDequeue(out var processSignal))
                 {
-                    DoProcessing(processSigntal.frameCount, processSigntal.sharedArray);
-                    _audioPool.Return(processSigntal.sharedArray);
+                    DoProcessing(processSignal.frameCount, processSignal.sharedArray);
+                    _audioPool.Return(processSignal.sharedArray);
+                }
+                if (_signalQueue.Count == 0)
+                {
+                    _signalQueueChangeEvent.Reset();
                 }
             }
         }
+
+        private void DispatchThreadStart()
+        {
+            while (!_cancellationTokenSource.IsCancellationRequested)
+            {
+                _audioQueueChangeEvent.WaitOne();
+                if (_audioFrameEventArgsQueue.TryDequeue(out var eventArgs))
+                {
+                    AudioFrameProcessed?.Invoke(this, eventArgs);
+                }
+                if (_audioFrameEventArgsQueue.Count == 0)
+                {
+                    _audioQueueChangeEvent.Reset();
+                }
+            }
+        }
+
         private void DoProcessing(int frameCount, float[] samples)
         {
             for (int i = 0; i < frameCount; i++)
@@ -163,27 +185,25 @@ namespace ShowControl.Devices.Audio
             double width = SampleRate / _fftBuffer.Length;
             double seconds = 1 / width;
             double Hz = 0;
-            int copyBufferIndex = _copyBufferIndex.InterlockedGet();
+            var copyBuffer = _pointPool.Rent(_fftBuffer.Length);
             for (int j = 0; j < _fftBuffer.Length; j++)
             {
-                _copyBuffer[copyBufferIndex][j].X = Hz == 0 ? Math.Log10(5) / Math.Log10(20000) : Math.Log10(Hz) / Math.Log10(20000);
+                copyBuffer[j].X = Hz == 0 ? Math.Log10(5) / Math.Log10(20000) : Math.Log10(Hz) / Math.Log10(20000);
 
                 var level = Math.Abs(Math.Sqrt(Math.Pow(_fftBuffer[j].Y, 2) + Math.Pow(_fftBuffer[j].X, 2)));
                 CalculateAverageLevel(Hz, level, seconds);
 
-                _copyBuffer[copyBufferIndex][j].Y = 20 * Math.Log10(level);
+                copyBuffer[j].Y = 20 * Math.Log10(level);
                 Hz += width;
             }
             var bpm = _bpmDetect.GetBpm();
             var currentLevelDb = 20 * Math.Log10(_bassCurrentLevel.SampleAverage);
             var averageLevelDb = 20 * Math.Log10(_bassAverageLevel.SampleAverage);
             var amplitudeRatio = _overallAverageLevel.SampleAverage / _overallAverageLevelAverage.SampleAverage;
-
-            var audioFrameProcessedEventArgs = new AudioFrameProcessedEventArgs(_copyBuffer[copyBufferIndex], width, bpm, averageLevelDb, currentLevelDb, amplitudeRatio, seconds);
-            // It's somewhat hacky to delegate this to the thread pool
-            // Could have a dedicated thread with the proper synchronization to make the calls to subscribers
-            Task.Run(() => AudioFrameProcessed?.Invoke(this, audioFrameProcessedEventArgs));
-            _copyBufferIndex.InterlockedIncrement(0, _copyBuffer.Length - 1);
+            var audioSpectrum = new AudioSpectrum(_pointPool, copyBuffer);
+            var audioFrameProcessedEventArgs = new AudioFrameProcessedEventArgs(audioSpectrum, width, bpm, averageLevelDb, currentLevelDb, amplitudeRatio, seconds);
+            _audioFrameEventArgsQueue.Enqueue(audioFrameProcessedEventArgs);
+            _audioQueueChangeEvent.Set();
         }
 
         private void CalculateAverageLevel(double Hz, double level, double seconds)
@@ -210,8 +230,10 @@ namespace ShowControl.Devices.Audio
             {
                 if (!_stopped)
                 {
-                    _asioOut.Stop();
-                    _asioOut.Dispose();
+                    _cancellationTokenSource.Cancel();
+                    _stream.Stop();
+                    _stream.Dispose();
+                    PortAudio.Terminate();
                     _stopped = true;
                 }
             }

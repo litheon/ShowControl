@@ -1,22 +1,23 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Reflection;
 using System.Text;
 
 namespace ShowControl.Devices.Audio
 {
-    public class AudioFrameProcessedEventArgs : EventArgs
+    public class AudioFrameProcessedEventArgs : EventArgs, IDisposable
     {
         // Potentially use ArrayPool and instead of point return an object that's IDisposable with a property of the points
-        public Point[] AudioSpectrum { get; private set; }
+        public AudioSpectrum AudioSpectrum { get; private set; }
         public double WidthPerBand { get; private set; }
         public float Bpm { get; private set; }
         public double AverageLevel { get; private set; }
         public double CurrentLevel { get; private set; }
         public double AmplitudeRatio { get; private set; }
-
         public double Seconds { get; private set; }
-        public AudioFrameProcessedEventArgs(Point[] audioSpectrum, double widthPerBand, float bpm, double averageLevel, double currentLevel, double amplitudeRatio, double seconds)
+        private bool _disposed;
+        public AudioFrameProcessedEventArgs(AudioSpectrum audioSpectrum, double widthPerBand, float bpm, double averageLevel, double currentLevel, double amplitudeRatio, double seconds)
         {
             AudioSpectrum = audioSpectrum;
             WidthPerBand = widthPerBand;
@@ -25,6 +26,27 @@ namespace ShowControl.Devices.Audio
             CurrentLevel = currentLevel;
             AmplitudeRatio = amplitudeRatio;
             Seconds = seconds;
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            if (disposing)
+            {
+                AudioSpectrum.Dispose();
+            }
+
+            _disposed = true;
+        }
+
+        public void Dispose()
+        {
+            Dispose(disposing: true);
+            GC.SuppressFinalize(this);
         }
     }
 }

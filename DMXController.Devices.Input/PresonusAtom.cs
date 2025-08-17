@@ -1,5 +1,4 @@
-﻿using NAudio.Midi;
-using RtMidi.Core.Devices.Infos;
+﻿using RtMidi.Core.Devices.Infos;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -140,8 +139,7 @@ namespace ShowControl.Devices.Input
 
         private void InitializeInterface()
         {
-            var advancedControlModeSignal = new NoteEvent(0, channel: 16, commandCode: MidiCommandCode.NoteOff, noteNumber: 0, velocity: 127);
-            //_midiOut.Send(advancedControlModeSignal.GetAsShortMessage());
+            // Send advanced control mode signal
             _midiOut.Send(new RtMidi.Core.Messages.NoteOffMessage(RtMidi.Core.Enums.Channel.Channel16, RtMidi.Core.Enums.Key.Key0, velocity: 127));
         }
 
@@ -179,7 +177,8 @@ namespace ShowControl.Devices.Input
             List<byte> bytes = new List<byte>();
             foreach (var item in Enum.GetValues(typeof(PresonusAtomButton)))
             {
-                bytes.AddRange(new ControlChangeEvent(absoluteTime: 0, channel: 1, controller: (MidiController)(item), 0).GetMidiMessageAsByteArray());
+                //To be tested
+                bytes.AddRange(new ControlChangeMessage(channel: (RtMidi.Core.Enums.Channel)0, control: (byte)(item), 0).Encode());
             }
             _midiOut.Send(bytes.ToArray());
         }
@@ -197,10 +196,10 @@ namespace ShowControl.Devices.Input
             int green = Convert.ToInt32(((double)color.G) / 255 * 127);
             int blue = Convert.ToInt32(((double)color.B) / 255 * 127);
             List<byte> bytes = new List<byte>();
-            bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 1, noteNumber: padNote, velocity: (int)illumination, duration: 0).GetMidiMessageAsByteArray());
-            bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 2, noteNumber: padNote, velocity: red, duration: 0).GetMidiMessageAsByteArray());
-            bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 3, noteNumber: padNote, velocity: green, duration: 0).GetMidiMessageAsByteArray());
-            bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 4, noteNumber: padNote, velocity: blue, duration: 0).GetMidiMessageAsByteArray());
+            bytes.AddRange(new NoteOnMessage(channel: (RtMidi.Core.Enums.Channel)0, key: (RtMidi.Core.Enums.Key)padNote, velocity: (int)illumination).Encode());
+            bytes.AddRange(new NoteOnMessage(channel: (RtMidi.Core.Enums.Channel)1, key: (RtMidi.Core.Enums.Key)padNote, velocity: red).Encode());
+            bytes.AddRange(new NoteOnMessage(channel: (RtMidi.Core.Enums.Channel)2, key: (RtMidi.Core.Enums.Key)padNote, velocity: green).Encode());
+            bytes.AddRange(new NoteOnMessage(channel: (RtMidi.Core.Enums.Channel)3, key: (RtMidi.Core.Enums.Key)padNote, velocity: blue).Encode());
             _midiOut.Send(bytes.ToArray());
         }
 
@@ -220,17 +219,12 @@ namespace ShowControl.Devices.Input
                 int green = Convert.ToInt32(((double)color.G) / 255 * 127);
                 int blue = Convert.ToInt32(((double)color.B) / 255 * 127);
 
-                bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 1, noteNumber: padNote, velocity: (int)illumination, duration: 0).GetMidiMessageAsByteArray());
-                bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 2, noteNumber: padNote, velocity: red, duration: 0).GetMidiMessageAsByteArray());
-                bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 3, noteNumber: padNote, velocity: green, duration: 0).GetMidiMessageAsByteArray());
-                bytes.AddRange(new NoteOnEvent(absoluteTime: 0, channel: 4, noteNumber: padNote, velocity: blue, duration: 0).GetMidiMessageAsByteArray());
+                bytes.AddRange(new NoteOnMessage(channel: (RtMidi.Core.Enums.Channel)0, key: (RtMidi.Core.Enums.Key)padNote, velocity: (int)illumination).Encode());
+                bytes.AddRange(new NoteOnMessage(channel: (RtMidi.Core.Enums.Channel)1, key: (RtMidi.Core.Enums.Key)padNote, velocity: red).Encode());
+                bytes.AddRange(new NoteOnMessage(channel: (RtMidi.Core.Enums.Channel)2, key: (RtMidi.Core.Enums.Key)padNote, velocity: green).Encode());
+                bytes.AddRange(new NoteOnMessage(channel: (RtMidi.Core.Enums.Channel)3, key: (RtMidi.Core.Enums.Key)padNote, velocity: blue).Encode());
             }
             _midiOut.Send(bytes.ToArray());
-        }
-
-        internal void MidiIn_MessageReceived(object sender, MidiInMessageEventArgs e)
-        {
-
         }
 
         internal override void NoteOnMessageHandler(RtIMidiInputDevice sender, in NoteOnMessage msg)
@@ -277,7 +271,7 @@ namespace ShowControl.Devices.Input
             if (_buttonTranslation.ContainsKey(button))
             {
                 _buttonIllumination[button] = state;
-                _midiOut.Send(new ControlChangeEvent(absoluteTime: 0, channel: 1, controller: (MidiController)_buttonTranslation[button], state == LightState.On ? (int)PresonusAtomPadIlluminationType.Solid : 0).GetMidiMessageAsByteArray());
+                _midiOut.Send(new ControlChangeMessage(channel: (RtMidi.Core.Enums.Channel)0, control: (int)_buttonTranslation[button], state == LightState.On ? (int)PresonusAtomPadIlluminationType.Solid : 0));
             }
         }
 
@@ -289,7 +283,7 @@ namespace ShowControl.Devices.Input
                 if (_buttonTranslation.ContainsKey(buttonState.Button))
                 {
                     _buttonIllumination[buttonState.Button] = buttonState.LightState;
-                    bytes.AddRange(new ControlChangeEvent(absoluteTime: 0, channel: 1, controller: (MidiController)_buttonTranslation[buttonState.Button], buttonState.LightState == LightState.On ? (int)PresonusAtomPadIlluminationType.Solid : 0).GetMidiMessageAsByteArray());
+                    bytes.AddRange(new ControlChangeMessage(channel: (RtMidi.Core.Enums.Channel)0, control: (int)_buttonTranslation[buttonState.Button], buttonState.LightState == LightState.On ? (int)PresonusAtomPadIlluminationType.Solid : 0).Encode());
                 }
             }
             if (bytes.Count > 0)

@@ -302,11 +302,11 @@ namespace ShowControl.Animation
             //if there are enough lights to do so
             //support a continous animation from one color to the next color
             //add a mode that grabs a window into a large continous gradient that music/the user/a timer will automatically scroll through
-            lock (_modeLock)
+            using (e)
             {
-                lock (_rootFrame)
+                lock (_modeLock)
                 {
-                    if (_mode == AnimationMode.SoundReactive)
+                    lock (_rootFrame)
                     {
                         //if (false)
                         if ((e.CurrentLevel >= -35.0d || e.AverageLevel > -40.0d)/* && e.AmplitudeRatio > _lastAmplitudeRatio*/)
@@ -318,40 +318,39 @@ namespace ShowControl.Animation
                             var level = Convert.ToInt32(Math.Min(Math.Max(levelFactor, minAnimations), maxAnimations));
                             if (level < 3)
                             {
-                                int x = 0;
-                            }
-                            for (int i = 0; i < level; i++)
-                            {
-                                Animate(forward: true, fromInput: true);
-                            }
-                            _frameCoolDown = DefaultFrameCooldown;
-                        }
-                        else
-                        {
-                            if (e.Bpm > 60 && e.Bpm < 200)
-                            {
-                                var beats = 8 * e.Bpm / 60.0d * e.Seconds;
-                                _beats += beats;
-                                if (_beats >= 1)
+                                for (int i = 0; i < level; i++)
                                 {
-                                    _frameCoolDown = 0;
-                                    _beats = 0;
+                                    Animate(forward: true, fromInput: true);
                                 }
-                                int x = 0;
+                                _frameCoolDown = DefaultFrameCooldown;
                             }
                             else
                             {
-                                _frameCoolDown--;
+                                if (e.Bpm > 60 && e.Bpm < 200)
+                                {
+                                    var beats = 8 * e.Bpm / 60.0d * e.Seconds;
+                                    _beats += beats;
+                                    if (_beats >= 1)
+                                    {
+                                        _frameCoolDown = 0;
+                                        _beats = 0;
+                                    }
+                                    int x = 0;
+                                }
+                                else
+                                {
+                                    _frameCoolDown--;
+                                }
+
+                                if (_frameCoolDown == 0)
+                                {
+                                    Animate(forward: true, fromInput: true);
+                                    _frameCoolDown = DefaultFrameCooldown;
+                                }
                             }
 
-                            if (_frameCoolDown == 0)
-                            {
-                                Animate(forward: true, fromInput: true);
-                                _frameCoolDown = DefaultFrameCooldown;
-                            }
+                            _lastAmplitudeRatio = e.AmplitudeRatio;
                         }
-
-                        _lastAmplitudeRatio = e.AmplitudeRatio;
                     }
                 }
             }

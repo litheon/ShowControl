@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Text;
 using System.Linq;
-using NAudio.Midi;
 using RtMidi.Core;
 using RtMidi.Core.Devices.Infos;
 using System.Runtime.InteropServices;

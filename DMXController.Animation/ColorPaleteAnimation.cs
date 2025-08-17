@@ -449,20 +449,23 @@ namespace ShowControl.Animation
             //if there are enough lights to do so
             //support a continous animation from one color to the next color
             //add a mode that grabs a window into a large continous gradient that music/the user/a timer will automatically scroll through
-            lock (_modeLock)
+            using (e)
             {
-                lock (_rootFrame)
+                lock (_modeLock)
                 {
-                    if (_mode == AnimationMode.SoundReactive)
+                    lock (_rootFrame)
                     {
-                        if (e.CurrentLevel >= -40.0d || e.AverageLevel > -35.0d)
+                        if (_mode == AnimationMode.SoundReactive)
                         {
-                            var level = Convert.ToInt32(Math.Min(Math.Max(Math.Round(e.CurrentLevel / e.AverageLevel) * 5, 1), 5));
-                            for (int i = 0; i < level; i++)
+                            if (e.CurrentLevel >= -40.0d || e.AverageLevel > -35.0d)
                             {
-                                Animate(forward: true, fromInput: true);
+                                var level = Convert.ToInt32(Math.Min(Math.Max(Math.Round(e.CurrentLevel / e.AverageLevel) * 5, 1), 5));
+                                for (int i = 0; i < level; i++)
+                                {
+                                    Animate(forward: true, fromInput: true);
+                                }
+                                _frameCoolDown = DefaultFrameCooldown;
                             }
-                            _frameCoolDown = DefaultFrameCooldown;
                         }
                     }
                 }
