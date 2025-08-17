@@ -19,6 +19,9 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
     <DefineConstants>TRACE;ARM64;MAC</DefineConstants>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
+    <DefineConstants>TRACE;ARM64;MAC</DefineConstants>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(TargetFramework)' == 'net8.0-windows10.0.22621.0'">
     <DefineConstants>WINDOWS</DefineConstants>
   </PropertyGroup>

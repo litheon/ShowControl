@@ -30,7 +30,7 @@ namespace ShowControl.Devices.Input
             #if WINDOWS
             PlatformInitialization();
             #endif
-            #if MAC
+            #if ARM64
             PlatformInitialization();
             #endif
         }
