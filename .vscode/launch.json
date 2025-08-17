@@ -5,6 +5,14 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": ".NET MAUI",
+            "type": "maui",
+            "request": "launch",
+            "preLaunchTask": "maui: Build",
+            "configuration": "Debug",
+            "targetFramework": "net8.0-maccatalyst"
+        },
+        {
             "name": "C#",
             "type": "coreclr",
             //"preLaunchTask": "dotnet: build",
