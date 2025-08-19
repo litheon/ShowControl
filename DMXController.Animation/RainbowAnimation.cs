@@ -324,32 +324,31 @@ namespace ShowControl.Animation
                                 }
                                 _frameCoolDown = DefaultFrameCooldown;
                             }
+                            _lastAmplitudeRatio = e.AmplitudeRatio;
+                        }
+                        else
+                        {
+                            if (e.Bpm > 60 && e.Bpm < 200)
+                            {
+                                var beats = 8 * e.Bpm / 60.0d * e.Seconds;
+                                _beats += beats;
+                                if (_beats >= 1)
+                                {
+                                    _frameCoolDown = 0;
+                                    _beats = 0;
+                                }
+                                int x = 0;
+                            }
                             else
                             {
-                                if (e.Bpm > 60 && e.Bpm < 200)
-                                {
-                                    var beats = 8 * e.Bpm / 60.0d * e.Seconds;
-                                    _beats += beats;
-                                    if (_beats >= 1)
-                                    {
-                                        _frameCoolDown = 0;
-                                        _beats = 0;
-                                    }
-                                    int x = 0;
-                                }
-                                else
-                                {
-                                    _frameCoolDown--;
-                                }
-
-                                if (_frameCoolDown == 0)
-                                {
-                                    Animate(forward: true, fromInput: true);
-                                    _frameCoolDown = DefaultFrameCooldown;
-                                }
+                                _frameCoolDown--;
                             }
 
-                            _lastAmplitudeRatio = e.AmplitudeRatio;
+                            if (_frameCoolDown == 0)
+                            {
+                                Animate(forward: true, fromInput: true);
+                                _frameCoolDown = DefaultFrameCooldown;
+                            }
                         }
                     }
                 }
