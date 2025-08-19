@@ -12,7 +12,9 @@
     <Compile Remove="DMXController.Devices.Output\**" />
     <Compile Remove="DMXController.Host\**" />
     <Compile Remove="DMXController\**" />
+    <Compile Remove="ShowControl.ControlPanel.Maui\**" />
     <Compile Remove="ShowControl.ControlPanel\**" />
+    <Compile Remove="ShowControl.Graphics\**" />
     <Compile Remove="ShowControl.Utilities\**" />
     <Compile Remove="ShowControl.Devices.Input.Windows\**" />
     <Compile Remove="RtMidi.Core\**" />
@@ -23,7 +25,9 @@
     <EmbeddedResource Remove="DMXController.Devices.Output\**" />
     <EmbeddedResource Remove="DMXController.Host\**" />
     <EmbeddedResource Remove="DMXController\**" />
+    <EmbeddedResource Remove="ShowControl.ControlPanel.Maui\**" />
     <EmbeddedResource Remove="ShowControl.ControlPanel\**" />
+    <EmbeddedResource Remove="ShowControl.Graphics\**" />
     <EmbeddedResource Remove="ShowControl.Utilities\**" />
     <EmbeddedResource Remove="ShowControl.Devices.Input.Windows\**" />
     <None Remove="DMXController.Animation\**" />
@@ -33,7 +37,9 @@
     <None Remove="DMXController.Devices.Output\**" />
     <None Remove="DMXController.Host\**" />
     <None Remove="DMXController\**" />
+    <None Remove="ShowControl.ControlPanel.Maui\**" />
     <None Remove="ShowControl.ControlPanel\**" />
+    <None Remove="ShowControl.Graphics\**" />
     <None Remove="ShowControl.Utilities\**" />
     <None Remove="ShowControl.Devices.Input.Windows\**" />
     <None Remove="RtMidi.Core\**" />

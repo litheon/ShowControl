@@ -7,6 +7,7 @@ using System.Text;
 using Point = ShowControl.Devices.Audio.Point;
 using GraphicsPoint = Microsoft.Maui.Graphics.Point;
 using ShowControl.Devices.Input;
+using ShowControl.Graphics;
 
 namespace ShowControl.ControlPanel.Maui
 {
@@ -23,8 +24,10 @@ namespace ShowControl.ControlPanel.Maui
         public MainPage()
         {
             InitializeComponent();
+            System.Threading.Thread.Sleep(20000);
             _hostTask = Host.Host.Main(new string[] { }, OnAudioFrameProcessed, HandleDevices);
             Initialize();
+            new HelloWorldGraphicsHost().Run();
         }
 
         private void HandleDevices(IDmxDevice[] devices)
