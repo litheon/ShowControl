@@ -1,16 +1,31 @@
 ﻿using Silk.NET.Core;
 using Silk.NET.Core.Native;
 using Silk.NET.Maths;
+using Silk.NET.OpenAL;
 using Silk.NET.Vulkan;
 using Silk.NET.Vulkan.Extensions.KHR;
 using Silk.NET.Windowing;
 using System;
+using System.Diagnostics;
+using System.Numerics;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using Device = Silk.NET.Vulkan.Device;
 using Semaphore = Silk.NET.Vulkan.Semaphore;
 
 namespace ShowControl.Graphics
 {
     public class HelloWorldGraphicsHost
     {
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct PushData
+        {
+            public Vector2 Resolution;  // width, height
+            public float Time;
+            private float _pad;         // keep total size multiple of 16
+        }
+
         private static IWindow _window;
         private static Vk _vk;
         private static Instance _instance;
@@ -43,10 +58,22 @@ namespace ShowControl.Graphics
         private ShaderModule _vertShaderModule;
         private ShaderModule _fragShaderModule;
 
+        private static PhysicalDeviceMemoryProperties _memProps;
+        private static Extent2D _swapExtent;
+        private static DeviceMemory _offscreenMemory;
+        private static DeviceMemory _deviceMemory;
+        private static Image _offscreenImage;
+        private static ImageView _offscreenView;
+
+        private static Silk.NET.Vulkan.Buffer _buffer;
+
+        private static Stopwatch _stopwatch = new Stopwatch();
+
         const int MAX_FRAMES_IN_FLIGHT = 2;
 
         public void Run()
         {
+            _stopwatch.Start();
             new Thread(() =>
             {
                 var options = WindowOptions.DefaultVulkan;
@@ -111,6 +138,8 @@ namespace ShowControl.Graphics
             _vk.EnumeratePhysicalDevices(_instance, &deviceCount, devices);
             _physicalDevice = devices[0]; // pick first
 
+            _vk.GetPhysicalDeviceMemoryProperties(_physicalDevice, out _memProps);
+
             // --- Logical Device ---
             uint familiesCount = 0;
             QueueFamilyProperties[] properties;
@@ -158,6 +187,86 @@ namespace ShowControl.Graphics
 
             if (_vk.CreateDevice(_physicalDevice, deviceInfo, null, out _device) != Result.Success)
                 throw new Exception("Failed to create logical device.");
+
+            ulong imageSize = (ulong)(_window.Size.X * _window.Size.Y * 4);
+
+            ImageCreateInfo imgInfo = new()
+            {
+                SType = StructureType.ImageCreateInfo,
+                ImageType = ImageType.Type2D,
+                Format = Format.R8G8B8A8Unorm, // or same format as swapchain
+                Extent = new Extent3D((uint?)_window.Size.X, (uint?)_window.Size.Y, 1),
+                MipLevels = 1,
+                ArrayLayers = 1,
+                Samples = SampleCountFlags.Count1Bit,
+                Tiling = ImageTiling.Optimal,
+                Usage = ImageUsageFlags.ImageUsageColorAttachmentBit |
+                        ImageUsageFlags.ImageUsageTransferSrcBit,
+                SharingMode = SharingMode.Exclusive,
+                InitialLayout = ImageLayout.Undefined
+            };
+            if (_vk.CreateImage(_device, &imgInfo, null, out _offscreenImage) != Result.Success)
+            {
+                throw new Exception("Something failed");
+            }
+
+            _vk.GetImageMemoryRequirements(_device, _offscreenImage, out var reqs);
+            uint memType = FindMemoryType(reqs.MemoryTypeBits,
+                MemoryPropertyFlags.MemoryPropertyDeviceLocalBit, in _memProps);
+
+            MemoryAllocateInfo alloc = new()
+            {
+                SType = StructureType.MemoryAllocateInfo,
+                AllocationSize = reqs.Size,
+                MemoryTypeIndex = memType
+            };
+            if (_vk.AllocateMemory(_device, &alloc, null, out _offscreenMemory) != Result.Success)
+            {
+                throw new Exception("Something failed");
+            }
+            if (_vk.BindImageMemory(_device, _offscreenImage, _offscreenMemory, 0) != Result.Success)
+            {
+                throw new Exception("Something failed");
+            }
+
+            // Create an ImageView
+            ImageViewCreateInfo viewInfo = new()
+            {
+                SType = StructureType.ImageViewCreateInfo,
+                Image = _offscreenImage,
+                ViewType = ImageViewType.Type2D,
+                Format = imgInfo.Format,
+                SubresourceRange = new ImageSubresourceRange(
+                    ImageAspectFlags.ColorBit, 0, 1, 0, 1)
+            };
+            if (_vk.CreateImageView(_device, &viewInfo, null, out _offscreenView) != Result.Success)
+            {
+                throw new Exception("Something failed");
+            }
+
+            BufferCreateInfo bufInfo = new()
+            {
+                SType = StructureType.BufferCreateInfo,
+                Size = imageSize,
+                Usage = BufferUsageFlags.BufferUsageTransferDstBit,
+                SharingMode = SharingMode.Exclusive
+            };
+            _vk.CreateBuffer(_device, &bufInfo, null, out _buffer);
+
+            // Allocate host-visible, coherent memory
+            _vk.GetBufferMemoryRequirements(_device, _buffer, out reqs);
+            memType = FindMemoryType(reqs.MemoryTypeBits,
+                MemoryPropertyFlags.MemoryPropertyHostVisibleBit |
+                MemoryPropertyFlags.MemoryPropertyHostCoherentBit, in _memProps);
+
+            MemoryAllocateInfo allocInfo2 = new()
+            {
+                SType = StructureType.MemoryAllocateInfo,
+                AllocationSize = reqs.Size,
+                MemoryTypeIndex = memType
+            };
+            _vk.AllocateMemory(_device, &allocInfo2, null, out _deviceMemory);
+            _vk.BindBufferMemory(_device, _buffer, _deviceMemory, 0);
 
             var fenceInfo = new FenceCreateInfo(flags: FenceCreateFlags.FenceCreateSignaledBit);
             var semInfo = new SemaphoreCreateInfo();
@@ -263,6 +372,27 @@ namespace ShowControl.Graphics
             if (_vk.CreateRenderPass(_device, renderPassInfo, null, out _renderPass) != Result.Success)
                 throw new Exception("Failed to create render pass.");
 
+
+            fixed(ImageView* offscreenViewPtr = &_offscreenView)
+            {
+                FramebufferCreateInfo fbInfo = new()
+                {
+                    SType = StructureType.FramebufferCreateInfo,
+                    RenderPass = _renderPass, // must match attachment format
+                    AttachmentCount = 1,
+                    PAttachments = offscreenViewPtr,
+                    Width = _swapExtent.Width,
+                    Height = _swapExtent.Height,
+                    Layers = 1
+                };
+
+                Framebuffer _offscreenFramebuffer;
+                if (_vk.CreateFramebuffer(_device, &fbInfo, null, out _offscreenFramebuffer) != Result.Success)
+                {
+                    throw new Exception("Something failed");
+                }
+            }
+
             // --- Framebuffers ---
             _framebuffers = new Framebuffer[_swapchainImageViews.Length];
             for (int i = 0; i < _swapchainImageViews.Length; i++)
@@ -289,7 +419,7 @@ namespace ShowControl.Graphics
             _vk.CreateCommandPool(_device, poolInfo, null, out _commandPool);
 
             var vertBytes = File.ReadAllBytes(@"C:\Users\lithe\source\repos\ShowControl\ShowControl.Graphics\bin\Debug\net8.0\simple.vert.spv");
-            var fragBytes = File.ReadAllBytes(@"C:\Users\lithe\source\repos\ShowControl\ShowControl.Graphics\bin\Debug\net8.0\simple.frag.spv");
+            var fragBytes = File.ReadAllBytes(@"C:\Users\lithe\source\repos\ShowControl\ShowControl.Graphics\bin\Debug\net8.0\kaleidoscope.frag.spv");
 
             _vertShaderModule = CreateShaderModule(vertBytes);
             _fragShaderModule = CreateShaderModule(fragBytes);
@@ -324,14 +454,14 @@ namespace ShowControl.Graphics
             );
 
             // --- Viewport & scissor (match swapchain extent) ---
-            var swapExtent = new Extent2D((uint)_window.Size.X, (uint)_window.Size.Y);
+            _swapExtent = new Extent2D((uint)_window.Size.X, (uint)_window.Size.Y);
             var viewport = new Viewport(
                 x: 0f, y: 0f,
-                width: swapExtent.Width,
-                height: swapExtent.Height,
+                width: _swapExtent.Width,
+                height: _swapExtent.Height,
                 minDepth: 0f, maxDepth: 1f
             );
-            var scissor = new Rect2D(new Offset2D(0, 0), swapExtent);
+            var scissor = new Rect2D(new Offset2D(0, 0), _swapExtent);
 
             var viewportState = new PipelineViewportStateCreateInfo(
                 sType: StructureType.PipelineViewportStateCreateInfo,
@@ -372,9 +502,18 @@ namespace ShowControl.Graphics
                 pAttachments: &colorBlendAttachment
             );
 
+            // When creating pipeline layout:
+            var pushRange = new PushConstantRange(
+                stageFlags: ShaderStageFlags.FragmentBit,
+                offset: 0,
+                size: (uint)Unsafe.SizeOf<PushData>()
+            );
+
             // --- Empty layout (no descriptors/push constants) ---
             var layoutInfo = new PipelineLayoutCreateInfo(
-                sType: StructureType.PipelineLayoutCreateInfo
+                sType: StructureType.PipelineLayoutCreateInfo,
+                pushConstantRangeCount: 1,
+                pPushConstantRanges: &pushRange
             );
             if (_vk.CreatePipelineLayout(_device, in layoutInfo, null, out _pipelineLayout) !=  Result.Success)
             {
@@ -443,6 +582,23 @@ namespace ShowControl.Graphics
             }
         }
 
+        private static uint FindMemoryType(
+            uint typeFilter,
+            MemoryPropertyFlags properties,
+            in PhysicalDeviceMemoryProperties memProps)
+        {
+            for (uint i = 0; i < memProps.MemoryTypeCount; i++)
+            {
+                bool typeSupported = (typeFilter & (1u << (int)i)) != 0;
+                bool hasProps = (memProps.MemoryTypes[(int)i].PropertyFlags & properties) == properties;
+
+                if (typeSupported && hasProps)
+                    return i;
+            }
+
+            throw new Exception("Failed to find suitable memory type!");
+        }
+
         private static unsafe void OnRender(double obj)
         {
             // Wait for previous frame
@@ -461,6 +617,41 @@ namespace ShowControl.Graphics
             fixed (Semaphore* pSignalSem = &_renderFinishedSemaphores[_currentFrame])
             fixed (CommandBuffer* pCmd = &_commandBuffers[imageIndex])
             {
+                CommandBufferBeginInfo begin = new() { SType = StructureType.CommandBufferBeginInfo };
+                _vk.BeginCommandBuffer(_commandBuffers[imageIndex], &begin);
+
+                var clear = new ClearValue(new ClearColorValue(0.1f, 0.1f, 0.1f, 1f));
+                RenderPassBeginInfo renderPassBeginInfo = new RenderPassBeginInfo
+                {
+                    SType = StructureType.RenderPassBeginInfo,
+                    RenderPass = _renderPass,                         // your VkRenderPass
+                    Framebuffer = _framebuffers[imageIndex],          // your per-image framebuffer
+                    RenderArea = new Rect2D
+                    {
+                        Offset = new Offset2D(0, 0),
+                        Extent = _swapExtent                          // VkExtent2D for swapchain
+                    },
+                    ClearValueCount = 1,
+                    PClearValues = &clear
+                };
+
+                _vk.CmdBeginRenderPass(_commandBuffers[imageIndex], &renderPassBeginInfo, SubpassContents.Inline);
+                _vk.CmdBindPipeline(_commandBuffers[imageIndex], PipelineBindPoint.Graphics, _pipeline);
+
+                PushData pc = new()
+                {
+                    Resolution = new System.Numerics.Vector2(_swapExtent.Width, _swapExtent.Height),
+                    Time = (float)_stopwatch.Elapsed.TotalSeconds
+                };
+
+                _vk.CmdPushConstants(_commandBuffers[imageIndex], _pipelineLayout, ShaderStageFlags.FragmentBit,
+                    0, (uint)Unsafe.SizeOf<PushData>(), &pc);
+
+                _vk.CmdDraw(_commandBuffers[imageIndex], 3, 1, 0, 0);
+
+                _vk.CmdEndRenderPass(_commandBuffers[imageIndex]);
+                _vk.EndCommandBuffer(_commandBuffers[imageIndex]);
+
                 var submitInfo = new SubmitInfo(
                     waitSemaphoreCount: 1, pWaitSemaphores: pWaitSem,
                     pWaitDstStageMask: &waitStage,
@@ -468,7 +659,7 @@ namespace ShowControl.Graphics
                     signalSemaphoreCount: 1, pSignalSemaphores: pSignalSem
                 );
 
-                _vk.QueueSubmit(_graphicsQueue, 1, submitInfo, _inFlightFences[_currentFrame]);
+                _vk.QueueSubmit(_graphicsQueue, 1, ref submitInfo, _inFlightFences[_currentFrame]);
 
                 // Present waits on renderFinished
                 fixed (SwapchainKHR* pSwap = &_swapchain)

@@ -17,6 +17,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Update="kaleidoscope.frag.spv">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="simple.frag.spv">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
