@@ -10,7 +10,8 @@
   </ItemGroup>
   <ItemGroup>
      <ProjectReference Include="..\DMXController.Devices.Audio\ShowControl.Devices.Audio.csproj" /> 
-    <ProjectReference Include="..\DMXController.Devices.Input\ShowControl.Devices.Input.csproj" />
+    <ProjectReference Include="..\DMXController.Devices.Input\ShowControl.Devices.Input.csproj" /> 
+    <ProjectReference Include="..\ShowControl.Graphics\ShowControl.Graphics.csproj" />
     <ProjectReference Include="..\ShowControl.Utilities\ShowControl.Utilities.csproj" />
   </ItemGroup>
 </Project>

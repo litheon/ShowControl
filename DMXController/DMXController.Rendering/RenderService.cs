@@ -2478,7 +2478,8 @@ namespace ShowControl.Rendering
                 new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg9, _audioService, _cts.Token, fastAnimate: true),
                 new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg2Lucidas, _audioService, _cts.Token, fastAnimate: true),
                 new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg6, _audioService, _cts.Token, fastAnimate: true),
-                new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg8, _audioService, _cts.Token, fastAnimate: true),
+                new VibrantAnimation(_pixelChannels.TotalPixelCount, _audioService, _cts.Token)
+                //new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg8, _audioService, _cts.Token, fastAnimate: true),
             };
             _auxilaryKeyAnimations = new IKeyAnimation[]
             {
@@ -2489,7 +2490,8 @@ namespace ShowControl.Rendering
                 new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg9, _audioService, _cts.Token),
                 new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg2Lucidas, _audioService, _cts.Token),
                 new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg6, _audioService, _cts.Token),
-                new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg8, _audioService, _cts.Token),
+                new VibrantAnimation(_parChannels.TotalPixelCount, _audioService, _cts.Token)
+                //new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg8, _audioService, _cts.Token),
             };
 
             _transformAnimations = new ITransformAnimation[]

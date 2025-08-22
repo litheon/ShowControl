@@ -7,6 +7,7 @@ using System.Text;
 using System.Linq;
 using System.Threading;
 using ShowControl.Utilities;
+using System.Runtime.InteropServices;
 
 namespace ShowControl.Animation
 {
@@ -210,50 +211,22 @@ namespace ShowControl.Animation
             {
                 mode = _mode;
             }
-            for (int i = 0; i < _pixelCount; i++)
+            lock (ShowControl.Graphics.HelloWorldGraphicsHost._lock)
             {
-                var existingColor = _nextFrame[i].Color;
-                var targetColor = targetFrame[i];
-                var R = existingColor.R;
-                var G = existingColor.G;
-                var B = existingColor.B;
-                if (R < targetColor.R)
+                if (ShowControl.Graphics.HelloWorldGraphicsHost.Bytes == null)
                 {
-                    R++;
-                }
-                else if (B < targetColor.B)
-                {
-                    B++;
-                }
-                else if (G < targetColor.G)
-                {
-                    G++;
-                }
-                else if (R > targetColor.R)
-                {
-                    R--;
-                }
-                else if (B > targetColor.B)
-                {
-                    B--;
-                }
-                else if (G > targetColor.G)
-                {
-                    G--;
-                }
-                else if (mode == AnimationMode.Automatic)
-                {
-                    lock(_targetFrameLock)
-                    {
-                        _targetFrame[i] = _vibrantColors[_random.Next() % _vibrantColors.Length];
-                    }
+                    return;
                 }
 
-                _nextFrame[i].Color = Color.FromArgb(R, G, B);
+                var len = ShowControl.Graphics.HelloWorldGraphicsHost.Bytes.Length / 2;
+                for (int i = 0; i < _pixelCount; i++)
+                {
+                    _nextFrame[i].Color = Color.FromArgb(0, ShowControl.Graphics.HelloWorldGraphicsHost.Bytes[len + 4 * (i * 6)], ShowControl.Graphics.HelloWorldGraphicsHost.Bytes[len + 4 * (i * 6) + 1], ShowControl.Graphics.HelloWorldGraphicsHost.Bytes[len + 4 * (i * 6) + 2]);
+                }
+                var temp = _currentFrame;
+                _currentFrame = _nextFrame;
+                _nextFrame = temp;
             }
-            var temp = _currentFrame;
-            _currentFrame = _nextFrame;
-            _nextFrame = temp;
         }
 
         private void NavigationTimerTick(object state)
