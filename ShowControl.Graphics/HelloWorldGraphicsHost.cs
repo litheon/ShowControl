@@ -16,10 +16,6 @@ using IWindow = Silk.NET.Windowing.IWindow;
 using Image = Silk.NET.Vulkan.Image;
 using System.Xml.Linq;
 
-
-
-
-
 #if !ARM64
 using Silk.NET.Windowing;
 #endif
@@ -90,6 +86,9 @@ namespace ShowControl.Graphics
         private static Framebuffer _offscreenFramebuffer;
         private static ulong _imageSize;
 
+        private static bool _imageAcquired = false;
+        private static uint _acquiredImageIndex = 0;
+
         private static Silk.NET.Vulkan.Buffer _buffer;
 
         private static Stopwatch _stopwatch = new Stopwatch();
@@ -107,6 +106,10 @@ namespace ShowControl.Graphics
         private Thread _renderThread;
 
         private static unsafe void* _mapped;
+
+        private static volatile bool _recreatingSwapchain = false;
+        private static volatile bool _isClosing = false;
+        private static volatile bool _tearingDownWSI = false;
 
         public void Run()
         {
@@ -182,6 +185,38 @@ namespace ShowControl.Graphics
 
                 // Optional: drive your render from the window loop instead of a background thread:
                 // _running = false; // stop your headless loop if you prefer single-driver
+            };
+
+            window.Closing += () =>
+            {
+                _isClosing = true;
+                PRESENT = false;
+                _imageAcquired = false;
+                _tearingDownWSI = true;
+                _vk.QueueWaitIdle(_graphicsQueue);
+                // Quiesce GPU before destroying swapchain or semaphores
+                _vk.QueueWaitIdle(_graphicsQueue);
+
+                // 3) Destroy WSI resources ONLY (keep device/offscreen alive)
+                DestroyPerImageSyncObjects(); // destroys _renderFinishedByImage[]
+                if (_swapchain.Handle != 0)
+                {
+                    _swapchainExtension.DestroySwapchain(_device, _swapchain, null);
+                    _swapchain = default;
+                }
+                if (_surface.Handle != 0)
+                {
+                    _khrSurface.DestroySurface(_instance, _surface, null);
+                    _surface = default;
+                }
+
+                // 4) Clear swapchain-dependent arrays so OnRender can’t touch them
+                _swapchainImages = null;
+                _imagesInFlight = null;
+                _acquiredImageIndex = 0;
+
+                _tearingDownWSI = false;
+                _isClosing = false; // allow future re-open if you want
             };
 
             // Use the window's Render event to call your OnRender (single driving loop),
@@ -282,13 +317,51 @@ namespace ShowControl.Graphics
                 _vk.CreateSemaphore(_device, semInfo, null, out _renderFinishedByImage[i]);
         }
 
+        private static SurfaceTransformFlagsKHR PickPreTransform(in SurfaceCapabilitiesKHR caps)
+        {
+            var identity = SurfaceTransformFlagsKHR.SurfaceTransformIdentityBitKhr;
+            if ((caps.SupportedTransforms & identity) != 0)
+                return identity;
+
+            if (caps.CurrentTransform != 0)
+                return caps.CurrentTransform;
+
+            // Fallback: pick the lowest set bit in SupportedTransforms
+            foreach (SurfaceTransformFlagsKHR bit in Enum.GetValues(typeof(SurfaceTransformFlagsKHR)))
+            {
+                if (bit != 0 && (caps.SupportedTransforms & bit) != 0)
+                    return bit;
+            }
+
+            // Last resort (shouldn’t happen on a valid surface):
+            return identity;
+        }
+
         private static unsafe void CreateOrRecreateSwapchainPinned(IWindow window)
         {
+            _vk.QueueWaitIdle(_graphicsQueue);
+
             if (_surface.Handle == 0) throw new Exception("Surface not created. Call EnablePresentation first.");
 
 
             // --- Surface caps / formats / modes ---
             _khrSurface.GetPhysicalDeviceSurfaceCapabilities(_physicalDevice, _surface, out var caps);
+            Extent2D extent;
+            if (caps.CurrentExtent.Width != uint.MaxValue)
+            {
+                extent = caps.CurrentExtent;
+            }
+            else
+            {
+                var w = (uint)window.Size.X;
+                var h = (uint)window.Size.Y;
+                if (w == 0 || h == 0) return;  // <-- don’t create a swapchain now
+                extent = new Extent2D(
+                    Math.Clamp(w, caps.MinImageExtent.Width, caps.MaxImageExtent.Width),
+                    Math.Clamp(h, caps.MinImageExtent.Height, caps.MaxImageExtent.Height)
+                );
+            }
+
             uint fmtCount = 0;
             if (_khrSurface.GetPhysicalDeviceSurfaceFormats(_physicalDevice, _surface, ref fmtCount, null) != Result.Success)
             {
@@ -317,18 +390,6 @@ namespace ShowControl.Graphics
 
             var presentMode = PresentModeKHR.PresentModeFifoKhr; // always supported
 
-            // Extent (some platforms force CurrentExtent)
-            Extent2D extent;
-            if (caps.CurrentExtent.Width != uint.MaxValue) extent = caps.CurrentExtent;
-            else
-            {
-                var w = (uint)window.Size.X; var h = (uint)window.Size.Y;
-                extent = new Extent2D(
-                    Math.Clamp(w, caps.MinImageExtent.Width, caps.MaxImageExtent.Width),
-                    Math.Clamp(h, caps.MinImageExtent.Height, caps.MaxImageExtent.Height)
-                );
-            }
-
             // Image count
             uint imageCount = Math.Max(2, caps.MinImageCount);
             if (caps.MaxImageCount > 0 && imageCount > caps.MaxImageCount) imageCount = caps.MaxImageCount;
@@ -337,6 +398,7 @@ namespace ShowControl.Graphics
             uint gfxQ = 0;                // your function
             uint presentQ = FindPresentQueueFamily(_physicalDevice, _surface); // see helper below
 
+            var preTransform = PickPreTransform(caps);
             var sci = new SwapchainCreateInfoKHR
             {
                 SType = StructureType.SwapchainCreateInfoKhr,
@@ -347,7 +409,7 @@ namespace ShowControl.Graphics
                 ImageExtent = extent,
                 ImageArrayLayers = 1,
                 ImageUsage = ImageUsageFlags.ImageUsageTransferDstBit, // we blit into it
-                PreTransform = caps.CurrentTransform,
+                PreTransform = preTransform,
                 CompositeAlpha = CompositeAlphaFlagsKHR.CompositeAlphaOpaqueBitKhr,
                 PresentMode = presentMode,
                 Clipped = true,
@@ -365,7 +427,12 @@ namespace ShowControl.Graphics
 
                 res = _swapchainExtension.CreateSwapchain(_device, ref sci, null, out var newSwap);
                 if (res != Result.Success) throw new Exception($"vkCreateSwapchainKHR failed: {res}");
-                if (_swapchain.Handle != 0) _swapchainExtension.DestroySwapchain(_device, _swapchain, null);
+                if (_swapchain.Handle != 0)
+                {
+                    _vk.QueueWaitIdle(_graphicsQueue);
+                    DestroyPerImageSyncObjects();
+                    _swapchainExtension.DestroySwapchain(_device, _swapchain, null);
+                }
                 _swapchain = newSwap;
             }
             else
@@ -380,7 +447,11 @@ namespace ShowControl.Graphics
 
                     res = _swapchainExtension.CreateSwapchain(_device, ref sci, null, out var newSwap);
                     if (res != Result.Success) throw new Exception($"vkCreateSwapchainKHR failed: {res}");
-                    if (_swapchain.Handle != 0) _swapchainExtension.DestroySwapchain(_device, _swapchain, null);
+                    if (_swapchain.Handle != 0)
+                    {
+                        DestroyPerImageSyncObjects();
+                        _swapchainExtension.DestroySwapchain(_device, _swapchain, null);
+                    }
                     _swapchain = newSwap;
                 } // <- pointer stays valid until after the call returns
             }
@@ -392,8 +463,11 @@ namespace ShowControl.Graphics
             fixed (Image* pImgs = _swapchainImages)
                 _swapchainExtension.GetSwapchainImages(_device, _swapchain, ref count, pImgs);
 
+            _imageAcquired = false;
+            _acquiredImageIndex = 0;
             _imagesInFlight = new Fence[count]; // default handles == 0
 
+            DestroyPerImageSyncObjects();
             _renderFinishedByImage = new Semaphore[count];
             var semInfo = new SemaphoreCreateInfo { SType = StructureType.SemaphoreCreateInfo };
             for (int i = 0; i < _renderFinishedByImage.Length; i++)
@@ -784,8 +858,26 @@ namespace ShowControl.Graphics
             throw new Exception("Failed to find suitable memory type!");
         }
 
+        private static unsafe void BeginSwapchainRecreate()
+        {
+            _recreatingSwapchain = true;     // stop OnRender from submitting
+            _imageAcquired = false;          // we won’t reuse any previously acquired image
+            _vk.QueueWaitIdle(_graphicsQueue); // <<< CRITICAL: drain all in-flight work/presents
+                                               // You can use _vk.DeviceWaitIdle(_device) if you prefer to be extra safe.
+        }
+
+        private static void EndSwapchainRecreate()
+        {
+            _recreatingSwapchain = false;
+        }
+
         private static unsafe void OnRender(double obj)
         {
+            if (_recreatingSwapchain || _isClosing || _tearingDownWSI)
+            {
+                return;
+            }
+
             var cmd = _cmds[_currentFrame];
 
             // Wait & reset fence for this frame
@@ -793,19 +885,58 @@ namespace ShowControl.Graphics
 
             // If we're presenting, acquire a swapchain image early
             uint imageIndex = 0;
-            if (PRESENT)
+            if (PRESENT && !_isClosing)
             {
-                _imagesInFlight[imageIndex] = _inFlightFences[_currentFrame];
+                // Bail if swapchain not ready
+                if (_swapchain.Handle == 0 || _swapchainImages == null || _swapchainImages.Length == 0)
+                    return;
 
-                _swapchainExtension.AcquireNextImage(
-                    _device, _swapchain, ulong.MaxValue,
-                    _imageAvailableSemaphores[_currentFrame], default, ref imageIndex);
+                // If we don’t already own an image, try to acquire one with finite timeout
+                if (!_imageAcquired)
+                {
+                    var acq = _swapchainExtension.AcquireNextImage(
+                        _device, _swapchain,
+                        0ul, // <-- finite timeout: non-blocking
+                        _imageAvailableSemaphores[_currentFrame],
+                        default,
+                        ref imageIndex);
+
+                    if (acq == Result.NotReady)
+                    {
+                        // No image available right now. Don’t reset the fence, just try again next frame.
+                        return;
+                    }
+                    if (acq == Result.ErrorOutOfDateKhr && !_isClosing)
+                    {
+                        // Trigger your swapchain recreate path here
+                        BeginSwapchainRecreate();
+                        CreateOrRecreateSwapchainPinned(_window);
+                        EndSwapchainRecreate();
+                        return;
+                    }
+                    // Success or Suboptimal
+                    _imageAcquired = true;
+                    _acquiredImageIndex = imageIndex;
+                }
+                else
+                {
+                    // Reuse the one we already acquired previously (e.g., last frame aborted before present)
+                    imageIndex = _acquiredImageIndex;
+                }
+
+                // If this image is still in use by a previous frame, wait it out
+                var prevFence = _imagesInFlight[imageIndex];
+                if (prevFence.Handle != 0)
+                    _vk.WaitForFences(_device, 1, in prevFence, true, ulong.MaxValue);
             }
-
-            var renderFinishedForThisImage = _renderFinishedByImage[imageIndex];
 
             // Reset fences for this frame
             _vk.ResetFences(_device, 1, in _inFlightFences[_currentFrame]);
+
+            if (PRESENT)
+            {
+                _imagesInFlight[imageIndex] = _inFlightFences[_currentFrame];
+            }
 
             // Record commands
             _vk.ResetCommandBuffer(cmd, 0);
@@ -872,6 +1003,12 @@ namespace ShowControl.Graphics
             // If we're presenting, blit the off-screen image into the swapchain image
             if (PRESENT)
             {
+                if (_swapExtent.Width == 0 || _swapExtent.Height == 0)
+                {
+                    // Skip frame will resizing
+                    return;
+                }
+
                 // swapchain image: UNDEFINED -> TRANSFER_DST
                 ImageMemoryBarrier swapToDst = new()
                 {
@@ -903,7 +1040,7 @@ namespace ShowControl.Graphics
                     DstOffsets = new ImageBlit.DstOffsetsBuffer
                     {
                         Element0 = new(0, 0, 0),
-                        Element1 = new((int)_offscreenExtent.Width, (int)_offscreenExtent.Height, 1)
+                        Element1 = new((int)_swapExtent.Width, (int)_swapExtent.Height, 1)
                     }
                 };
 
@@ -934,6 +1071,7 @@ namespace ShowControl.Graphics
             // Submit
             if (PRESENT)
             {
+                var renderFinishedForThisImage = _renderFinishedByImage[imageIndex];
                 var waitStage = PipelineStageFlags.PipelineStageTransferBit; // we first use the swapchain image in a transfer op
                 fixed (Semaphore* pWait = &_imageAvailableSemaphores[_currentFrame])
                 {
@@ -955,7 +1093,13 @@ namespace ShowControl.Graphics
                             swapchainCount: 1, pSwapchains: pSwap,
                             pImageIndices: &imageIndex
                         );
-                        _swapchainExtension.QueuePresent(_graphicsQueue, presentInfo);
+                        var pres = _swapchainExtension.QueuePresent(_graphicsQueue, presentInfo);
+                        _imageAcquired = false;
+                        if ((pres == Result.ErrorOutOfDateKhr || pres == Result.SuboptimalKhr) && !_isClosing)
+                        {
+                            CreateOrRecreateSwapchainPinned(_window);
+                            return;
+                        }
                     }
                 }
             }
