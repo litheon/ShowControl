@@ -4,11 +4,6 @@
     <Platforms>AnyCPU;x64;x86;ARM64</Platforms>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Silk.NET" Version="2.22.0" />
-    <PackageReference Include="Silk.NET.Vulkan" Version="2.22.0" />
-    <PackageReference Include="Silk.NET.Windowing" Version="2.22.0" />
-  </ItemGroup>
-  <ItemGroup>
      <ProjectReference Include="..\DMXController.Devices.Audio\ShowControl.Devices.Audio.csproj" /> 
     <ProjectReference Include="..\DMXController.Devices.Input\ShowControl.Devices.Input.csproj" /> 
     <ProjectReference Include="..\ShowControl.Graphics\ShowControl.Graphics.csproj" />

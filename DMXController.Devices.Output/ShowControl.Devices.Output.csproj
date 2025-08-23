@@ -15,7 +15,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <DefineConstants>TRACE;WIN64</DefineConstants>
   </PropertyGroup>
-  <!--<PropertyGroup>
+  <PropertyGroup>
     <DefineConstants>TRACE;ARM64</DefineConstants>
-  </PropertyGroup>-->
+  </PropertyGroup>
 </Project>

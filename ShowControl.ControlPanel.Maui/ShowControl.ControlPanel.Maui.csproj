@@ -77,7 +77,7 @@
 	  <ProjectReference Include="..\ShowControl.Graphics\ShowControl.Graphics.csproj" />
 	</ItemGroup>
 
-	<!--<ItemGroup>
+	<ItemGroup>
 		<NativeReference Include="Platforms/MacCatalyst/librtmidi.dylib">
 			<Kind>Dynamic</Kind>
 			<ForceLoad>true</ForceLoad>
@@ -94,5 +94,9 @@
 			<Kind>Dynamic</Kind>
 			<ForceLoad>true</ForceLoad>
 		</NativeReference>
-	</ItemGroup>-->
+		<NativeReference Include="Platforms/MacCatalyst/libMoltenVK.dylib">
+			<Kind>Dynamic</Kind>
+			<ForceLoad>true</ForceLoad>
+		</NativeReference>
+	</ItemGroup>
 </Project>
