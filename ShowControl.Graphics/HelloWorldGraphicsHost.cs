@@ -149,7 +149,7 @@ namespace ShowControl.Graphics
         }
 
 #if !ARM64
-        public unsafe void ShowHeadlessInWindow(int width = 800, int height = 600, string title = "Viewer")
+        public unsafe void ShowHeadlessInWindow(int width = 1600, int height = 1200, string title = "Viewer")
         {
             // We assume instance/device already have WSI + swapchain enabled.
             // We also assume your off-screen renderer is already running (RunHeadless or similar).
