@@ -221,7 +221,9 @@ namespace ShowControl.Animation
                 var len = ShowControl.Graphics.HelloWorldGraphicsHost.Bytes.Length / 2;
                 for (int i = 0; i < _pixelCount; i++)
                 {
-                    _nextFrame[i].Color = Color.FromArgb(0, ShowControl.Graphics.HelloWorldGraphicsHost.Bytes[len + 4 * (i * 6)], ShowControl.Graphics.HelloWorldGraphicsHost.Bytes[len + 4 * (i * 6) + 1], ShowControl.Graphics.HelloWorldGraphicsHost.Bytes[len + 4 * (i * 6) + 2]);
+                    //_nextFrame[i].Color = Color.FromArgb(0, ShowControl.Graphics.HelloWorldGraphicsHost.Bytes[len + 4 * (i * 6) + 2], ShowControl.Graphics.HelloWorldGraphicsHost.Bytes[len + 4 * (i * 6) + 1], ShowControl.Graphics.HelloWorldGraphicsHost.Bytes[len + 4 * (i * 6)]);
+                    //
+                    _nextFrame[i].Color = Color.FromArgb(0, ShowControl.Graphics.HelloWorldGraphicsHost.Bytes[len + 8 * (i * 1)], ShowControl.Graphics.HelloWorldGraphicsHost.Bytes[len + 8 * (i * 1) + 1], ShowControl.Graphics.HelloWorldGraphicsHost.Bytes[len + 8 * (i * 1) + 2]);
                 }
                 var temp = _currentFrame;
                 _currentFrame = _nextFrame;
@@ -277,12 +279,12 @@ namespace ShowControl.Animation
             {
                 if (direction == RotaryDirection.Up)
                 {
-                    var threshold = _frameCountAnimationThreshold.InterlockedIncrement(0, 4);
+                    var threshold = _frameCountAnimationThreshold.InterlockedIncrement(-100, 100);
                     _currentFrameCountAnimationThreshold = threshold;
                 }
                 else if (direction == RotaryDirection.Down)
                 {
-                    var threshold = _frameCountAnimationThreshold.InterlockedDecrement(0, 4);
+                    var threshold = _frameCountAnimationThreshold.InterlockedDecrement(-100, 100);
                     _currentFrameCountAnimationThreshold = threshold;
                 }
             }

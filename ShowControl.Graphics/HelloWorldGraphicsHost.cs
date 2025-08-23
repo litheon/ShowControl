@@ -11,9 +11,14 @@ using System.IO;
 using Silk.NET.Vulkan.Extensions.EXT;
 using Device = Silk.NET.Vulkan.Device;
 using Semaphore = Silk.NET.Vulkan.Semaphore;
-using Microsoft.Maui.Storage;
+using Silk.NET.Maths;
+using IWindow = Silk.NET.Windowing.IWindow;
+using Image = Silk.NET.Vulkan.Image;
 
-#if WINDOWS
+
+
+
+#if !ARM64
 using Silk.NET.Windowing;
 #endif
 
@@ -34,9 +39,9 @@ namespace ShowControl.Graphics
             private float _pad;         // keep total size multiple of 16
         }
 
-#if WINDOWS
-        private static IWindow _window;
-        private static IWindow _presentWindow;
+#if !ARM64
+        private static Silk.NET.Windowing.IWindow _window;
+        private static Silk.NET.Windowing.IWindow _presentWindow;
 #endif
         private static Vk _vk;
         private static Instance _instance;
@@ -103,7 +108,7 @@ namespace ShowControl.Graphics
             {
                 //System.Threading.Thread.Sleep(20000);
                 RunHeadless();
-                #if WINDOWS
+                #if !ARM64
                 ShowHeadlessInWindow();
                 #endif
             }
@@ -113,7 +118,7 @@ namespace ShowControl.Graphics
             }
         }
 
-        public void RunHeadless(int width = 800, int height = 600)
+        public void RunHeadless(int width = 1600, int height = 1200)
         {
             PRESENT = false; // make sure your OnRender uses the no-present path
             _offscreenExtent = new Extent2D((uint)width, (uint)height);
@@ -143,7 +148,7 @@ namespace ShowControl.Graphics
 
         }
 
-#if WINDOWS
+#if !ARM64
         public unsafe void ShowHeadlessInWindow(int width = 800, int height = 600, string title = "Viewer")
         {
             // We assume instance/device already have WSI + swapchain enabled.
@@ -153,11 +158,11 @@ namespace ShowControl.Graphics
             opts.Size = new Vector2D<int>(width, height);
             opts.Title = title;
 
-            var window = Window.Create(opts);
+            var window = Silk.NET.Windowing.Window.Create(opts);
             window.Load += () =>
             {
                 // Match the off-screen format you used
-                var offFormat = Format.B8G8R8A8Srgb;
+                var offFormat = Format.R8G8B8A8Srgb;
                 var offColorCS = ColorSpaceKHR.ColorspaceSrgbNonlinearKhr;
                 var extent = new Extent2D((uint)width, (uint)height);
 
@@ -277,7 +282,7 @@ namespace ShowControl.Graphics
             // Prefer B8G8R8A8_SRGB to match your off-screen format
             var pickFmt = fmts[0];
             foreach (var f in fmts)
-                if (f.Format == Format.B8G8R8A8Srgb && f.ColorSpace == ColorSpaceKHR.ColorspaceSrgbNonlinearKhr)
+                if (f.Format == Format.R8G8B8A8Srgb && f.ColorSpace == ColorSpaceKHR.ColorspaceSrgbNonlinearKhr)
                 { pickFmt = f; break; }
 
             var presentMode = PresentModeKHR.PresentModeFifoKhr; // always supported
@@ -542,7 +547,7 @@ namespace ShowControl.Graphics
             _vk.AllocateCommandBuffers(_device, allocOne, out _cmd);
 
             // --- Off-screen image (use one format consistently) ---
-            var offFormat = Format.B8G8R8A8Srgb; // pick one and use it everywhere
+            var offFormat = Format.R8G8B8A8Srgb; // pick one and use it everywhere
             ImageCreateInfo imgInfo = new()
             {
                 SType = StructureType.ImageCreateInfo,
@@ -625,12 +630,12 @@ namespace ShowControl.Graphics
             // --- Shaders, pipeline layout, pipeline (use _offscreenRenderPass) ---
             using var stream = FileSystem.OpenAppPackageFileAsync("simple.vert.spv").Result;
             using var streamReader = new BinaryReader(stream);
-            var vertBytes = streamReader.ReadBytes(Int32.MaxValue);
+            var vertBytes = streamReader.ReadBytes(Int32.MaxValue / 2);
 
 
             using var stream2 = FileSystem.OpenAppPackageFileAsync("kaleidoscope.frag.spv").Result;
             using var streamReader2 = new BinaryReader(stream2);
-            var fragBytes = streamReader2.ReadBytes(Int32.MaxValue);
+            var fragBytes = streamReader2.ReadBytes(Int32.MaxValue / 2);
             _vertShaderModule = CreateShaderModule(vertBytes);
             _fragShaderModule = CreateShaderModule(fragBytes);
 
