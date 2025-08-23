@@ -14,6 +14,8 @@ using Semaphore = Silk.NET.Vulkan.Semaphore;
 using Silk.NET.Maths;
 using IWindow = Silk.NET.Windowing.IWindow;
 using Image = Silk.NET.Vulkan.Image;
+using System.Xml.Linq;
+
 
 
 
@@ -70,7 +72,9 @@ namespace ShowControl.Graphics
         private static PipelineLayout _pipelineLayout;
 
         private static Fence[] _inFlightFences;
+        private static Fence[] _imagesInFlight;
         private static Semaphore[] _imageAvailableSemaphores;
+        private static Semaphore[] _renderFinishedByImage; // one per swapchain image
         private static Semaphore[] _renderFinishedSemaphores;
         private static int _currentFrame = 0;
 
@@ -97,16 +101,18 @@ namespace ShowControl.Graphics
 
         private static bool PRESENT = false; // set false to run headless (no window present)
         private static Extent2D _offscreenExtent;
-        private static CommandBuffer _cmd; // single reusable CB for off-screen + optional blit
+        private static CommandBuffer[] _cmds;
 
         private volatile bool _running;
         private Thread _renderThread;
+
+        private static unsafe void* _mapped;
 
         public void Run()
         {
             try
             {
-                //System.Threading.Thread.Sleep(20000);
+                System.Threading.Thread.Sleep(20000);
                 RunHeadless();
                 #if !ARM64
                 ShowHeadlessInWindow();
@@ -139,6 +145,7 @@ namespace ShowControl.Graphics
                 OnRender(0);        // your existing OnRender with PRESENT=false
                 Thread.Yield();     // or Thread.Sleep(0) / Sleep(1) if you want to throttle
             }
+            _vk.UnmapMemory(_device, _deviceMemory);
         }
 
         public void StopHeadless()
@@ -179,7 +186,7 @@ namespace ShowControl.Graphics
 
             // Use the window's Render event to call your OnRender (single driving loop),
             // or keep your background loop and just let OnRender see PRESENT=true.
-            window.Render += OnRender;
+            //window.Render += OnRender;
 
             window.Run();
         }
@@ -233,6 +240,9 @@ namespace ShowControl.Graphics
             _swapchainImages = new Image[count];
             fixed (Image* p = _swapchainImages)
                 _swapchainExtension.GetSwapchainImages(_device, _swapchain, &count, p);
+
+            CreatePerImageSyncObjects(count);
+            _imagesInFlight = new Fence[count];   // reset image-in-flight tracking on (re)create;
         }
 
         private static unsafe uint FindPresentQueueFamily(PhysicalDevice pd, SurfaceKHR surface)
@@ -250,6 +260,26 @@ namespace ShowControl.Graphics
                 if (supports) return i;
             }
             throw new Exception("No PRESENT-capable queue family.");
+        }
+
+        private static unsafe void DestroyPerImageSyncObjects()
+        {
+            if (_renderFinishedByImage != null)
+            {
+                foreach (var s in _renderFinishedByImage)
+                    if (s.Handle != 0) _vk.DestroySemaphore(_device, s, null);
+                _renderFinishedByImage = null;
+            }
+        }
+
+        private static unsafe void CreatePerImageSyncObjects(uint imageCount)
+        {
+            DestroyPerImageSyncObjects(); // safe if null
+            _renderFinishedByImage = new Semaphore[imageCount];
+
+            var semInfo = new SemaphoreCreateInfo { SType = StructureType.SemaphoreCreateInfo };
+            for (int i = 0; i < _renderFinishedByImage.Length; i++)
+                _vk.CreateSemaphore(_device, semInfo, null, out _renderFinishedByImage[i]);
         }
 
         private static unsafe void CreateOrRecreateSwapchainPinned(IWindow window)
@@ -361,6 +391,13 @@ namespace ShowControl.Graphics
             _swapchainImages = new Image[count];
             fixed (Image* pImgs = _swapchainImages)
                 _swapchainExtension.GetSwapchainImages(_device, _swapchain, ref count, pImgs);
+
+            _imagesInFlight = new Fence[count]; // default handles == 0
+
+            _renderFinishedByImage = new Semaphore[count];
+            var semInfo = new SemaphoreCreateInfo { SType = StructureType.SemaphoreCreateInfo };
+            for (int i = 0; i < _renderFinishedByImage.Length; i++)
+                _vk.CreateSemaphore(_device, semInfo, null, out _renderFinishedByImage[i]);
 
             _swapExtent = extent; // keep for blit
         }
@@ -524,7 +561,10 @@ namespace ShowControl.Graphics
             _imageAvailableSemaphores = new Semaphore[MAX_FRAMES_IN_FLIGHT];
             _renderFinishedSemaphores = new Semaphore[MAX_FRAMES_IN_FLIGHT];
             var fenceInfo = new FenceCreateInfo(flags: FenceCreateFlags.FenceCreateSignaledBit);
-            var semInfo = new SemaphoreCreateInfo();
+            var semInfo = new SemaphoreCreateInfo()
+            {
+                SType = StructureType.SemaphoreCreateInfo
+            };
             for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
             {
                 _vk.CreateFence(_device, fenceInfo, null, out _inFlightFences[i]);
@@ -539,12 +579,20 @@ namespace ShowControl.Graphics
             );
             _vk.CreateCommandPool(_device, poolCI, null, out _commandPool);
 
+            // Create command buffers
+            _cmds = new CommandBuffer[MAX_FRAMES_IN_FLIGHT];
+            var allocInfo = new CommandBufferAllocateInfo(
+                commandPool: _commandPool,
+                level: CommandBufferLevel.Primary,
+                commandBufferCount: (uint)MAX_FRAMES_IN_FLIGHT);
+            fixed (CommandBuffer* p = _cmds)
+                _vk.AllocateCommandBuffers(_device, ref allocInfo, p);
+
             var allocOne = new CommandBufferAllocateInfo(
                 commandPool: _commandPool,
                 level: CommandBufferLevel.Primary,
                 commandBufferCount: 1
             );
-            _vk.AllocateCommandBuffers(_device, allocOne, out _cmd);
 
             // --- Off-screen image (use one format consistently) ---
             var offFormat = Format.R8G8B8A8Srgb; // pick one and use it everywhere
@@ -627,6 +675,12 @@ namespace ShowControl.Graphics
             _vk.AllocateMemory(_device, &bufAI, null, out _deviceMemory);
             _vk.BindBufferMemory(_device, _buffer, _deviceMemory, 0);
 
+            fixed (void** ptrMapped = &_mapped)
+            {
+                if (_vk.MapMemory(_device, _deviceMemory, 0, _imageSize, 0, ptrMapped) != Result.Success)
+                    throw new Exception("MapMemory failed");
+            }
+
             // --- Shaders, pipeline layout, pipeline (use _offscreenRenderPass) ---
             using var stream = FileSystem.OpenAppPackageFileAsync("simple.vert.spv").Result;
             using var streamReader = new BinaryReader(stream);
@@ -651,7 +705,7 @@ namespace ShowControl.Graphics
             shaderStages[0] = new PipelineShaderStageCreateInfo(stage: ShaderStageFlags.VertexBit, module: _vertShaderModule, pName: (byte*)SilkMarshal.StringToPtr("main"));
             shaderStages[1] = new PipelineShaderStageCreateInfo(stage: ShaderStageFlags.FragmentBit, module: _fragShaderModule, pName: (byte*)SilkMarshal.StringToPtr("main"));
 
-            var vi = new PipelineVertexInputStateCreateInfo();
+            var vi = new PipelineVertexInputStateCreateInfo(StructureType.PipelineVertexInputStateCreateInfo);
             var ia = new PipelineInputAssemblyStateCreateInfo(topology: PrimitiveTopology.TriangleList);
             var rs = new PipelineRasterizationStateCreateInfo(polygonMode: PolygonMode.Fill, cullMode: CullModeFlags.CullModeNone, frontFace: FrontFace.CounterClockwise, lineWidth: 1f);
             var ms = new PipelineMultisampleStateCreateInfo(rasterizationSamples: SampleCountFlags.SampleCount1Bit);
@@ -732,23 +786,31 @@ namespace ShowControl.Graphics
 
         private static unsafe void OnRender(double obj)
         {
+            var cmd = _cmds[_currentFrame];
+
             // Wait & reset fence for this frame
             _vk.WaitForFences(_device, 1, in _inFlightFences[_currentFrame], true, ulong.MaxValue);
-            _vk.ResetFences(_device, 1, in _inFlightFences[_currentFrame]);
 
             // If we're presenting, acquire a swapchain image early
             uint imageIndex = 0;
             if (PRESENT)
             {
+                _imagesInFlight[imageIndex] = _inFlightFences[_currentFrame];
+
                 _swapchainExtension.AcquireNextImage(
                     _device, _swapchain, ulong.MaxValue,
                     _imageAvailableSemaphores[_currentFrame], default, ref imageIndex);
             }
 
+            var renderFinishedForThisImage = _renderFinishedByImage[imageIndex];
+
+            // Reset fences for this frame
+            _vk.ResetFences(_device, 1, in _inFlightFences[_currentFrame]);
+
             // Record commands
-            _vk.ResetCommandBuffer(_cmd, 0);
+            _vk.ResetCommandBuffer(cmd, 0);
             CommandBufferBeginInfo begin = new() { SType = StructureType.CommandBufferBeginInfo };
-            _vk.BeginCommandBuffer(_cmd, &begin);
+            _vk.BeginCommandBuffer(cmd, &begin);
 
             // --- Off-screen render pass ---
             var clear = new ClearValue(new ClearColorValue(0.1f, 0.1f, 0.1f, 1f));
@@ -762,19 +824,19 @@ namespace ShowControl.Graphics
                 PClearValues = &clear
             };
 
-            _vk.CmdBeginRenderPass(_cmd, &rpBegin, SubpassContents.Inline);
-            _vk.CmdBindPipeline(_cmd, PipelineBindPoint.Graphics, _pipeline);
+            _vk.CmdBeginRenderPass(cmd, &rpBegin, SubpassContents.Inline);
+            _vk.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, _pipeline);
 
             PushData pc = new()
             {
                 Resolution = new System.Numerics.Vector2(_offscreenExtent.Width, _offscreenExtent.Height),
                 Time = (float)_stopwatch.Elapsed.TotalSeconds
             };
-            _vk.CmdPushConstants(_cmd, _pipelineLayout, ShaderStageFlags.FragmentBit,
+            _vk.CmdPushConstants(cmd, _pipelineLayout, ShaderStageFlags.FragmentBit,
                 0, (uint)Unsafe.SizeOf<PushData>(), &pc);
 
-            _vk.CmdDraw(_cmd, 3, 1, 0, 0);
-            _vk.CmdEndRenderPass(_cmd);
+            _vk.CmdDraw(cmd, 3, 1, 0, 0);
+            _vk.CmdEndRenderPass(cmd);
 
             // Transition off-screen image to TRANSFER_SRC for copy/blit
             ImageMemoryBarrier toSrc = new()
@@ -789,7 +851,7 @@ namespace ShowControl.Graphics
                     ImageAspectFlags.ColorBit, 0, 1, 0, 1)
             };
             _vk.CmdPipelineBarrier(
-                _cmd,
+                cmd,
                 PipelineStageFlags.ColorAttachmentOutputBit,
                 PipelineStageFlags.TransferBit,
                 0, 0, null, 0, null, 1, &toSrc
@@ -805,7 +867,7 @@ namespace ShowControl.Graphics
                 ImageOffset = new Offset3D(0, 0, 0),
                 ImageExtent = new Extent3D(_offscreenExtent.Width, _offscreenExtent.Height, 1),
             };
-            _vk.CmdCopyImageToBuffer(_cmd, _offscreenImage, ImageLayout.TransferSrcOptimal, _buffer, 1, &region);
+            _vk.CmdCopyImageToBuffer(cmd, _offscreenImage, ImageLayout.TransferSrcOptimal, _buffer, 1, &region);
 
             // If we're presenting, blit the off-screen image into the swapchain image
             if (PRESENT)
@@ -823,7 +885,7 @@ namespace ShowControl.Graphics
                         ImageAspectFlags.ColorBit, 0, 1, 0, 1)
                 };
                 _vk.CmdPipelineBarrier(
-                    _cmd,
+                    cmd,
                     PipelineStageFlags.TopOfPipeBit,
                     PipelineStageFlags.TransferBit,
                     0, 0, null, 0, null, 1, &swapToDst
@@ -846,7 +908,7 @@ namespace ShowControl.Graphics
                 };
 
                 _vk.CmdBlitImage(
-                    _cmd,
+                    cmd,
                     _offscreenImage, ImageLayout.TransferSrcOptimal,
                     _swapchainImages[imageIndex], ImageLayout.TransferDstOptimal,
                     1, &blit, Filter.Linear
@@ -860,23 +922,23 @@ namespace ShowControl.Graphics
                 toPresent.DstAccessMask = 0;
 
                 _vk.CmdPipelineBarrier(
-                    _cmd,
+                    cmd,
                     PipelineStageFlags.TransferBit,
                     PipelineStageFlags.BottomOfPipeBit,
                     0, 0, null, 0, null, 1, &toPresent
                 );
             }
 
-            _vk.EndCommandBuffer(_cmd);
+            _vk.EndCommandBuffer(cmd);
 
             // Submit
             if (PRESENT)
             {
                 var waitStage = PipelineStageFlags.PipelineStageTransferBit; // we first use the swapchain image in a transfer op
                 fixed (Semaphore* pWait = &_imageAvailableSemaphores[_currentFrame])
-                fixed (Semaphore* pSignal = &_renderFinishedSemaphores[_currentFrame])
-                fixed (CommandBuffer* pCmd = &_cmd)
                 {
+                    Semaphore* pSignal = &renderFinishedForThisImage;
+                    CommandBuffer* pCmd = &cmd;
                     var submitInfo = new SubmitInfo(
                         waitSemaphoreCount: 1, pWaitSemaphores: pWait,
                         pWaitDstStageMask: &waitStage,
@@ -900,30 +962,22 @@ namespace ShowControl.Graphics
             else
             {
                 // No presentation path: just submit the off-screen work
-                fixed (CommandBuffer* pCmd = &_cmd)
-                {
-                    var submitInfo = new SubmitInfo(
-                        waitSemaphoreCount: 0, pWaitSemaphores: null,
-                        pWaitDstStageMask: null,
-                        commandBufferCount: 1, pCommandBuffers: pCmd,
-                        signalSemaphoreCount: 0, pSignalSemaphores: null
-                    );
-                    _vk.QueueSubmit(_graphicsQueue, 1, ref submitInfo, _inFlightFences[_currentFrame]);
-                }
+                var submitInfo = new SubmitInfo(
+                    waitSemaphoreCount: 0, pWaitSemaphores: null,
+                    pWaitDstStageMask: null,
+                    commandBufferCount: 1, pCommandBuffers: &cmd,
+                    signalSemaphoreCount: 0, pSignalSemaphores: null
+                );
+                _vk.QueueSubmit(_graphicsQueue, 1, ref submitInfo, _inFlightFences[_currentFrame]);
             }
 
             // Wait for GPU, then map staging buffer and copy to Bytes[]
             _vk.WaitForFences(_device, 1, in _inFlightFences[_currentFrame], true, ulong.MaxValue);
 
-            void* mapped;
-            if (_vk.MapMemory(_device, _deviceMemory, 0, _imageSize, 0, &mapped) != Result.Success)
-                throw new Exception("MapMemory failed");
-
             lock (_lock)
             {
-                Marshal.Copy((IntPtr)mapped, Bytes, 0, (int)_imageSize);
+                Marshal.Copy((IntPtr)_mapped, Bytes, 0, (int)_imageSize);
             }
-            _vk.UnmapMemory(_device, _deviceMemory);
 
             _currentFrame = (_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
         }
