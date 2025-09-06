@@ -59,6 +59,9 @@ namespace ShowControl.ControlPanel.Maui
 
         private void OnAudioFrameProcessed(object sender, AudioFrameProcessedEventArgs e)
         {
+
+            return;
+
             if (fftChartPoints == null || fftChartPoints.Length != e.AudioSpectrum.Points.Length)
             {
                 Array.Resize(ref fftChartPoints, e.AudioSpectrum.Points.Length);

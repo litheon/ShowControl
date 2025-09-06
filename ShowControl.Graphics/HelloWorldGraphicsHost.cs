@@ -97,6 +97,7 @@ namespace ShowControl.Graphics
 
         public static object _lock = new object();
         public static byte[] Bytes = null;
+        public static int Width = 0;
 
         private static bool PRESENT = false; // set false to run headless (no window present)
         private static Extent2D _offscreenExtent;
@@ -115,7 +116,7 @@ namespace ShowControl.Graphics
         {
             try
             {
-                System.Threading.Thread.Sleep(20000);
+                //System.Threading.Thread.Sleep(20000);
                 RunHeadless();
                 #if !ARM64
                 ShowHeadlessInWindow();
@@ -131,6 +132,7 @@ namespace ShowControl.Graphics
         {
             PRESENT = false; // make sure your OnRender uses the no-present path
             _offscreenExtent = new Extent2D((uint)width, (uint)height);
+            Width = width;
             _swapExtent = _offscreenExtent; // reuse same var if your code expects it
             _imageSize = (ulong)width * (ulong)height * 4;
 

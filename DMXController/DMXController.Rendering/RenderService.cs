@@ -276,23 +276,101 @@ namespace ShowControl.Rendering
                     WS2812B.Instance,
                     WS2812B.Instance,
                     WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
                     WS2812B.Instance
 
             );
             _parChannels = RenderSurface.Create(
                     new RenderSettings(255),
-                    Sheds.Instance,
-                    Sheds.Instance,
-                    Sheds.Instance,
-                    Sheds.Instance,
-                    Sheds.Instance,
-                    Sheds.Instance,
-                    Sheds.Instance,
-                    Sheds.Instance,
-                    Sheds.Instance,
-                    Sheds.Instance,
-                    Sheds.Instance,
                     Sheds.Instance
+                    //Sheds.Instance,
+                    //Sheds.Instance,
+                    //Sheds.Instance,
+                    //Sheds.Instance,
+                    //Sheds.Instance,
+                    //Sheds.Instance,
+                    //Sheds.Instance,
+                    //Sheds.Instance,
+                    //Sheds.Instance,
+                    //Sheds.Instance,
+                    //Sheds.Instance
             );
             _renderSurfaces = new IRenderSurface[]
             {
@@ -2533,51 +2611,55 @@ namespace ShowControl.Rendering
 
         private void RenderThreadLoop()
         {
-            byte[] targetVector = new byte[512];
+            byte[] targetVector = new byte[1024];
             while (!_cts.Token.IsCancellationRequested)
             {
+                IKeyAnimation keyAnimation = null;
+                ITransformAnimation transformAnimation = null;
+                IKeyAnimation auxilaryAnimation = null;
+                lock (_navigationLock)
+                {
+                    keyAnimation = _activeKeyAnimation > -1 ? _keyAnimations[_activeKeyAnimation] : null;
+                    auxilaryAnimation = _activeKeyAnimation > -1 ? _auxilaryKeyAnimations[_activeKeyAnimation] : null;
+                    transformAnimation = _activeTransformAnimation > -1 ? _transformAnimations[_activeTransformAnimation] : null;
+                }
+                int pixelOffset = 0;
+                int channelOffset = 0;
+                if (keyAnimation != null)
+                {
+                    var renderSettings = new RenderSettings();
+                    renderSettings.MasterFader = _masterFader.InterlockedGet();
+                    var frame = keyAnimation.GetNextFrame();
+                    if (transformAnimation != null)
+                    {
+                        frame = transformAnimation.GetNextFrame(frame);
+                    }
+                    var frameSpan = frame.AsSpan();
+                    var surface = _pixelChannels;
+                            
+                    surface.Render(frameSpan.Slice(pixelOffset, surface.TotalPixelCount), targetVector.AsSpan().Slice(channelOffset, surface.TotalChannelCount), renderSettings);
+                    pixelOffset += surface.TotalPixelCount;
+                    channelOffset += surface.TotalChannelCount;
+                }
+                if (auxilaryAnimation != null)
+                {
+                    var renderSettings = new RenderSettings();
+                    renderSettings.MasterFader = _auxilaryMasterFader.InterlockedGet();
+                    var frame = auxilaryAnimation.GetNextFrame();
+                    var frameSpan = frame.AsSpan();
+                    var surface = _parChannels;
+
+                    surface.Render(frameSpan, targetVector.AsSpan().Slice(channelOffset, surface.TotalChannelCount), renderSettings);
+                }
+
+                int take = 300;
+                int skip = 0;
                 foreach (IDmxOutputDevice outputDevice in _outputDevices)
                 {
-                    IKeyAnimation keyAnimation = null;
-                    ITransformAnimation transformAnimation = null;
-                    IKeyAnimation auxilaryAnimation = null;
-                    lock (_navigationLock)
-                    {
-                        keyAnimation = _activeKeyAnimation > -1 ? _keyAnimations[_activeKeyAnimation] : null;
-                        auxilaryAnimation = _activeKeyAnimation > -1 ? _auxilaryKeyAnimations[_activeKeyAnimation] : null;
-                        transformAnimation = _activeTransformAnimation > -1 ? _transformAnimations[_activeTransformAnimation] : null;
-                    }
-                    int pixelOffset = 0;
-                    int channelOffset = 0;
-                    if (keyAnimation != null)
-                    {
-                        var renderSettings = new RenderSettings();
-                        renderSettings.MasterFader = _masterFader.InterlockedGet();
-                        var frame = keyAnimation.GetNextFrame();
-                        if (transformAnimation != null)
-                        {
-                            frame = transformAnimation.GetNextFrame(frame);
-                        }
-                        var frameSpan = frame.AsSpan();
-                        var surface = _pixelChannels;
-                            
-                        surface.Render(frameSpan.Slice(pixelOffset, surface.TotalPixelCount), targetVector.AsSpan().Slice(channelOffset, surface.TotalChannelCount), renderSettings);
-                        pixelOffset += surface.TotalPixelCount;
-                        channelOffset += surface.TotalChannelCount;
-                    }
-                    if (auxilaryAnimation != null)
-                    {
-                        var renderSettings = new RenderSettings();
-                        renderSettings.MasterFader = _auxilaryMasterFader.InterlockedGet();
-                        var frame = auxilaryAnimation.GetNextFrame();
-                        var frameSpan = frame.AsSpan();
-                        var surface = _parChannels;
-
-                        surface.Render(frameSpan, targetVector.AsSpan().Slice(channelOffset, surface.TotalChannelCount), renderSettings);
-                    }
-
-                    outputDevice.Write(targetVector);
+                    outputDevice.Write(targetVector.Skip(skip).Take(take).ToArray());
+                    skip += take;
                 }
+                Thread.Sleep(1);
             }
             _tcs.SetResult(true);
         }

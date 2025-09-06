@@ -14,6 +14,8 @@ namespace ShowControl.Devices.Output
         }
         public IDmxOutputDevice[] GetDmxDevices(CancellationToken token)
         {
+            return new IDmxOutputDevice[] { new ArtNetDevice(0), new ArtNetDevice(1) };
+
             return _enttecDmxUsbDeviceEnumerator.GetDmxOutputDevices(token);
         }
     }

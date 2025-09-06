@@ -218,12 +218,23 @@ namespace ShowControl.Animation
                     return;
                 }
 
-                var len = ShowControl.Graphics.HelloWorldGraphicsHost.Bytes.Length / 2;
+                var width = ShowControl.Graphics.HelloWorldGraphicsHost.Width;
+                var initial = ShowControl.Graphics.HelloWorldGraphicsHost.Bytes.Length / 4 / 2 * 4 + width * 30;
+                int offset = 0;
                 for (int i = 0; i < _pixelCount; i++)
                 {
                     //_nextFrame[i].Color = Color.FromArgb(0, ShowControl.Graphics.HelloWorldGraphicsHost.Bytes[len + 4 * (i * 6) + 2], ShowControl.Graphics.HelloWorldGraphicsHost.Bytes[len + 4 * (i * 6) + 1], ShowControl.Graphics.HelloWorldGraphicsHost.Bytes[len + 4 * (i * 6)]);
                     //
-                    _nextFrame[i].Color = Color.FromArgb(0, ShowControl.Graphics.HelloWorldGraphicsHost.Bytes[len + 8 * (i * 1)], ShowControl.Graphics.HelloWorldGraphicsHost.Bytes[len + 8 * (i * 1) + 1], ShowControl.Graphics.HelloWorldGraphicsHost.Bytes[len + 8 * (i * 1) + 2]);
+                    var pixelStride = 4 * (i % 100 * 1);
+                    var rowOffset = offset * width * 4;
+                    var r = initial + pixelStride + rowOffset;
+                    var g = initial + pixelStride + rowOffset + 1;
+                    var b = initial + pixelStride + rowOffset + 2;
+                    _nextFrame[i].Color = Color.FromArgb(0, ShowControl.Graphics.HelloWorldGraphicsHost.Bytes[r], ShowControl.Graphics.HelloWorldGraphicsHost.Bytes[g], ShowControl.Graphics.HelloWorldGraphicsHost.Bytes[b]);
+                    if (i == 100)
+                    {
+                        offset++;
+                    }
                 }
                 var temp = _currentFrame;
                 _currentFrame = _nextFrame;

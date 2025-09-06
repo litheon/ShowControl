@@ -21,4 +21,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
     <DefineConstants>TRACE;ARM64</DefineConstants>
   </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="ArtNetSharp" Version="0.0.38" />
+  </ItemGroup>
 </Project>
