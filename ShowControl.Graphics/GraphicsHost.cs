@@ -15,6 +15,8 @@ using Silk.NET.Maths;
 using IWindow = Silk.NET.Windowing.IWindow;
 using Image = Silk.NET.Vulkan.Image;
 using System.Xml.Linq;
+using Buffer = Silk.NET.Vulkan.Buffer;
+
 
 #if !ARM64
 using Silk.NET.Windowing;
@@ -22,12 +24,12 @@ using Silk.NET.Windowing;
 
 namespace ShowControl.Graphics
 {
-    public class HelloWorldGraphicsHost
+    public class GraphicsHost
     {
 
-        public HelloWorldGraphicsHost()
+        public GraphicsHost()
         {
-            int x = 0;
+            
         }
         [StructLayout(LayoutKind.Sequential)]
         struct PushData
@@ -38,79 +40,80 @@ namespace ShowControl.Graphics
         }
 
 #if !ARM64
-        private static Silk.NET.Windowing.IWindow _window;
-        private static Silk.NET.Windowing.IWindow _presentWindow;
+        private Silk.NET.Windowing.IWindow _window;
+        private Silk.NET.Windowing.IWindow _presentWindow;
 #endif
-        private static Vk _vk;
-        private static Instance _instance;
-        private static SurfaceKHR _surface;
-        private static KhrSurface _khrSurface;
+        private Vk _vk;
+        private Instance _instance;
+        private SurfaceKHR _surface;
+        private KhrSurface _khrSurface;
         #if !ARM64
-        private static KhrWin32Surface _khrWin32Surface;
+        private KhrWin32Surface _khrWin32Surface;
         #endif
-        private static PhysicalDevice _physicalDevice;
-        private static Device _device;
-        private static Queue _graphicsQueue;
-        private static KhrSwapchain _khrSwapchain;
-        private static SwapchainKHR _swapchain;
-        private static Silk.NET.Vulkan.Image[] _swapchainImages;
-        private static ImageView[] _swapchainImageViews;
+        private PhysicalDevice _physicalDevice;
+        private Device _device;
+        private Queue _graphicsQueue;
+        private KhrSwapchain _khrSwapchain;
+        private SwapchainKHR _swapchain;
+        private Silk.NET.Vulkan.Image[] _swapchainImages;
+        private ImageView[] _swapchainImageViews;
 
-        private static CommandPool _commandPool;
-        private static CommandBuffer[] _commandBuffers;
+        private CommandPool _commandPool;
+        private CommandBuffer[] _commandBuffers;
 
-        private static RenderPass _renderPass;
-        private static RenderPass _offscreenRenderPass;
-        private static Framebuffer[] _framebuffers;
+        private RenderPass _renderPass;
+        private RenderPass _offscreenRenderPass;
+        private Framebuffer[] _framebuffers;
 
-        private static KhrSwapchain _swapchainExtension;
-        private static Pipeline _pipeline;
-        private static PipelineLayout _pipelineLayout;
+        private KhrSwapchain _swapchainExtension;
+        private Pipeline _pipeline;
+        private PipelineLayout _pipelineLayout;
 
-        private static Fence[] _inFlightFences;
-        private static Fence[] _imagesInFlight;
-        private static Semaphore[] _imageAvailableSemaphores;
-        private static Semaphore[] _renderFinishedByImage; // one per swapchain image
-        private static Semaphore[] _renderFinishedSemaphores;
-        private static int _currentFrame = 0;
+        private Fence[] _inFlightFences;
+        private Fence[] _imagesInFlight;
+        private Semaphore[] _imageAvailableSemaphores;
+        private Semaphore[] _renderFinishedByImage; // one per swapchain image
+        private Semaphore[] _renderFinishedSemaphores;
+        private int _currentFrame = 0;
 
         private ShaderModule _vertShaderModule;
         private ShaderModule _fragShaderModule;
 
-        private static PhysicalDeviceMemoryProperties _memProps;
-        private static Extent2D _swapExtent;
-        private static DeviceMemory _offscreenMemory;
-        private static DeviceMemory _deviceMemory;
-        private static Silk.NET.Vulkan.Image _offscreenImage;
-        private static ImageView _offscreenView;
-        private static Framebuffer _offscreenFramebuffer;
-        private static ulong _imageSize;
+        private uint _graphicsQueueIndex;
+        private StagingRing _stagingRing;
+        private PhysicalDeviceMemoryProperties _memProps;
+        private Extent2D _swapExtent;
+        private DeviceMemory _offscreenMemory;
+        private Silk.NET.Vulkan.Image _offscreenImage;
+        private ImageView _offscreenView;
+        private Framebuffer _offscreenFramebuffer;
+        private ulong _imageSize;
 
-        private static bool _imageAcquired = false;
-        private static uint _acquiredImageIndex = 0;
+        private bool _imageAcquired = false;
+        private uint _acquiredImageIndex = 0;
 
-        private static Silk.NET.Vulkan.Buffer _buffer;
+        private Silk.NET.Vulkan.Buffer _buffer;
 
-        private static Stopwatch _stopwatch = new Stopwatch();
+        private Stopwatch _stopwatch = new Stopwatch();
 
         const int MAX_FRAMES_IN_FLIGHT = 2;
 
-        public static object _lock = new object();
-        public static byte[] Bytes = null;
-        public static int Width = 0;
+        public object _lock = new object();
+        public byte[] Bytes = null;
+        public int Width = 0;
 
-        private static bool PRESENT = false; // set false to run headless (no window present)
-        private static Extent2D _offscreenExtent;
-        private static CommandBuffer[] _cmds;
+        private bool PRESENT = false; // set false to run headless (no window present)
+        private Extent2D _offscreenExtent;
+        private CommandBuffer[] _cmds;
 
         private volatile bool _running;
         private Thread _renderThread;
 
-        private static unsafe void* _mapped;
+        private unsafe void* _mapped;
 
-        private static volatile bool _recreatingSwapchain = false;
-        private static volatile bool _isClosing = false;
-        private static volatile bool _tearingDownWSI = false;
+        private volatile bool _recreatingSwapchain = false;
+        private volatile bool _isClosing = false;
+        private volatile bool _tearingDownWSI = false;
 
         public void Run()
         {
@@ -150,7 +153,7 @@ namespace ShowControl.Graphics
                 OnRender(0);        // your existing OnRender with PRESENT=false
                 Thread.Yield();     // or Thread.Sleep(0) / Sleep(1) if you want to throttle
             }
-            _vk.UnmapMemory(_device, _deviceMemory);
+            _stagingRing.Dispose();
         }
 
         public void StopHeadless()
@@ -180,7 +183,7 @@ namespace ShowControl.Graphics
 
                 EnablePresentation(window, extent, offFormat, offColorCS);
 
-                CreateOrRecreateSwapchainPinned(window);
+                _graphicsQueueIndex = CreateOrRecreateSwapchainPinned(window);
 
                 // Tell OnRender to execute the present path (Acquire->Blit->Present)
                 PRESENT = true;
@@ -227,7 +230,7 @@ namespace ShowControl.Graphics
 
             window.Run();
         }
-        private unsafe static void EnablePresentation(IWindow window, Extent2D size, Format format, ColorSpaceKHR colorSpace)
+        private unsafe void EnablePresentation(IWindow window, Extent2D size, Format format, ColorSpaceKHR colorSpace)
         {
             _presentWindow = window;
             _khrSurface = new KhrSurface(_vk.Context);
@@ -282,7 +285,7 @@ namespace ShowControl.Graphics
             _imagesInFlight = new Fence[count];   // reset image-in-flight tracking on (re)create;
         }
 
-        private static unsafe uint FindPresentQueueFamily(PhysicalDevice pd, SurfaceKHR surface)
+        private unsafe uint FindPresentQueueFamily(PhysicalDevice pd, SurfaceKHR surface)
         {
             uint count = 0;
             _vk.GetPhysicalDeviceQueueFamilyProperties(pd, ref count, null);
@@ -299,7 +302,7 @@ namespace ShowControl.Graphics
             throw new Exception("No PRESENT-capable queue family.");
         }
 
-        private static unsafe void DestroyPerImageSyncObjects()
+        private unsafe void DestroyPerImageSyncObjects()
         {
             if (_renderFinishedByImage != null)
             {
@@ -309,7 +312,7 @@ namespace ShowControl.Graphics
             }
         }
 
-        private static unsafe void CreatePerImageSyncObjects(uint imageCount)
+        private unsafe void CreatePerImageSyncObjects(uint imageCount)
         {
             DestroyPerImageSyncObjects(); // safe if null
             _renderFinishedByImage = new Semaphore[imageCount];
@@ -319,7 +322,7 @@ namespace ShowControl.Graphics
                 _vk.CreateSemaphore(_device, semInfo, null, out _renderFinishedByImage[i]);
         }
 
-        private static SurfaceTransformFlagsKHR PickPreTransform(in SurfaceCapabilitiesKHR caps)
+        private SurfaceTransformFlagsKHR PickPreTransform(in SurfaceCapabilitiesKHR caps)
         {
             var identity = SurfaceTransformFlagsKHR.SurfaceTransformIdentityBitKhr;
             if ((caps.SupportedTransforms & identity) != 0)
@@ -339,7 +342,7 @@ namespace ShowControl.Graphics
             return identity;
         }
 
-        private static unsafe void CreateOrRecreateSwapchainPinned(IWindow window)
+        private unsafe uint CreateOrRecreateSwapchainPinned(IWindow window)
         {
             _vk.QueueWaitIdle(_graphicsQueue);
 
@@ -357,7 +360,7 @@ namespace ShowControl.Graphics
             {
                 var w = (uint)window.Size.X;
                 var h = (uint)window.Size.Y;
-                if (w == 0 || h == 0) return;  // <-- don’t create a swapchain now
+                if (w == 0 || h == 0) return uint.MaxValue;  // <-- don’t create a swapchain now
                 extent = new Extent2D(
                     Math.Clamp(w, caps.MinImageExtent.Width, caps.MaxImageExtent.Width),
                     Math.Clamp(h, caps.MinImageExtent.Height, caps.MaxImageExtent.Height)
@@ -476,10 +479,12 @@ namespace ShowControl.Graphics
                 _vk.CreateSemaphore(_device, semInfo, null, out _renderFinishedByImage[i]);
 
             _swapExtent = extent; // keep for blit
+
+            return gfxQ;
         }
 #endif
 
-        private static unsafe bool TryPickDeviceAndQueuesPreWindow(out PhysicalDevice picked, out uint gfxQ, out uint presentQ)
+        private unsafe bool TryPickDeviceAndQueuesPreWindow(out PhysicalDevice picked, out uint gfxQ, out uint presentQ)
         {
             picked = default; gfxQ = presentQ = uint.MaxValue;
 
@@ -528,7 +533,7 @@ namespace ShowControl.Graphics
             return false;
         }
 
-        private static unsafe bool DeviceHasSwapchain(PhysicalDevice pd)
+        private unsafe bool DeviceHasSwapchain(PhysicalDevice pd)
         {
             uint count = 0;
             _vk.EnumerateDeviceExtensionProperties(pd, (byte*)null, ref count, null);
@@ -742,20 +747,7 @@ namespace ShowControl.Graphics
             }
 
             // --- Staging buffer for readback ---
-            Bytes = new byte[_imageSize];
-            BufferCreateInfo bufCI = new() { SType = StructureType.BufferCreateInfo, Size = _imageSize, Usage = BufferUsageFlags.BufferUsageTransferDstBit, SharingMode = SharingMode.Exclusive };
-            _vk.CreateBuffer(_device, &bufCI, null, out _buffer);
-            _vk.GetBufferMemoryRequirements(_device, _buffer, out var bReqs);
-            memType = FindMemoryType(bReqs.MemoryTypeBits, MemoryPropertyFlags.MemoryPropertyHostVisibleBit | MemoryPropertyFlags.MemoryPropertyHostCoherentBit, in _memProps);
-            MemoryAllocateInfo bufAI = new() { SType = StructureType.MemoryAllocateInfo, AllocationSize = bReqs.Size, MemoryTypeIndex = memType };
-            _vk.AllocateMemory(_device, &bufAI, null, out _deviceMemory);
-            _vk.BindBufferMemory(_device, _buffer, _deviceMemory, 0);
-
-            fixed (void** ptrMapped = &_mapped)
-            {
-                if (_vk.MapMemory(_device, _deviceMemory, 0, _imageSize, 0, ptrMapped) != Result.Success)
-                    throw new Exception("MapMemory failed");
-            }
+            _stagingRing = new StagingRing(_vk, _device, _memProps, _graphicsQueueIndex, _imageSize);
 
             // --- Shaders, pipeline layout, pipeline (use _offscreenRenderPass) ---
             using var stream = FileSystem.OpenAppPackageFileAsync("simple.vert.spv").Result;
@@ -801,6 +793,87 @@ namespace ShowControl.Graphics
             _vk.CreateGraphicsPipelines(_device, default, 1, gpCI, null, out _pipeline);
         }
 
+        // Per-frame flow (inside your OnRender):
+        private void ReadbackFrame(CommandBuffer cmd, Image offscreenImage, Extent2D swapExtent)
+        {
+            // 1) Prepare the next write slot (wait → reset)
+            _stagingRing.WaitAndResetWriteFence();
+
+            // 2) Record: render -> barriers -> copy image -> buffer (write slot)
+            // (Assumes you already began/end the render pass elsewhere.)
+            RecordCopyImageToBuffer(cmd, offscreenImage, swapExtent);
+
+            // 3) Submit with the fence of the write slot
+            // (Set up your SubmitInfo with cmd and no special semaphores here.)
+            // IMPORTANT: The fence you signal MUST be _staging.CurrentWriteFence
+            // Example:
+            // _vk.QueueSubmit(_graphicsQueue, 1, &submitInfo, _staging.CurrentWriteFence).ThrowOnError();
+
+            // 4) Advance ring indices for next frame (the just-submitted slot becomes next ReadIndex)
+            _stagingRing.Advance();
+
+            // 5) Read previous frame’s data (now at _staging.ReadIndex)
+            //    Wait for the fence on that slot (it was signaled by last frame’s submit)
+            Fence readFence = GetFenceForReadIndex();
+            _vk.WaitForFences(_device, 1, in readFence, true, ulong.MaxValue).ThrowOnError();
+            // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            // NOTE: the line above is *conceptually* "wait the fence associated with ReadIndex".
+            // Because we advanced indices, the fence you should wait on is the fence for ReadIndex, not WriteIndex.
+            // Implement a small helper to get that fence cleanly:
+
+            // Replace the previous WaitForFences line with:
+            // Fence readFence = GetFenceForReadIndex();
+            // _vk.WaitForFences(_device, 1, in readFence, true, ulong.MaxValue).ThrowOnError();
+
+            // 6) Ensure host visibility if memory is non-coherent
+            _stagingRing.InvalidateReadIfNeeded();
+
+            // 7) Process the data directly without copying
+            var mem = _stagingRing.CurrentReadMemory;
+            var span = mem.Span; // stride = width * 4, RGBA or BGRA depending on your offscreen format
+            // ... do CPU work on span ...
+        }
+
+        // Record copy from your offscreen image (R8G8B8A8 or matching) into the *current write* staging buffer
+        private unsafe void RecordCopyImageToBuffer(CommandBuffer cmd, Image srcImage, Extent2D extent)
+        {
+            // Transition to TRANSFER_SRC_OPTIMAL should already be done before calling this.
+            BufferImageCopy region = new()
+            {
+                BufferOffset = 0,
+                BufferRowLength = 0,    // tightly packed
+                BufferImageHeight = 0,  // tightly packed
+                ImageSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
+                ImageOffset = new Offset3D(0, 0, 0),
+                ImageExtent = new Extent3D(extent.Width, extent.Height, 1)
+            };
+
+            Buffer dst = _stagingRing.CurrentWriteBuffer;
+
+            _vk.CmdCopyImageToBuffer(
+                cmd,
+                srcImage, ImageLayout.TransferSrcOptimal,
+                dst,
+                1, &region);
+        }
+
+        // Utility to fetch the fence for current ReadIndex
+        // (Add this method to StagingRing if you prefer keeping it internal)
+        private Fence GetFenceForReadIndex() =>
+            typeof(StagingRing)
+            .GetField("_fence", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+            ?.GetValue(_stagingRing) is Fence[] arr
+                ? arr[_stagingRing.ReadIndex]
+                : default;
+
+        // Call this from your Stop/Dispose path
+        private void ShutdownStaging()
+        {
+            _vk.DeviceWaitIdle(_device).ThrowOnError();
+            _stagingRing?.Dispose();
+            _stagingRing = null;
+        }
+
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
         private static unsafe Bool32 DebugCallback(
             DebugUtilsMessageSeverityFlagsEXT severity,
@@ -814,10 +887,10 @@ namespace ShowControl.Graphics
             return Vk.False; // or new Bool32(0)
         }
 
-        private static ExtDebugUtils _debugUtils;
-        private static DebugUtilsMessengerEXT _debugMessenger;
+        private ExtDebugUtils _debugUtils;
+        private DebugUtilsMessengerEXT _debugMessenger;
 
-        private static unsafe void SetupDebugMessenger()
+        private unsafe void SetupDebugMessenger()
         {
             _debugUtils = new ExtDebugUtils(_vk.Context);
 
@@ -843,7 +916,7 @@ namespace ShowControl.Graphics
                 throw new Exception("Failed to create debug messenger");
         }
 
-        private static uint FindMemoryType(
+        private uint FindMemoryType(
             uint typeFilter,
             MemoryPropertyFlags properties,
             in PhysicalDeviceMemoryProperties memProps)
@@ -860,7 +933,7 @@ namespace ShowControl.Graphics
             throw new Exception("Failed to find suitable memory type!");
         }
 
-        private static unsafe void BeginSwapchainRecreate()
+        private unsafe void BeginSwapchainRecreate()
         {
             _recreatingSwapchain = true;     // stop OnRender from submitting
             _imageAcquired = false;          // we won’t reuse any previously acquired image
@@ -868,12 +941,12 @@ namespace ShowControl.Graphics
                                                // You can use _vk.DeviceWaitIdle(_device) if you prefer to be extra safe.
         }
 
-        private static void EndSwapchainRecreate()
+        private void EndSwapchainRecreate()
         {
             _recreatingSwapchain = false;
         }
 
-        private static unsafe void OnRender(double obj)
+        private unsafe void OnRender(double obj)
         {
             if (_recreatingSwapchain || _isClosing || _tearingDownWSI)
             {
@@ -912,7 +985,7 @@ namespace ShowControl.Graphics
                     {
                         // Trigger your swapchain recreate path here
                         BeginSwapchainRecreate();
-                        CreateOrRecreateSwapchainPinned(_window);
+                        _graphicsQueueIndex = CreateOrRecreateSwapchainPinned(_window);
                         EndSwapchainRecreate();
                         return;
                     }
@@ -1002,6 +1075,7 @@ namespace ShowControl.Graphics
             };
             _vk.CmdCopyImageToBuffer(cmd, _offscreenImage, ImageLayout.TransferSrcOptimal, _buffer, 1, &region);
 
+            ReadbackFrame(cmd, _offscreenImage, _swapExtent);
             // If we're presenting, blit the off-screen image into the swapchain image
             if (PRESENT)
             {
@@ -1099,7 +1173,7 @@ namespace ShowControl.Graphics
                         _imageAcquired = false;
                         if ((pres == Result.ErrorOutOfDateKhr || pres == Result.SuboptimalKhr) && !_isClosing)
                         {
-                            CreateOrRecreateSwapchainPinned(_window);
+                            _graphicsQueueIndex = CreateOrRecreateSwapchainPinned(_window);
                             return;
                         }
                     }
@@ -1117,6 +1191,8 @@ namespace ShowControl.Graphics
                 _vk.QueueSubmit(_graphicsQueue, 1, ref submitInfo, _inFlightFences[_currentFrame]);
             }
 
+            _stagingRing.Advance();
+
             // Wait for GPU, then map staging buffer and copy to Bytes[]
             _vk.WaitForFences(_device, 1, in _inFlightFences[_currentFrame], true, ulong.MaxValue);
 
@@ -1128,7 +1204,7 @@ namespace ShowControl.Graphics
             _currentFrame = (_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
         }
 
-        private static unsafe ShaderModule CreateShaderModule(byte[] code)
+        private unsafe ShaderModule CreateShaderModule(byte[] code)
         {
             fixed (byte* codePtr = code)
             {
