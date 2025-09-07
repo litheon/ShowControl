@@ -12,7 +12,7 @@ namespace ShowControl.Graphics
     // ---------- Triple-buffered staging ring ----------
     unsafe sealed class StagingRing : IDisposable
     {
-        public const int RingSize = 3;
+        public const int RingSize = 1;
 
         private readonly Vk _vk;
         private readonly Device _device;

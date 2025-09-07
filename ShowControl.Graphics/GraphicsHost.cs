@@ -76,7 +76,18 @@ namespace ShowControl.Graphics
         private Semaphore[] _imageAvailableSemaphores;
         private Semaphore[] _renderFinishedByImage; // one per swapchain image
         private Semaphore[] _renderFinishedSemaphores;
-        private Semaphore _copyDone;
+
+        private Semaphore _gpuDoneTL; // produced-by-GPU
+        private Semaphore _cpuDoneTL; // released-by-CPU
+
+        // Global counters for each timeline
+        private ulong _gpuCtr = 0;
+        private ulong _cpuCtr = 0;
+
+        // Per-slot bookkeeping (ring size = StagingRing.RingSize)
+        private readonly ulong[] _slotReadyGpuValue = new ulong[StagingRing.RingSize]; // value the CPU should wait for
+        private readonly ulong[] _slotNeedCpuRelease = new ulong[StagingRing.RingSize]; // last value that must be released before reuse
+
         ulong _timelineValue = 0;
         ulong _producerSerial = 0;
         ulong _consumerSerial = 0;
@@ -687,10 +698,24 @@ namespace ShowControl.Graphics
                 InitialValue = _timelineValue
             };
             SemaphoreCreateInfo semCI = new() { SType = StructureType.SemaphoreCreateInfo, PNext = &timelineType };
-            fixed(Semaphore* copyDone = &_copyDone)
+
+            // Create two timeline semaphores
+            SemaphoreTypeCreateInfo tlType = new()
             {
-                _vk.CreateSemaphore(_device, &semCI, null, copyDone);
-            }
+                SType = StructureType.SemaphoreTypeCreateInfo,
+                SemaphoreType = SemaphoreType.Timeline,
+                InitialValue = 0   // both start at 0
+            };
+            SemaphoreCreateInfo tlCI = new()
+            {
+                SType = StructureType.SemaphoreCreateInfo,
+                PNext = &tlType
+            };
+            _vk.CreateSemaphore(_device, &tlCI, null, out _gpuDoneTL);
+            _vk.CreateSemaphore(_device, &tlCI, null, out _cpuDoneTL);
+
+            _gpuCtr = 0;
+            _cpuCtr = 0;
 
             // --- Command pool & a single primary CB ---
             var poolCI = new CommandPoolCreateInfo(
@@ -911,25 +936,6 @@ namespace ShowControl.Graphics
                 return;
             }
 
-            while (_producerSerial - _consumerSerial >= (ulong)StagingRing.RingSize)
-            {
-                // Wait on the oldest slot's timeline value before reusing it
-                ulong waitValue = _slotSignaledValue[_stagingRing.ReadIndex];
-                if (waitValue != 0)
-                {
-                    SemaphoreWaitInfo wi = new() { SType = StructureType.SemaphoreWaitInfo, SemaphoreCount = 1 };
-                    fixed (Semaphore* pSem = &_copyDone)
-                    {
-                        wi.PSemaphores = pSem;
-                        wi.PValues = &waitValue;
-                        _vk.WaitSemaphores(_device, &wi, ulong.MaxValue);
-                    }
-                    _slotSignaledValue[_stagingRing.ReadIndex] = 0;
-                    _stagingRing.AdvanceRead();
-                    _consumerSerial++;
-                }
-            }
-
             var cmd = _cmds[_currentFrame];
 
             // Wait & reset fence for this frame
@@ -981,9 +987,6 @@ namespace ShowControl.Graphics
                 if (prevFence.Handle != 0)
                     _vk.WaitForFences(_device, 1, in prevFence, true, ulong.MaxValue);
             }
-
-            // Reset fences for this frame
-            _vk.ResetFences(_device, 1, in _inFlightFences[_currentFrame]);
 
             if (PRESENT)
             {
@@ -1121,7 +1124,72 @@ namespace ShowControl.Graphics
 
             _vk.EndCommandBuffer(cmd);
 
-            ulong signalValue = (ulong)Interlocked.Increment(ref _timelineValue);
+            ulong frameValue = (ulong)Interlocked.Increment(ref _timelineValue);
+
+            // Decide ring slot we’re writing this frame:
+            int slot = _stagingRing.WriteIndex;
+
+            if (Volatile.Read(ref _slotReadyGpuValue[slot]) != 0)
+            {
+                // Choose your policy: skip this frame, pick another slot, or block/yield.
+                // Skipping avoids circular waits.
+                return;
+            }
+
+            // (A) Optional wait on CPU release for this slot
+            ulong requiredRelease = Volatile.Read(ref _slotNeedCpuRelease[slot]);
+            bool needWait = requiredRelease != 0;
+
+            // Build waits (binary + timeline in waitSems / waitStages)
+            int baseWaitCount = 0;
+            var waitSems = stackalloc Semaphore[(PRESENT ? 1 : 0) + (needWait ? 1 : 0)];
+            var waitStages = stackalloc PipelineStageFlags[(PRESENT ? 1 : 0) + (needWait ? 1 : 0)];
+
+            if (PRESENT)
+            {
+                waitSems[baseWaitCount] = _imageAvailableSemaphores[_currentFrame]; // BINARY
+                waitStages[baseWaitCount] = PipelineStageFlags.PipelineStageTransferBit;
+                baseWaitCount++;
+            }
+
+            // timeline waits & values
+            int tlWaitCount = 0;
+            var tlWaitVals = stackalloc ulong[needWait ? 1 : 0];
+            if (needWait)
+            {
+                waitSems[baseWaitCount] = _cpuDoneTL; // TIMELINE
+                waitStages[baseWaitCount] = PipelineStageFlags.PipelineStageTopOfPipeBit;
+                tlWaitVals[tlWaitCount++] = requiredRelease;
+                baseWaitCount++;
+            }
+
+            // Signals: always signal the GPU timeline with the new producedValue; also the per-image binary when presenting.
+            int sigSemCount = PRESENT ? 2 : 1;
+            var sigSems = stackalloc Semaphore[sigSemCount];
+            sigSems[0] = _gpuDoneTL; // TIMELINE first
+            if (PRESENT) sigSems[1] = _renderFinishedByImage[imageIndex]; // BINARY
+
+            // Compute the new timeline value we will publish for this slot
+            ulong producedValue = ++_gpuCtr;
+
+            // timeline signals array (only timeline semaphores!)
+            int tlSigCount = 1;
+            var tlSigVals = stackalloc ulong[tlSigCount];
+            tlSigVals[0] = producedValue;
+
+
+            // --- hook up the timeline PNext (ONLY timeline counts/vals) ---
+            TimelineSemaphoreSubmitInfo tl = new()
+            {
+                SType = StructureType.TimelineSemaphoreSubmitInfo,
+                WaitSemaphoreValueCount = (uint)tlWaitCount,
+                PWaitSemaphoreValues = tlWaitCount > 0 ? tlWaitVals : null,
+                SignalSemaphoreValueCount = (uint)tlSigCount,
+                PSignalSemaphoreValues = tlSigVals
+            };
+
+            // Reset fences for this frame
+            _vk.ResetFences(_device, 1, in _inFlightFences[_currentFrame]);
 
             // Submit
             if (PRESENT)
@@ -1130,95 +1198,68 @@ namespace ShowControl.Graphics
                 var waitStage = PipelineStageFlags.PipelineStageTransferBit; // we first use the swapchain image in a transfer op
                 fixed (Semaphore* pWait = &_imageAvailableSemaphores[_currentFrame])
                 {
-                    
-                    fixed(Semaphore* pCopyDone = &_copyDone)
+                    Semaphore* pSignal = &renderFinishedForThisImage;
+
+                    CommandBuffer* pCmd = &cmd;
+                    var submitInfo = new SubmitInfo(
+                        waitSemaphoreCount: (uint)baseWaitCount,
+                        pWaitSemaphores: baseWaitCount > 0 ? waitSems : null,
+                        pWaitDstStageMask: baseWaitCount > 0 ? waitStages : null,
+                        commandBufferCount: 1,
+                        pCommandBuffers: &cmd,
+                        signalSemaphoreCount: (uint)sigSemCount,
+                        pSignalSemaphores: sigSems
+                    );
+                    submitInfo.PNext = &tl;
+                    ulong val;
+                    _vk.QueueSubmit(_graphicsQueue, 1, ref submitInfo, _inFlightFences[_currentFrame]);
+
+                    // Present waits on renderFinished
+                    fixed (SwapchainKHR* pSwap = &_swapchain)
                     {
-                        var semaphores = stackalloc Semaphore[2]
-                        {
-                            _copyDone,
-                            renderFinishedForThisImage
-                        };
-                        ulong* pWaitVals = stackalloc ulong[1] { 0 };            // binary => 0
-                        ulong* pSigVals = stackalloc ulong[2] { signalValue, 0 };
-                        TimelineSemaphoreSubmitInfo tl = new()
-                        {
-                            SType = StructureType.TimelineSemaphoreSubmitInfo,
-                            WaitSemaphoreValueCount = 1,
-                            PWaitSemaphoreValues = pWaitVals,
-                            SignalSemaphoreValueCount = 2,
-                            PSignalSemaphoreValues = pSigVals
-                        };
-
-                        Semaphore* pSignal = &renderFinishedForThisImage;
-
-                        CommandBuffer* pCmd = &cmd;
-                        var submitInfo = new SubmitInfo(
-                            waitSemaphoreCount: 1, pWaitSemaphores: pWait,
-                            pWaitDstStageMask: &waitStage,
-                            commandBufferCount: 1, pCommandBuffers: pCmd,
-                            signalSemaphoreCount: 2, pSignalSemaphores: semaphores
+                        var presentInfo = new PresentInfoKHR(
+                            waitSemaphoreCount: 1, pWaitSemaphores: pSignal,
+                            swapchainCount: 1, pSwapchains: pSwap,
+                            pImageIndices: &imageIndex
                         );
-                        submitInfo.PNext = &tl;
-                        ulong val;
-                        _vk.GetSemaphoreCounterValue(_device, _copyDone, &val);
-                        _vk.QueueSubmit(_graphicsQueue, 1, ref submitInfo, _inFlightFences[_currentFrame]);
-                        _vk.GetSemaphoreCounterValue(_device, _copyDone, &val);
-
-                        // Present waits on renderFinished
-                        fixed (SwapchainKHR* pSwap = &_swapchain)
+                        var pres = _swapchainExtension.QueuePresent(_graphicsQueue, presentInfo);
+                        _imageAcquired = false;
+                        if ((pres == Result.ErrorOutOfDateKhr || pres == Result.SuboptimalKhr) && !_isClosing)
                         {
-                            var presentInfo = new PresentInfoKHR(
-                                waitSemaphoreCount: 1, pWaitSemaphores: pSignal,
-                                swapchainCount: 1, pSwapchains: pSwap,
-                                pImageIndices: &imageIndex
-                            );
-                            var pres = _swapchainExtension.QueuePresent(_graphicsQueue, presentInfo);
-                            _imageAcquired = false;
-                            if ((pres == Result.ErrorOutOfDateKhr || pres == Result.SuboptimalKhr) && !_isClosing)
-                            {
-                                _graphicsQueueIndex = CreateOrRecreateSwapchainPinned(_window);
-                                return;
-                            }
+                            _graphicsQueueIndex = CreateOrRecreateSwapchainPinned(_window);
+                            return;
                         }
                     }
                 }
             }
             else
             {
-                fixed(Semaphore* copyDone = &_copyDone)
-                {
-                    var semaphores = stackalloc Semaphore[1]
-                    {
-                            _copyDone
-                    };
-                    ulong* pWaitVals = stackalloc ulong[1] { 0 };            // binary => 0
-                    ulong* pSigVals = stackalloc ulong[2] { signalValue, 0 };
-                    TimelineSemaphoreSubmitInfo tl = new()
-                    {
-                        SType = StructureType.TimelineSemaphoreSubmitInfo,
-                        WaitSemaphoreValueCount = 1,
-                        PWaitSemaphoreValues = pWaitVals,
-                        SignalSemaphoreValueCount = 2,
-                        PSignalSemaphoreValues = pSigVals
-                    };
 
-                    // No presentation path: just submit the off-screen work
-                    var submitInfo = new SubmitInfo(
-                        waitSemaphoreCount: 0, pWaitSemaphores: null,
-                        pWaitDstStageMask: null,
-                        commandBufferCount: 1, pCommandBuffers: &cmd,
-                        signalSemaphoreCount: 1, pSignalSemaphores: copyDone
-                    );
-                    submitInfo.PNext = &tl;
-                    _vk.QueueSubmit(_graphicsQueue, 1, ref submitInfo, _inFlightFences[_currentFrame]);
-                }
+
+                // No presentation path: just submit the off-screen work
+                var submitInfo = new SubmitInfo(
+                    waitSemaphoreCount: (uint)baseWaitCount,
+                    pWaitSemaphores: baseWaitCount > 0 ? waitSems : null,
+                    pWaitDstStageMask: baseWaitCount > 0 ? waitStages : null,
+                    commandBufferCount: 1,
+                    pCommandBuffers: &cmd,
+                    signalSemaphoreCount: (uint)sigSemCount,
+                    pSignalSemaphores: sigSems
+                );
+                submitInfo.PNext = &tl;
+                _vk.QueueSubmit(_graphicsQueue, 1, ref submitInfo, _inFlightFences[_currentFrame]);
             }
 
-            _slotSignaledValue[_stagingRing.WriteIndex] = signalValue;
+            Volatile.Write(ref _slotReadyGpuValue[slot], producedValue);
+
+            // and record that this is the value that must be released before next reuse:
+            Volatile.Write(ref _slotNeedCpuRelease[slot], producedValue);
+
+            _slotSignaledValue[_stagingRing.WriteIndex] = frameValue;
             _stagingRing.AdvanceWrite();
             _producerSerial++;
             // Wait for GPU, then map staging buffer and copy to Bytes[]
-            _vk.WaitForFences(_device, 1, in _inFlightFences[_currentFrame], true, ulong.MaxValue);
+            //_vk.WaitForFences(_device, 1, in _inFlightFences[_currentFrame], true, ulong.MaxValue);
 
             // memory should be in staging ring
 
@@ -1227,44 +1268,29 @@ namespace ShowControl.Graphics
 
         public unsafe void ReadFromMemory()
         {
-            if (_device.Handle == 0 || _copyDone.Handle == 0)
+            int slot = _stagingRing.ReadIndex;
+            ulong produced = Volatile.Read(ref _slotReadyGpuValue[slot]);
+            if (produced == 0) return;
+
+            // (1) Wait for GPU to produce this slot
+            SemaphoreWaitInfo wi = new() { SType = StructureType.SemaphoreWaitInfo, SemaphoreCount = 1 };
+            fixed (Semaphore* pSem = &_gpuDoneTL)
             {
-                return;
+                wi.PSemaphores = pSem;
+                wi.PValues = &produced;
+                _vk.WaitSemaphores(_device, &wi, ulong.MaxValue);
             }
 
-            // We want to read the data produced by the previous frame.
-            // Its timeline value is `signalValueForPrev = timelineValue - 1` (guard for frame 0).
-            ulong waitValue = _slotSignaledValue[_stagingRing.ReadIndex];
-            if (waitValue == 0) return;  // nothing produced yet
+            // (2) Do CPU work
+            Thread.Sleep(100); // or real work
 
-            // Wait on timeline semaphore (host-side)
-            SemaphoreWaitInfo waitInfo = new()
-            {
-                SType = StructureType.SemaphoreWaitInfo,
-                SemaphoreCount = 1
-            };
-            //fixed (Semaphore* pSem = &_copyDone)
-            //{
-            //    ulong* pVal = &waitValue;
-            //    waitInfo.PSemaphores = pSem;
-            //    waitInfo.PValues = pVal;
-            //    _vk.WaitSemaphores(_device, &waitInfo, ulong.MaxValue);
-            //}
+            // (3) Signal CPU release with the SAME value
+            SemaphoreSignalInfo sig = new() { SType = StructureType.SemaphoreSignalInfo, Semaphore = _cpuDoneTL, Value = produced };
+            _vk.SignalSemaphore(_device, &sig);
 
-            // If memory isn’t HOST_COHERENT, invalidate the range here.
-            // vkInvalidateMappedMemoryRanges(...)
-
-            //// Read from ring[readIndex].Ptr
-            //var srcSpan = new Span<byte>(ring[readIndex].Ptr, (int)_imageSize);
-            //// copy to your managed Bytes[] if you want
-            //if (Bytes == null || Bytes.Length != (int)_imageSize) Bytes = new byte[(int)_imageSize];
-            //srcSpan.CopyTo(Bytes);
-
-            Thread.Sleep(1000);
-
-            //_slotSignaledValue[_stagingRing.ReadIndex] = 0;
-            //_stagingRing.AdvanceRead();
-            //_consumerSerial++;
+            // (4) Clear and advance
+            Volatile.Write(ref _slotReadyGpuValue[slot], 0);
+            _stagingRing.AdvanceRead();
         }
 
         private unsafe ShaderModule CreateShaderModule(byte[] code)
