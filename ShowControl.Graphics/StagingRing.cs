@@ -12,7 +12,7 @@ namespace ShowControl.Graphics
     // ---------- Triple-buffered staging ring ----------
     unsafe sealed class StagingRing : IDisposable
     {
-        private const int RingSize = 3;
+        public const int RingSize = 3;
 
         private readonly Vk _vk;
         private readonly Device _device;
@@ -24,18 +24,16 @@ namespace ShowControl.Graphics
         private void*[] _mapped = new void*[RingSize];
         private VulkanMappedMemoryManager[] _mmm = new VulkanMappedMemoryManager[RingSize];
         private Memory<byte>[] _memory = new Memory<byte>[RingSize];
-        private Fence[] _fence = new Fence[RingSize];
 
         private uint _transferQFamilyIndex;
         private bool _hostCoherent;
 
         public int WriteIndex { get; private set; } = 0;
-        public int ReadIndex { get; private set; } = RingSize - 1;
+        public int ReadIndex { get; private set; } = 0;
 
         public Memory<byte> CurrentReadMemory => _memory[ReadIndex];
         public void* CurrentReadPtr => _mapped[ReadIndex];
         public ulong SizeBytes => _sizeBytes;
-        public Fence CurrentWriteFence => _fence[WriteIndex];
         public Buffer CurrentWriteBuffer => _buf[WriteIndex];
 
         public StagingRing(
@@ -114,10 +112,6 @@ namespace ShowControl.Graphics
                 // Wrap in Memory<byte>
                 _mmm[i] = new VulkanMappedMemoryManager(mapped, (int)_sizeBytes);
                 _memory[i] = _mmm[i].Memory;
-
-                // Fence (start signaled so first Wait returns immediately)
-                FenceCreateInfo fi = new(flags: FenceCreateFlags.FenceCreateSignaledBit);
-                _vk.CreateFence(_device, fi, null, out _fence[i]).ThrowOnError();
             }
         }
 
@@ -134,12 +128,6 @@ namespace ShowControl.Graphics
                 _mmm[i]?.Dispose();
                 _mmm[i] = null;
 
-                if (_fence[i].Handle != 0)
-                {
-                    _vk.DestroyFence(_device, _fence[i], null);
-                    _fence[i] = default;
-                }
-
                 if (_buf[i].Handle != 0)
                 {
                     _vk.DestroyBuffer(_device, _buf[i], null);
@@ -155,32 +143,14 @@ namespace ShowControl.Graphics
         }
 
         // Advance indices after you've queued the GPU write for this slot.
-        public void Advance()
+        public void AdvanceRead()
         {
-            ReadIndex = WriteIndex;                // read the one we just finished (next frame)
+            ReadIndex = (ReadIndex + 1) % RingSize;
+        }
+
+        public void AdvanceWrite()
+        {
             WriteIndex = (WriteIndex + 1) % RingSize;
-        }
-
-        // Wait → reset for the write slot you’re about to reuse
-        public void WaitAndResetWriteFence()
-        {
-            _vk.WaitForFences(_device, 1, in _fence[WriteIndex], true, ulong.MaxValue).ThrowOnError();
-            _vk.ResetFences(_device, 1, in _fence[WriteIndex]).ThrowOnError();
-        }
-
-        // Ensure host visibility if memory is non-coherent
-        public void InvalidateReadIfNeeded()
-        {
-            if (_hostCoherent) return;
-
-            MappedMemoryRange rng = new()
-            {
-                SType = StructureType.MappedMemoryRange,
-                Memory = _mem[ReadIndex],
-                Offset = 0,
-                Size = _sizeBytes
-            };
-            _vk.InvalidateMappedMemoryRanges(_device, 1, &rng).ThrowOnError();
         }
 
         private static uint FindMemoryType(

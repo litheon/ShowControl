@@ -26,6 +26,7 @@ namespace ShowControl.ControlPanel.Maui
             InitializeComponent();
             _hostTask = Host.Host.Main(new string[] { }, OnAudioFrameProcessed, HandleDevices);
             Initialize();
+            //Thread.Sleep(20000);
             Task.Run(() => new GraphicsHost().Run());
         }
 

@@ -16,6 +16,8 @@ using IWindow = Silk.NET.Windowing.IWindow;
 using Image = Silk.NET.Vulkan.Image;
 using System.Xml.Linq;
 using Buffer = Silk.NET.Vulkan.Buffer;
+using System.Reflection.Metadata.Ecma335;
+
 
 
 #if !ARM64
@@ -74,6 +76,11 @@ namespace ShowControl.Graphics
         private Semaphore[] _imageAvailableSemaphores;
         private Semaphore[] _renderFinishedByImage; // one per swapchain image
         private Semaphore[] _renderFinishedSemaphores;
+        private Semaphore _copyDone;
+        ulong _timelineValue = 0;
+        ulong _producerSerial = 0;
+        ulong _consumerSerial = 0;
+        ulong[] _slotSignaledValue = new ulong[3];
         private int _currentFrame = 0;
 
         private ShaderModule _vertShaderModule;
@@ -108,6 +115,7 @@ namespace ShowControl.Graphics
 
         private volatile bool _running;
         private Thread _renderThread;
+        private Thread _testConsumerThread;
 
         private unsafe void* _mapped;
 
@@ -143,6 +151,14 @@ namespace ShowControl.Graphics
             _running = true;
             _renderThread = new Thread(RenderLoop) { IsBackground = true };
             _renderThread.Start();
+            _testConsumerThread = new Thread(() =>
+            {
+                while (true) {
+                    ReadFromMemory();
+                    Thread.Yield();
+                }
+            });
+            _testConsumerThread.Start();
         }
 
         private void RenderLoop()
@@ -561,7 +577,7 @@ namespace ShowControl.Graphics
                 applicationVersion: new Version32(1, 0, 0),
                 pEngineName: (byte*)SilkMarshal.StringToPtr("NoEngine"),
                 engineVersion: new Version32(1, 0, 0),
-                apiVersion: Vk.Version11
+                apiVersion: Vk.Version12
             );
 
             // Instance extensions: none needed for pure headless.
@@ -614,23 +630,33 @@ namespace ShowControl.Graphics
             if (!TryPickDeviceAndQueuesPreWindow(out _physicalDevice, out uint graphicsQueue, out uint presentQueue))
                 throw new Exception("No device has GRAPHICS and Win32 PRESENT support.");
 
+            _graphicsQueueIndex = graphicsQueue;
+
             // --- Logical device ---
             float prio = 1f;
             var qCI = new DeviceQueueCreateInfo(queueFamilyIndex: graphicsQueue, queueCount: 1, pQueuePriorities: &prio);
 
             var devExts = new List<string>();
             devExts.Add("VK_KHR_swapchain");
+            devExts.Add("VK_KHR_timeline_semaphore");
 #if ARM64
     // MoltenVK requires this device extension
     devExts.Add("VK_KHR_portability_subset");
 #endif
             var devExtPtr = SilkMarshal.StringArrayToPtr(devExts.ToArray());
 
+            PhysicalDeviceVulkan12Features v12 = new()
+            {
+                SType = StructureType.PhysicalDeviceVulkan12Features,
+                TimelineSemaphore = Vk.True // <-- REQUIRED
+            };
+
             var devCI = new DeviceCreateInfo(
                 queueCreateInfoCount: 1,
                 pQueueCreateInfos: &qCI,
                 enabledExtensionCount: (uint)devExts.Count,
-                ppEnabledExtensionNames: (byte**)devExtPtr
+                ppEnabledExtensionNames: (byte**)devExtPtr,
+                pNext: &v12
             );
             _vk.CreateDevice(_physicalDevice, devCI, null, out _device);
             _vk.GetDeviceQueue(_device, graphicsQueue, 0, out _graphicsQueue);
@@ -651,6 +677,19 @@ namespace ShowControl.Graphics
                 _vk.CreateFence(_device, fenceInfo, null, out _inFlightFences[i]);
                 _vk.CreateSemaphore(_device, semInfo, null, out _imageAvailableSemaphores[i]);
                 _vk.CreateSemaphore(_device, semInfo, null, out _renderFinishedSemaphores[i]);
+            }
+
+            
+            SemaphoreTypeCreateInfo timelineType = new()
+            {
+                SType = StructureType.SemaphoreTypeCreateInfo,
+                SemaphoreType = SemaphoreType.Timeline,
+                InitialValue = _timelineValue
+            };
+            SemaphoreCreateInfo semCI = new() { SType = StructureType.SemaphoreCreateInfo, PNext = &timelineType };
+            fixed(Semaphore* copyDone = &_copyDone)
+            {
+                _vk.CreateSemaphore(_device, &semCI, null, copyDone);
             }
 
             // --- Command pool & a single primary CB ---
@@ -793,87 +832,6 @@ namespace ShowControl.Graphics
             _vk.CreateGraphicsPipelines(_device, default, 1, gpCI, null, out _pipeline);
         }
 
-        // Per-frame flow (inside your OnRender):
-        private void ReadbackFrame(CommandBuffer cmd, Image offscreenImage, Extent2D swapExtent)
-        {
-            // 1) Prepare the next write slot (wait → reset)
-            _stagingRing.WaitAndResetWriteFence();
-
-            // 2) Record: render -> barriers -> copy image -> buffer (write slot)
-            // (Assumes you already began/end the render pass elsewhere.)
-            RecordCopyImageToBuffer(cmd, offscreenImage, swapExtent);
-
-            // 3) Submit with the fence of the write slot
-            // (Set up your SubmitInfo with cmd and no special semaphores here.)
-            // IMPORTANT: The fence you signal MUST be _staging.CurrentWriteFence
-            // Example:
-            // _vk.QueueSubmit(_graphicsQueue, 1, &submitInfo, _staging.CurrentWriteFence).ThrowOnError();
-
-            // 4) Advance ring indices for next frame (the just-submitted slot becomes next ReadIndex)
-            _stagingRing.Advance();
-
-            // 5) Read previous frame’s data (now at _staging.ReadIndex)
-            //    Wait for the fence on that slot (it was signaled by last frame’s submit)
-            Fence readFence = GetFenceForReadIndex();
-            _vk.WaitForFences(_device, 1, in readFence, true, ulong.MaxValue).ThrowOnError();
-            // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-            // NOTE: the line above is *conceptually* "wait the fence associated with ReadIndex".
-            // Because we advanced indices, the fence you should wait on is the fence for ReadIndex, not WriteIndex.
-            // Implement a small helper to get that fence cleanly:
-
-            // Replace the previous WaitForFences line with:
-            // Fence readFence = GetFenceForReadIndex();
-            // _vk.WaitForFences(_device, 1, in readFence, true, ulong.MaxValue).ThrowOnError();
-
-            // 6) Ensure host visibility if memory is non-coherent
-            _stagingRing.InvalidateReadIfNeeded();
-
-            // 7) Process the data directly without copying
-            var mem = _stagingRing.CurrentReadMemory;
-            var span = mem.Span; // stride = width * 4, RGBA or BGRA depending on your offscreen format
-            // ... do CPU work on span ...
-        }
-
-        // Record copy from your offscreen image (R8G8B8A8 or matching) into the *current write* staging buffer
-        private unsafe void RecordCopyImageToBuffer(CommandBuffer cmd, Image srcImage, Extent2D extent)
-        {
-            // Transition to TRANSFER_SRC_OPTIMAL should already be done before calling this.
-            BufferImageCopy region = new()
-            {
-                BufferOffset = 0,
-                BufferRowLength = 0,    // tightly packed
-                BufferImageHeight = 0,  // tightly packed
-                ImageSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
-                ImageOffset = new Offset3D(0, 0, 0),
-                ImageExtent = new Extent3D(extent.Width, extent.Height, 1)
-            };
-
-            Buffer dst = _stagingRing.CurrentWriteBuffer;
-
-            _vk.CmdCopyImageToBuffer(
-                cmd,
-                srcImage, ImageLayout.TransferSrcOptimal,
-                dst,
-                1, &region);
-        }
-
-        // Utility to fetch the fence for current ReadIndex
-        // (Add this method to StagingRing if you prefer keeping it internal)
-        private Fence GetFenceForReadIndex() =>
-            typeof(StagingRing)
-            .GetField("_fence", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
-            ?.GetValue(_stagingRing) is Fence[] arr
-                ? arr[_stagingRing.ReadIndex]
-                : default;
-
-        // Call this from your Stop/Dispose path
-        private void ShutdownStaging()
-        {
-            _vk.DeviceWaitIdle(_device).ThrowOnError();
-            _stagingRing?.Dispose();
-            _stagingRing = null;
-        }
-
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
         private static unsafe Bool32 DebugCallback(
             DebugUtilsMessageSeverityFlagsEXT severity,
@@ -951,6 +909,25 @@ namespace ShowControl.Graphics
             if (_recreatingSwapchain || _isClosing || _tearingDownWSI)
             {
                 return;
+            }
+
+            while (_producerSerial - _consumerSerial >= (ulong)StagingRing.RingSize)
+            {
+                // Wait on the oldest slot's timeline value before reusing it
+                ulong waitValue = _slotSignaledValue[_stagingRing.ReadIndex];
+                if (waitValue != 0)
+                {
+                    SemaphoreWaitInfo wi = new() { SType = StructureType.SemaphoreWaitInfo, SemaphoreCount = 1 };
+                    fixed (Semaphore* pSem = &_copyDone)
+                    {
+                        wi.PSemaphores = pSem;
+                        wi.PValues = &waitValue;
+                        _vk.WaitSemaphores(_device, &wi, ulong.MaxValue);
+                    }
+                    _slotSignaledValue[_stagingRing.ReadIndex] = 0;
+                    _stagingRing.AdvanceRead();
+                    _consumerSerial++;
+                }
             }
 
             var cmd = _cmds[_currentFrame];
@@ -1073,9 +1050,9 @@ namespace ShowControl.Graphics
                 ImageOffset = new Offset3D(0, 0, 0),
                 ImageExtent = new Extent3D(_offscreenExtent.Width, _offscreenExtent.Height, 1),
             };
-            _vk.CmdCopyImageToBuffer(cmd, _offscreenImage, ImageLayout.TransferSrcOptimal, _buffer, 1, &region);
+            Buffer dst = _stagingRing.CurrentWriteBuffer;
+            _vk.CmdCopyImageToBuffer(cmd, _offscreenImage, ImageLayout.TransferSrcOptimal, dst, 1, &region);
 
-            ReadbackFrame(cmd, _offscreenImage, _swapExtent);
             // If we're presenting, blit the off-screen image into the swapchain image
             if (PRESENT)
             {
@@ -1144,6 +1121,8 @@ namespace ShowControl.Graphics
 
             _vk.EndCommandBuffer(cmd);
 
+            ulong signalValue = (ulong)Interlocked.Increment(ref _timelineValue);
+
             // Submit
             if (PRESENT)
             {
@@ -1151,57 +1130,141 @@ namespace ShowControl.Graphics
                 var waitStage = PipelineStageFlags.PipelineStageTransferBit; // we first use the swapchain image in a transfer op
                 fixed (Semaphore* pWait = &_imageAvailableSemaphores[_currentFrame])
                 {
-                    Semaphore* pSignal = &renderFinishedForThisImage;
-                    CommandBuffer* pCmd = &cmd;
-                    var submitInfo = new SubmitInfo(
-                        waitSemaphoreCount: 1, pWaitSemaphores: pWait,
-                        pWaitDstStageMask: &waitStage,
-                        commandBufferCount: 1, pCommandBuffers: pCmd,
-                        signalSemaphoreCount: 1, pSignalSemaphores: pSignal
-                    );
-                    _vk.QueueSubmit(_graphicsQueue, 1, ref submitInfo, _inFlightFences[_currentFrame]);
-
-                    // Present waits on renderFinished
-                    fixed (SwapchainKHR* pSwap = &_swapchain)
+                    
+                    fixed(Semaphore* pCopyDone = &_copyDone)
                     {
-                        var presentInfo = new PresentInfoKHR(
-                            waitSemaphoreCount: 1, pWaitSemaphores: pSignal,
-                            swapchainCount: 1, pSwapchains: pSwap,
-                            pImageIndices: &imageIndex
-                        );
-                        var pres = _swapchainExtension.QueuePresent(_graphicsQueue, presentInfo);
-                        _imageAcquired = false;
-                        if ((pres == Result.ErrorOutOfDateKhr || pres == Result.SuboptimalKhr) && !_isClosing)
+                        var semaphores = stackalloc Semaphore[2]
                         {
-                            _graphicsQueueIndex = CreateOrRecreateSwapchainPinned(_window);
-                            return;
+                            _copyDone,
+                            renderFinishedForThisImage
+                        };
+                        ulong* pWaitVals = stackalloc ulong[1] { 0 };            // binary => 0
+                        ulong* pSigVals = stackalloc ulong[2] { signalValue, 0 };
+                        TimelineSemaphoreSubmitInfo tl = new()
+                        {
+                            SType = StructureType.TimelineSemaphoreSubmitInfo,
+                            WaitSemaphoreValueCount = 1,
+                            PWaitSemaphoreValues = pWaitVals,
+                            SignalSemaphoreValueCount = 2,
+                            PSignalSemaphoreValues = pSigVals
+                        };
+
+                        Semaphore* pSignal = &renderFinishedForThisImage;
+
+                        CommandBuffer* pCmd = &cmd;
+                        var submitInfo = new SubmitInfo(
+                            waitSemaphoreCount: 1, pWaitSemaphores: pWait,
+                            pWaitDstStageMask: &waitStage,
+                            commandBufferCount: 1, pCommandBuffers: pCmd,
+                            signalSemaphoreCount: 2, pSignalSemaphores: semaphores
+                        );
+                        submitInfo.PNext = &tl;
+                        ulong val;
+                        _vk.GetSemaphoreCounterValue(_device, _copyDone, &val);
+                        _vk.QueueSubmit(_graphicsQueue, 1, ref submitInfo, _inFlightFences[_currentFrame]);
+                        _vk.GetSemaphoreCounterValue(_device, _copyDone, &val);
+
+                        // Present waits on renderFinished
+                        fixed (SwapchainKHR* pSwap = &_swapchain)
+                        {
+                            var presentInfo = new PresentInfoKHR(
+                                waitSemaphoreCount: 1, pWaitSemaphores: pSignal,
+                                swapchainCount: 1, pSwapchains: pSwap,
+                                pImageIndices: &imageIndex
+                            );
+                            var pres = _swapchainExtension.QueuePresent(_graphicsQueue, presentInfo);
+                            _imageAcquired = false;
+                            if ((pres == Result.ErrorOutOfDateKhr || pres == Result.SuboptimalKhr) && !_isClosing)
+                            {
+                                _graphicsQueueIndex = CreateOrRecreateSwapchainPinned(_window);
+                                return;
+                            }
                         }
                     }
                 }
             }
             else
             {
-                // No presentation path: just submit the off-screen work
-                var submitInfo = new SubmitInfo(
-                    waitSemaphoreCount: 0, pWaitSemaphores: null,
-                    pWaitDstStageMask: null,
-                    commandBufferCount: 1, pCommandBuffers: &cmd,
-                    signalSemaphoreCount: 0, pSignalSemaphores: null
-                );
-                _vk.QueueSubmit(_graphicsQueue, 1, ref submitInfo, _inFlightFences[_currentFrame]);
+                fixed(Semaphore* copyDone = &_copyDone)
+                {
+                    var semaphores = stackalloc Semaphore[1]
+                    {
+                            _copyDone
+                    };
+                    ulong* pWaitVals = stackalloc ulong[1] { 0 };            // binary => 0
+                    ulong* pSigVals = stackalloc ulong[2] { signalValue, 0 };
+                    TimelineSemaphoreSubmitInfo tl = new()
+                    {
+                        SType = StructureType.TimelineSemaphoreSubmitInfo,
+                        WaitSemaphoreValueCount = 1,
+                        PWaitSemaphoreValues = pWaitVals,
+                        SignalSemaphoreValueCount = 2,
+                        PSignalSemaphoreValues = pSigVals
+                    };
+
+                    // No presentation path: just submit the off-screen work
+                    var submitInfo = new SubmitInfo(
+                        waitSemaphoreCount: 0, pWaitSemaphores: null,
+                        pWaitDstStageMask: null,
+                        commandBufferCount: 1, pCommandBuffers: &cmd,
+                        signalSemaphoreCount: 1, pSignalSemaphores: copyDone
+                    );
+                    submitInfo.PNext = &tl;
+                    _vk.QueueSubmit(_graphicsQueue, 1, ref submitInfo, _inFlightFences[_currentFrame]);
+                }
             }
 
-            _stagingRing.Advance();
-
+            _slotSignaledValue[_stagingRing.WriteIndex] = signalValue;
+            _stagingRing.AdvanceWrite();
+            _producerSerial++;
             // Wait for GPU, then map staging buffer and copy to Bytes[]
             _vk.WaitForFences(_device, 1, in _inFlightFences[_currentFrame], true, ulong.MaxValue);
 
-            lock (_lock)
-            {
-                Marshal.Copy((IntPtr)_mapped, Bytes, 0, (int)_imageSize);
-            }
+            // memory should be in staging ring
 
             _currentFrame = (_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+        }
+
+        public unsafe void ReadFromMemory()
+        {
+            if (_device.Handle == 0 || _copyDone.Handle == 0)
+            {
+                return;
+            }
+
+            // We want to read the data produced by the previous frame.
+            // Its timeline value is `signalValueForPrev = timelineValue - 1` (guard for frame 0).
+            ulong waitValue = _slotSignaledValue[_stagingRing.ReadIndex];
+            if (waitValue == 0) return;  // nothing produced yet
+
+            // Wait on timeline semaphore (host-side)
+            SemaphoreWaitInfo waitInfo = new()
+            {
+                SType = StructureType.SemaphoreWaitInfo,
+                SemaphoreCount = 1
+            };
+            //fixed (Semaphore* pSem = &_copyDone)
+            //{
+            //    ulong* pVal = &waitValue;
+            //    waitInfo.PSemaphores = pSem;
+            //    waitInfo.PValues = pVal;
+            //    _vk.WaitSemaphores(_device, &waitInfo, ulong.MaxValue);
+            //}
+
+            // If memory isn’t HOST_COHERENT, invalidate the range here.
+            // vkInvalidateMappedMemoryRanges(...)
+
+            //// Read from ring[readIndex].Ptr
+            //var srcSpan = new Span<byte>(ring[readIndex].Ptr, (int)_imageSize);
+            //// copy to your managed Bytes[] if you want
+            //if (Bytes == null || Bytes.Length != (int)_imageSize) Bytes = new byte[(int)_imageSize];
+            //srcSpan.CopyTo(Bytes);
+
+            Thread.Sleep(1000);
+
+            //_slotSignaledValue[_stagingRing.ReadIndex] = 0;
+            //_stagingRing.AdvanceRead();
+            //_consumerSerial++;
         }
 
         private unsafe ShaderModule CreateShaderModule(byte[] code)
