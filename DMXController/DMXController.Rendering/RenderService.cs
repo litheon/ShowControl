@@ -4,6 +4,7 @@ using ShowControl.Devices.DMX;
 using ShowControl.Devices.Input;
 using ShowControl.Devices.Input.Extensions;
 using ShowControl.Devices.Output;
+using ShowControl.Graphics;
 using ShowControl.Utilities;
 using System;
 using System.Collections.Generic;
@@ -25,6 +26,7 @@ namespace ShowControl.Rendering
         private readonly IDmxDeviceEnumerator _deviceEnumerator;
         private readonly IInputService _inputService;
         private readonly IAudioService _audioService;
+        private readonly IGraphicsHost _graphicsHost;
         private readonly IDmxDevice[] _devices;
 
         private readonly IRenderSurface[] _renderSurfaces;
@@ -142,12 +144,14 @@ namespace ShowControl.Rendering
         public RenderService(
             IDmxDeviceEnumerator deviceEnumerator,
             IInputService inputService,
+            IGraphicsHost graphicsHost,
             IAudioService audioService
             )
         {
             _deviceEnumerator = deviceEnumerator;
             _inputService = inputService;
             _audioService = audioService;
+            _graphicsHost = graphicsHost;
             _audioService.AudioFrameProcessed += _audioService_AudioFrameProcessed;
             _renderThread = new Thread(RenderThreadLoop);
             _tcs = new TaskCompletionSource<bool>();
@@ -393,8 +397,9 @@ namespace ShowControl.Rendering
             IDmxDeviceEnumerator deviceEnumerator,
             IInputService inputService,
             IAudioService audioService,
+            IGraphicsHost graphicsHost,
             Action<IDmxDevice[]> dmxDeviceAction
-            ) : this(deviceEnumerator, inputService, audioService)
+            ) : this(deviceEnumerator, inputService, graphicsHost, audioService)
         {
             dmxDeviceAction(_devices);
         }
@@ -2556,7 +2561,7 @@ namespace ShowControl.Rendering
                 new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg9, _audioService, _cts.Token, fastAnimate: true),
                 new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg2Lucidas, _audioService, _cts.Token, fastAnimate: true),
                 new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg6, _audioService, _cts.Token, fastAnimate: true),
-                new VibrantAnimation(_pixelChannels.TotalPixelCount, _audioService, _cts.Token)
+                new VibrantAnimation(_pixelChannels.TotalPixelCount, _audioService, _graphicsHost, _cts.Token)
                 //new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg8, _audioService, _cts.Token, fastAnimate: true),
             };
             _auxilaryKeyAnimations = new IKeyAnimation[]
@@ -2568,7 +2573,7 @@ namespace ShowControl.Rendering
                 new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg9, _audioService, _cts.Token),
                 new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg2Lucidas, _audioService, _cts.Token),
                 new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg6, _audioService, _cts.Token),
-                new VibrantAnimation(_parChannels.TotalPixelCount, _audioService, _cts.Token)
+                new VibrantAnimation(_parChannels.TotalPixelCount, _audioService, _graphicsHost, _cts.Token)
                 //new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg8, _audioService, _cts.Token),
             };
 

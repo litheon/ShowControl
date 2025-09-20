@@ -10,6 +10,7 @@ using ShowControl.Devices.Audio;
 using NAudio.Dsp;
 using ShowControl.Devices.DMX;
 using Serilog;
+using ShowControl.Graphics;
 
 namespace ShowControl.Host
 {
@@ -43,6 +44,7 @@ namespace ShowControl.Host
                         .AddSingleton<IDmxDeviceEnumerator, DmxDeviceEnumerator>()
                         .AddSingleton<IInputService, InputService>()
                         .AddSingleton<IAudioService, AudioService>()
+                        .AddSingleton<IGraphicsHost, GraphicsHost>()
                         .AddLogging()
                         .AddHostedService<RenderService>());
 
@@ -54,6 +56,7 @@ namespace ShowControl.Host
                         .AddSingleton<IDmxDeviceEnumerator, DmxDeviceEnumerator>()
                         .AddSingleton<IInputService, InputService>()
                         .AddSingleton<IAudioService, AudioService>((_) => new AudioService(audioFrameProcessedEventHandler))
+                        .AddSingleton<IGraphicsHost, GraphicsHost>()
                         .AddSingleton((_) => devices)
                         .AddLogging()
                         .AddHostedService<RenderService>());

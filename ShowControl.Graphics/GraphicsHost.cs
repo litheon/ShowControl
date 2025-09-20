@@ -26,12 +26,14 @@ using Silk.NET.Windowing;
 
 namespace ShowControl.Graphics
 {
-    public class GraphicsHost
+    public class GraphicsHost : IGraphicsHost
     {
 
+        private Thread _backgroundThread;
         public GraphicsHost()
         {
-            
+            _backgroundThread = new Thread(Run);
+            _backgroundThread.Start();
         }
         [StructLayout(LayoutKind.Sequential)]
         struct PushData
@@ -118,7 +120,8 @@ namespace ShowControl.Graphics
 
         public object _lock = new object();
         public byte[] Bytes = null;
-        public int Width = 0;
+        public int Width { get; private set; }
+        public int Height { get; private set; }
 
         private bool PRESENT = false; // set false to run headless (no window present)
         private Extent2D _offscreenExtent;
@@ -126,7 +129,6 @@ namespace ShowControl.Graphics
 
         private volatile bool _running;
         private Thread _renderThread;
-        private Thread _testConsumerThread;
 
         private unsafe void* _mapped;
 
@@ -150,11 +152,12 @@ namespace ShowControl.Graphics
             }
         }
 
-        public void RunHeadless(int width = 1600, int height = 1200)
+        public void RunHeadless(int width = 800, int height = 600)
         {
             PRESENT = false; // make sure your OnRender uses the no-present path
             _offscreenExtent = new Extent2D((uint)width, (uint)height);
             Width = width;
+            Height = height;
             _swapExtent = _offscreenExtent; // reuse same var if your code expects it
             _imageSize = (ulong)width * (ulong)height * 4;
 
@@ -162,14 +165,6 @@ namespace ShowControl.Graphics
             _running = true;
             _renderThread = new Thread(RenderLoop) { IsBackground = true };
             _renderThread.Start();
-            _testConsumerThread = new Thread(() =>
-            {
-                while (true) {
-                    ReadFromMemory();
-                    Thread.Yield();
-                }
-            });
-            _testConsumerThread.Start();
         }
 
         private void RenderLoop()
@@ -191,7 +186,7 @@ namespace ShowControl.Graphics
         }
 
 #if !ARM64
-        public unsafe void ShowHeadlessInWindow(int width = 1600, int height = 1200, string title = "Viewer")
+        public unsafe void ShowHeadlessInWindow(int width = 800, int height = 600, string title = "Viewer")
         {
             // We assume instance/device already have WSI + swapchain enabled.
             // We also assume your off-screen renderer is already running (RunHeadless or similar).
@@ -1266,11 +1261,16 @@ namespace ShowControl.Graphics
             _currentFrame = (_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
         }
 
-        public unsafe void ReadFromMemory()
+        public unsafe RenderedImageHandle<byte> ReadFromMemory()
         {
+            if (_stagingRing == null)
+            {
+                return RenderedImageHandle<byte>.Empty;
+            }
+
             int slot = _stagingRing.ReadIndex;
             ulong produced = Volatile.Read(ref _slotReadyGpuValue[slot]);
-            if (produced == 0) return;
+            if (produced == 0) return RenderedImageHandle<byte>.Empty;
 
             // (1) Wait for GPU to produce this slot
             SemaphoreWaitInfo wi = new() { SType = StructureType.SemaphoreWaitInfo, SemaphoreCount = 1 };
@@ -1281,16 +1281,30 @@ namespace ShowControl.Graphics
                 _vk.WaitSemaphores(_device, &wi, ulong.MaxValue);
             }
 
-            // (2) Do CPU work
-            Thread.Sleep(100); // or real work
+            var memory = _stagingRing.CurrentReadMemory;
+            var releaseAction = (int slotValue, ulong producedValue) =>
+            {
+                try
+                {
+                    // (3) Signal CPU release with the SAME value
+                    SemaphoreSignalInfo sig = new() { SType = StructureType.SemaphoreSignalInfo, Semaphore = _cpuDoneTL, Value = producedValue };
+                    _vk.SignalSemaphore(_device, &sig);
 
-            // (3) Signal CPU release with the SAME value
-            SemaphoreSignalInfo sig = new() { SType = StructureType.SemaphoreSignalInfo, Semaphore = _cpuDoneTL, Value = produced };
-            _vk.SignalSemaphore(_device, &sig);
+                    // (4) Clear and advance
+                    Volatile.Write(ref _slotReadyGpuValue[slotValue], 0);
+                    _stagingRing.AdvanceRead();
+                }
+                catch (Exception e)
+                {
+                    int x = 0;
+                }
+            };
+            return new RenderedImageHandle<byte>(memory, releaseAction, slot, produced);
+        }
 
-            // (4) Clear and advance
-            Volatile.Write(ref _slotReadyGpuValue[slot], 0);
-            _stagingRing.AdvanceRead();
+        public RenderedImageHandle<byte> GetRenderedImage()
+        {
+            return ReadFromMemory();
         }
 
         private unsafe ShaderModule CreateShaderModule(byte[] code)

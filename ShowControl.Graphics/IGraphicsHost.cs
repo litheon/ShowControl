@@ -6,7 +6,10 @@ using System.Threading.Tasks;
 
 namespace ShowControl.Graphics
 {
-    internal interface IGraphicsHost
+    public interface IGraphicsHost
     {
+        public RenderedImageHandle<byte> GetRenderedImage();
+        public int Width { get;  }
+        public int Height { get; }
     }
 }
