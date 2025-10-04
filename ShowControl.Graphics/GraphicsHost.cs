@@ -73,11 +73,9 @@ namespace ShowControl.Graphics
         private Pipeline _pipeline;
         private PipelineLayout _pipelineLayout;
 
-        private Fence[] _inFlightFences;
-        private Fence[] _imagesInFlight;
+        ulong[] _imageSerial;
         private Semaphore[] _imageAvailableSemaphores;
         private Semaphore[] _renderFinishedByImage; // one per swapchain image
-        private Semaphore[] _renderFinishedSemaphores;
 
         private Semaphore _gpuDoneTL; // produced-by-GPU
         private Semaphore _cpuDoneTL; // released-by-CPU
@@ -91,16 +89,14 @@ namespace ShowControl.Graphics
         private readonly ulong[] _slotNeedCpuRelease = new ulong[StagingRing.RingSize]; // last value that must be released before reuse
 
         ulong _timelineValue = 0;
-        ulong _producerSerial = 0;
-        ulong _consumerSerial = 0;
         ulong[] _slotSignaledValue = new ulong[3];
         private int _currentFrame = 0;
+        private StagingRing _stagingRing;
 
         private ShaderModule _vertShaderModule;
         private ShaderModule _fragShaderModule;
 
         private uint _graphicsQueueIndex;
-        private StagingRing _stagingRing;
         private PhysicalDeviceMemoryProperties _memProps;
         private Extent2D _swapExtent;
         private DeviceMemory _offscreenMemory;
@@ -116,7 +112,7 @@ namespace ShowControl.Graphics
 
         private Stopwatch _stopwatch = new Stopwatch();
 
-        const int MAX_FRAMES_IN_FLIGHT = 2;
+        const int MAX_FRAMES_IN_FLIGHT = 3;
 
         public object _lock = new object();
         public byte[] Bytes = null;
@@ -239,7 +235,6 @@ namespace ShowControl.Graphics
 
                 // 4) Clear swapchain-dependent arrays so OnRender can’t touch them
                 _swapchainImages = null;
-                _imagesInFlight = null;
                 _acquiredImageIndex = 0;
 
                 _tearingDownWSI = false;
@@ -299,12 +294,12 @@ namespace ShowControl.Graphics
             // 4) Fetch swapchain images
             uint count = 0;
             _swapchainExtension.GetSwapchainImages(_device, _swapchain, ref count, null);
+            _imageSerial = new ulong[count];
             _swapchainImages = new Image[count];
             fixed (Image* p = _swapchainImages)
                 _swapchainExtension.GetSwapchainImages(_device, _swapchain, &count, p);
 
             CreatePerImageSyncObjects(count);
-            _imagesInFlight = new Fence[count];   // reset image-in-flight tracking on (re)create;
         }
 
         private unsafe uint FindPresentQueueFamily(PhysicalDevice pd, SurfaceKHR surface)
@@ -492,7 +487,6 @@ namespace ShowControl.Graphics
 
             _imageAcquired = false;
             _acquiredImageIndex = 0;
-            _imagesInFlight = new Fence[count]; // default handles == 0
 
             DestroyPerImageSyncObjects();
             _renderFinishedByImage = new Semaphore[count];
@@ -670,9 +664,8 @@ namespace ShowControl.Graphics
             _vk.GetPhysicalDeviceMemoryProperties(_physicalDevice, out _memProps);
 
             // --- Sync objects (double-buffered fence & semaphores reused even if headless) ---
-            _inFlightFences = new Fence[MAX_FRAMES_IN_FLIGHT];
+            _imageSerial = new ulong[MAX_FRAMES_IN_FLIGHT];
             _imageAvailableSemaphores = new Semaphore[MAX_FRAMES_IN_FLIGHT];
-            _renderFinishedSemaphores = new Semaphore[MAX_FRAMES_IN_FLIGHT];
             var fenceInfo = new FenceCreateInfo(flags: FenceCreateFlags.FenceCreateSignaledBit);
             var semInfo = new SemaphoreCreateInfo()
             {
@@ -680,9 +673,7 @@ namespace ShowControl.Graphics
             };
             for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
             {
-                _vk.CreateFence(_device, fenceInfo, null, out _inFlightFences[i]);
                 _vk.CreateSemaphore(_device, semInfo, null, out _imageAvailableSemaphores[i]);
-                _vk.CreateSemaphore(_device, semInfo, null, out _renderFinishedSemaphores[i]);
             }
 
             
@@ -931,10 +922,22 @@ namespace ShowControl.Graphics
                 return;
             }
 
-            var cmd = _cmds[_currentFrame];
+            // Decide ring slot we’re writing this frame:
+            int slot = _stagingRing.WriteIndex;
+            if (Volatile.Read(ref _slotReadyGpuValue[slot]) != 0)
+            {
+                int free = -1;
+                for (int i = 0; i < StagingRing.RingSize; i++)
+                {
+                    int s = (slot + i) % StagingRing.RingSize;
+                    if (Volatile.Read(ref _slotReadyGpuValue[s]) == 0) { free = s; break; }
+                }
+                if (free < 0) return; // ring full -> backpressure
+                _stagingRing.WriteIndex = free;   // add this to StagingRing if missing
+                slot = free;
+            }
 
-            // Wait & reset fence for this frame
-            _vk.WaitForFences(_device, 1, in _inFlightFences[_currentFrame], true, ulong.MaxValue);
+            var cmd = _cmds[_currentFrame];
 
             // If we're presenting, acquire a swapchain image early
             uint imageIndex = 0;
@@ -970,22 +973,26 @@ namespace ShowControl.Graphics
                     // Success or Suboptimal
                     _imageAcquired = true;
                     _acquiredImageIndex = imageIndex;
+
+                    if (_imageSerial[imageIndex] != 0)
+                    {
+                        var wi = new SemaphoreWaitInfo { SemaphoreCount = 1 };
+                        fixed (Semaphore* p = &_gpuDoneTL)
+                        {
+                            fixed(ulong* imageSerial = &_imageSerial[imageIndex])
+                            {
+                                wi.PSemaphores = p;
+                                wi.PValues = imageSerial;
+                                _vk.WaitSemaphores(_device, &wi, ulong.MaxValue);
+                            }
+                        }
+                    }
                 }
                 else
                 {
                     // Reuse the one we already acquired previously (e.g., last frame aborted before present)
                     imageIndex = _acquiredImageIndex;
                 }
-
-                // If this image is still in use by a previous frame, wait it out
-                var prevFence = _imagesInFlight[imageIndex];
-                if (prevFence.Handle != 0)
-                    _vk.WaitForFences(_device, 1, in prevFence, true, ulong.MaxValue);
-            }
-
-            if (PRESENT)
-            {
-                _imagesInFlight[imageIndex] = _inFlightFences[_currentFrame];
             }
 
             // Record commands
@@ -1121,16 +1128,6 @@ namespace ShowControl.Graphics
 
             ulong frameValue = (ulong)Interlocked.Increment(ref _timelineValue);
 
-            // Decide ring slot we’re writing this frame:
-            int slot = _stagingRing.WriteIndex;
-
-            if (Volatile.Read(ref _slotReadyGpuValue[slot]) != 0)
-            {
-                // Choose your policy: skip this frame, pick another slot, or block/yield.
-                // Skipping avoids circular waits.
-                return;
-            }
-
             // (A) Optional wait on CPU release for this slot
             ulong requiredRelease = Volatile.Read(ref _slotNeedCpuRelease[slot]);
             bool needWait = requiredRelease != 0;
@@ -1183,9 +1180,6 @@ namespace ShowControl.Graphics
                 PSignalSemaphoreValues = tlSigVals
             };
 
-            // Reset fences for this frame
-            _vk.ResetFences(_device, 1, in _inFlightFences[_currentFrame]);
-
             // Submit
             if (PRESENT)
             {
@@ -1207,7 +1201,7 @@ namespace ShowControl.Graphics
                     );
                     submitInfo.PNext = &tl;
                     ulong val;
-                    _vk.QueueSubmit(_graphicsQueue, 1, ref submitInfo, _inFlightFences[_currentFrame]);
+                    _vk.QueueSubmit(_graphicsQueue, 1, ref submitInfo, default);
 
                     // Present waits on renderFinished
                     fixed (SwapchainKHR* pSwap = &_swapchain)
@@ -1225,6 +1219,7 @@ namespace ShowControl.Graphics
                             return;
                         }
                     }
+                    _imageSerial[imageIndex] = producedValue;
                 }
             }
             else
@@ -1242,7 +1237,7 @@ namespace ShowControl.Graphics
                     pSignalSemaphores: sigSems
                 );
                 submitInfo.PNext = &tl;
-                _vk.QueueSubmit(_graphicsQueue, 1, ref submitInfo, _inFlightFences[_currentFrame]);
+                _vk.QueueSubmit(_graphicsQueue, 1, ref submitInfo, default);
             }
 
             Volatile.Write(ref _slotReadyGpuValue[slot], producedValue);
@@ -1252,7 +1247,6 @@ namespace ShowControl.Graphics
 
             _slotSignaledValue[_stagingRing.WriteIndex] = frameValue;
             _stagingRing.AdvanceWrite();
-            _producerSerial++;
             // Wait for GPU, then map staging buffer and copy to Bytes[]
             //_vk.WaitForFences(_device, 1, in _inFlightFences[_currentFrame], true, ulong.MaxValue);
 
@@ -1270,7 +1264,16 @@ namespace ShowControl.Graphics
 
             int slot = _stagingRing.ReadIndex;
             ulong produced = Volatile.Read(ref _slotReadyGpuValue[slot]);
-            if (produced == 0) return RenderedImageHandle<byte>.Empty;
+            if (produced == 0)
+            {
+                for (int i = 1; i < StagingRing.RingSize; i++)
+                {
+                    int s = (slot + i) % StagingRing.RingSize;
+                    ulong p = Volatile.Read(ref _slotReadyGpuValue[s]);
+                    if (p != 0) { _stagingRing.ReadIndex = s; slot = s; produced = p; break; }
+                }
+                if (produced == 0) return RenderedImageHandle<byte>.Empty;
+            }
 
             // (1) Wait for GPU to produce this slot
             SemaphoreWaitInfo wi = new() { SType = StructureType.SemaphoreWaitInfo, SemaphoreCount = 1 };

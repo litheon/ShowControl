@@ -28,8 +28,8 @@ namespace ShowControl.Graphics
         private uint _transferQFamilyIndex;
         private bool _hostCoherent;
 
-        public int WriteIndex { get; private set; } = 0;
-        public int ReadIndex { get; private set; } = 0;
+        public int WriteIndex { get; set; } = 0;
+        public int ReadIndex { get; set; } = 0;
 
         public Memory<byte> CurrentReadMemory => _memory[ReadIndex];
         public void* CurrentReadPtr => _mapped[ReadIndex];
