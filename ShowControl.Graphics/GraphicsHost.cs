@@ -138,9 +138,9 @@ namespace ShowControl.Graphics
             {
                 //System.Threading.Thread.Sleep(20000);
                 RunHeadless();
-                #if !ARM64
-                ShowHeadlessInWindow();
-                #endif
+                //#if !ARM64
+                //ShowHeadlessInWindow();
+                //#endif
             }
             catch (Exception e)
             {
@@ -766,7 +766,7 @@ namespace ShowControl.Graphics
                 storeOp: AttachmentStoreOp.Store,
                 stencilLoadOp: AttachmentLoadOp.DontCare,
                 stencilStoreOp: AttachmentStoreOp.DontCare,
-                initialLayout: ImageLayout.Undefined,
+                initialLayout: ImageLayout.ColorAttachmentOptimal,
                 finalLayout: ImageLayout.ColorAttachmentOptimal
             );
             var attRef = new AttachmentReference(0, ImageLayout.ColorAttachmentOptimal);
@@ -1058,6 +1058,23 @@ namespace ShowControl.Graphics
             Buffer dst = _stagingRing.CurrentWriteBuffer;
             _vk.CmdCopyImageToBuffer(cmd, _offscreenImage, ImageLayout.TransferSrcOptimal, dst, 1, &region);
 
+            ImageMemoryBarrier backToColor = new()
+            {
+                SType = StructureType.ImageMemoryBarrier,
+                OldLayout = ImageLayout.TransferSrcOptimal,
+                NewLayout = ImageLayout.ColorAttachmentOptimal,
+                SrcAccessMask = AccessFlags.TransferReadBit,
+                DstAccessMask = AccessFlags.ColorAttachmentWriteBit,
+                Image = _offscreenImage,
+                SubresourceRange = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, 1, 0, 1)
+            };
+            _vk.CmdPipelineBarrier(
+                cmd,
+                PipelineStageFlags.TransferBit,
+                PipelineStageFlags.ColorAttachmentOutputBit,
+                0, 0, null, 0, null, 1, &backToColor
+            );
+
             // If we're presenting, blit the off-screen image into the swapchain image
             if (PRESENT)
             {
@@ -1128,57 +1145,66 @@ namespace ShowControl.Graphics
 
             ulong frameValue = (ulong)Interlocked.Increment(ref _timelineValue);
 
-            // (A) Optional wait on CPU release for this slot
             ulong requiredRelease = Volatile.Read(ref _slotNeedCpuRelease[slot]);
             bool needWait = requiredRelease != 0;
 
-            // Build waits (binary + timeline in waitSems / waitStages)
-            int baseWaitCount = 0;
-            var waitSems = stackalloc Semaphore[(PRESENT ? 1 : 0) + (needWait ? 1 : 0)];
-            var waitStages = stackalloc PipelineStageFlags[(PRESENT ? 1 : 0) + (needWait ? 1 : 0)];
+            // --- assemble waits in a single consistent order ---
+            int waitCount = 0;
+            var waitSems = stackalloc Semaphore[2];            // cpuDoneTL, imageAvailable (if present)
+            var waitStages = stackalloc PipelineStageFlags[2];
+            var waitVals = stackalloc ulong[2];                // MUST be same length as waitSems
+
+            if (needWait)
+            {
+                waitSems[waitCount] = _cpuDoneTL;             // timeline
+                waitStages[waitCount] = PipelineStageFlags.PipelineStageTopOfPipeBit;
+                waitVals[waitCount] = requiredRelease;        // <- value for timeline wait
+                waitCount++;
+            }
+            if (PRESENT)
+            {
+                waitSems[waitCount] = _imageAvailableSemaphores[_currentFrame]; // binary
+                waitStages[waitCount] = PipelineStageFlags.PipelineStageTransferBit;
+                waitVals[waitCount] = 0;                      // <- dummy, ignored for binary
+                waitCount++;
+            }
+
+            // --- assemble signals in a single consistent order ---
+            int sigCount = 0;
+            var sigSems = stackalloc Semaphore[2];               // gpuDoneTL, renderFinished (if present)
+            var sigVals = stackalloc ulong[2];
+
+            ulong producedValue = ++_gpuCtr;
+            sigSems[sigCount] = _gpuDoneTL;                      // timeline
+            sigVals[sigCount] = producedValue;                   // <- timeline value
+            sigCount++;
 
             if (PRESENT)
             {
-                waitSems[baseWaitCount] = _imageAvailableSemaphores[_currentFrame]; // BINARY
-                waitStages[baseWaitCount] = PipelineStageFlags.PipelineStageTransferBit;
-                baseWaitCount++;
+                sigSems[sigCount] = _renderFinishedByImage[imageIndex]; // binary
+                sigVals[sigCount] = 0;                          // <- dummy, ignored for binary
+                sigCount++;
             }
 
-            // timeline waits & values
-            int tlWaitCount = 0;
-            var tlWaitVals = stackalloc ulong[needWait ? 1 : 0];
-            if (needWait)
-            {
-                waitSems[baseWaitCount] = _cpuDoneTL; // TIMELINE
-                waitStages[baseWaitCount] = PipelineStageFlags.PipelineStageTopOfPipeBit;
-                tlWaitVals[tlWaitCount++] = requiredRelease;
-                baseWaitCount++;
-            }
-
-            // Signals: always signal the GPU timeline with the new producedValue; also the per-image binary when presenting.
-            int sigSemCount = PRESENT ? 2 : 1;
-            var sigSems = stackalloc Semaphore[sigSemCount];
-            sigSems[0] = _gpuDoneTL; // TIMELINE first
-            if (PRESENT) sigSems[1] = _renderFinishedByImage[imageIndex]; // BINARY
-
-            // Compute the new timeline value we will publish for this slot
-            ulong producedValue = ++_gpuCtr;
-
-            // timeline signals array (only timeline semaphores!)
-            int tlSigCount = 1;
-            var tlSigVals = stackalloc ulong[tlSigCount];
-            tlSigVals[0] = producedValue;
-
-
-            // --- hook up the timeline PNext (ONLY timeline counts/vals) ---
             TimelineSemaphoreSubmitInfo tl = new()
             {
                 SType = StructureType.TimelineSemaphoreSubmitInfo,
-                WaitSemaphoreValueCount = (uint)tlWaitCount,
-                PWaitSemaphoreValues = tlWaitCount > 0 ? tlWaitVals : null,
-                SignalSemaphoreValueCount = (uint)tlSigCount,
-                PSignalSemaphoreValues = tlSigVals
+                WaitSemaphoreValueCount = (uint)waitCount,
+                PWaitSemaphoreValues = waitCount > 0 ? waitVals : null,
+                SignalSemaphoreValueCount = (uint)sigCount,
+                PSignalSemaphoreValues = sigCount > 0 ? sigVals : null
             };
+
+            var submitInfo = new SubmitInfo(
+                waitSemaphoreCount: (uint)waitCount,
+                pWaitSemaphores: waitCount > 0 ? waitSems : null,
+                pWaitDstStageMask: waitCount > 0 ? waitStages : null,
+                commandBufferCount: 1,
+                pCommandBuffers: &cmd,
+                signalSemaphoreCount: (uint)sigCount,
+                pSignalSemaphores: sigSems
+            );
+            submitInfo.PNext = &tl;
 
             // Submit
             if (PRESENT)
@@ -1190,18 +1216,13 @@ namespace ShowControl.Graphics
                     Semaphore* pSignal = &renderFinishedForThisImage;
 
                     CommandBuffer* pCmd = &cmd;
-                    var submitInfo = new SubmitInfo(
-                        waitSemaphoreCount: (uint)baseWaitCount,
-                        pWaitSemaphores: baseWaitCount > 0 ? waitSems : null,
-                        pWaitDstStageMask: baseWaitCount > 0 ? waitStages : null,
-                        commandBufferCount: 1,
-                        pCommandBuffers: &cmd,
-                        signalSemaphoreCount: (uint)sigSemCount,
-                        pSignalSemaphores: sigSems
-                    );
-                    submitInfo.PNext = &tl;
                     ulong val;
-                    _vk.QueueSubmit(_graphicsQueue, 1, ref submitInfo, default);
+                    var res = _vk.QueueSubmit(_graphicsQueue, 1, ref submitInfo, default);
+                    if (res != Result.Success)
+                    {
+                        System.Diagnostics.Debug.Print($"QueueSubmit failed: {res}");
+                        throw new Exception($"QueueSubmit failed: {res}");
+                    }
 
                     // Present waits on renderFinished
                     fixed (SwapchainKHR* pSwap = &_swapchain)
@@ -1227,17 +1248,12 @@ namespace ShowControl.Graphics
 
 
                 // No presentation path: just submit the off-screen work
-                var submitInfo = new SubmitInfo(
-                    waitSemaphoreCount: (uint)baseWaitCount,
-                    pWaitSemaphores: baseWaitCount > 0 ? waitSems : null,
-                    pWaitDstStageMask: baseWaitCount > 0 ? waitStages : null,
-                    commandBufferCount: 1,
-                    pCommandBuffers: &cmd,
-                    signalSemaphoreCount: (uint)sigSemCount,
-                    pSignalSemaphores: sigSems
-                );
-                submitInfo.PNext = &tl;
-                _vk.QueueSubmit(_graphicsQueue, 1, ref submitInfo, default);
+                var res = _vk.QueueSubmit(_graphicsQueue, 1, ref submitInfo, default);
+                if (res != Result.Success)
+                {
+                    System.Diagnostics.Debug.Print($"QueueSubmit failed: {res}");
+                    throw new Exception($"QueueSubmit failed: {res}");
+                }
             }
 
             Volatile.Write(ref _slotReadyGpuValue[slot], producedValue);

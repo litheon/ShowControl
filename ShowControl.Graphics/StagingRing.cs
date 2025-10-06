@@ -71,7 +71,7 @@ namespace ShowControl.Graphics
                     Size = _sizeBytes,
                     Usage = BufferUsageFlags.BufferUsageTransferDstBit,
                     SharingMode = SharingMode.Exclusive,
-                    QueueFamilyIndexCount = 1,
+                    QueueFamilyIndexCount = 0,
                 };
                 fixed (uint* q = &_transferQFamilyIndex)
                 {
