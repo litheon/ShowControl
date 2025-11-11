@@ -2560,8 +2560,8 @@ namespace ShowControl.Rendering
                 new RainbowAnimation(_pixelChannels.TotalPixelCount, warmLucidas, _audioService, _cts.Token, fastAnimate: true),
                 new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg9, _audioService, _cts.Token, fastAnimate: true),
                 new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg2Lucidas, _audioService, _cts.Token, fastAnimate: true),
-                new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg6, _audioService, _cts.Token, fastAnimate: true),
-                new VibrantAnimation(_pixelChannels.TotalPixelCount, _audioService, _graphicsHost, _cts.Token)
+                new VibrantAnimation(_pixelChannels.TotalPixelCount, _audioService, _graphicsHost, Shader.Geometry, _cts.Token),
+                new VibrantAnimation(_pixelChannels.TotalPixelCount, _audioService, _graphicsHost, Shader.Kaleidoscope, _cts.Token)
                 //new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg8, _audioService, _cts.Token, fastAnimate: true),
             };
             _auxilaryKeyAnimations = new IKeyAnimation[]

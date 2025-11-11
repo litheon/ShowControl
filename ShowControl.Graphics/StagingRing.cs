@@ -35,6 +35,7 @@ namespace ShowControl.Graphics
         public void* CurrentReadPtr => _mapped[ReadIndex];
         public ulong SizeBytes => _sizeBytes;
         public Buffer CurrentWriteBuffer => _buf[WriteIndex];
+        public bool IsDisposed { get; private set; }
 
         public StagingRing(
             Vk vk,
@@ -140,6 +141,7 @@ namespace ShowControl.Graphics
                     _mem[i] = default;
                 }
             }
+            IsDisposed = true;
         }
 
         // Advance indices after you've queued the GPU write for this slot.

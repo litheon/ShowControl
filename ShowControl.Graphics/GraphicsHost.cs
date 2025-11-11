@@ -17,8 +17,8 @@ using Image = Silk.NET.Vulkan.Image;
 using System.Xml.Linq;
 using Buffer = Silk.NET.Vulkan.Buffer;
 using System.Reflection.Metadata.Ecma335;
-
-
+using Microsoft.Maui.Graphics;
+using System.Threading;
 
 #if !ARM64
 using Silk.NET.Windowing;
@@ -28,7 +28,7 @@ namespace ShowControl.Graphics
 {
     public class GraphicsHost : IGraphicsHost
     {
-
+        private Shader _shader = Shader.Kaleidoscope;
         private Thread _backgroundThread;
         public GraphicsHost()
         {
@@ -41,6 +41,31 @@ namespace ShowControl.Graphics
             public Vector2 Resolution;  // width, height
             public float Time;
             private float _pad;         // keep total size multiple of 16
+
+            public float DistortionStrength;
+            public float HueTolerance;
+            public float Falloff;
+            public int ColorCount;
+
+            [MarshalAs(System.Runtime.InteropServices.UnmanagedType.ByValArray, SizeConst = 6)]
+            public Vector4Array Colors;
+
+            public PushData()
+            {
+            }
+
+            //public Vector4 c0;
+            //public Vector4 c1;
+            //public Vector4 c2;
+            //public Vector4 c3;
+            //public Vector4 c4;
+            //public Vector4 c5;
+        }
+
+        [InlineArray(6)]
+        public struct Vector4Array // represents float[64], inline
+        {
+            private Vector4 _element; // the compiler synthesizes the rest
         }
 
 #if !ARM64
@@ -90,11 +115,17 @@ namespace ShowControl.Graphics
 
         ulong _timelineValue = 0;
         ulong[] _slotSignaledValue = new ulong[3];
+        private ulong _cpuSignaled = 0;
+        private long _pendingMemoryReads = 0;
+        private Fence _submitFence;
+        private readonly ManualResetEventSlim _readReadyEvent = new(initialState: true);
+
         private int _currentFrame = 0;
         private StagingRing _stagingRing;
 
         private ShaderModule _vertShaderModule;
-        private ShaderModule _fragShaderModule;
+        private ShaderModule _kaleidoscopeShaderModule;
+        private ShaderModule _geometryShaderModule;
 
         private uint _graphicsQueueIndex;
         private PhysicalDeviceMemoryProperties _memProps;
@@ -118,6 +149,7 @@ namespace ShowControl.Graphics
         public byte[] Bytes = null;
         public int Width { get; private set; }
         public int Height { get; private set; }
+        public System.Drawing.Color[] Colors { get; set; } = Array.Empty<System.Drawing.Color>();
 
         private bool PRESENT = false; // set false to run headless (no window present)
         private Extent2D _offscreenExtent;
@@ -139,7 +171,7 @@ namespace ShowControl.Graphics
                 //System.Threading.Thread.Sleep(20000);
                 RunHeadless();
                 //#if !ARM64
-                //ShowHeadlessInWindow();
+                ShowHeadlessInWindow();
                 //#endif
             }
             catch (Exception e)
@@ -171,7 +203,6 @@ namespace ShowControl.Graphics
                 OnRender(0);        // your existing OnRender with PRESENT=false
                 Thread.Yield();     // or Thread.Sleep(0) / Sleep(1) if you want to throttle
             }
-            _stagingRing.Dispose();
         }
 
         public void StopHeadless()
@@ -216,7 +247,6 @@ namespace ShowControl.Graphics
                 PRESENT = false;
                 _imageAcquired = false;
                 _tearingDownWSI = true;
-                _vk.QueueWaitIdle(_graphicsQueue);
                 // Quiesce GPU before destroying swapchain or semaphores
                 _vk.QueueWaitIdle(_graphicsQueue);
 
@@ -700,6 +730,9 @@ namespace ShowControl.Graphics
             _vk.CreateSemaphore(_device, &tlCI, null, out _gpuDoneTL);
             _vk.CreateSemaphore(_device, &tlCI, null, out _cpuDoneTL);
 
+            var fi = new FenceCreateInfo(flags: FenceCreateFlags.FenceCreateSignaledBit);
+            _vk.CreateFence(_device, fi, null, out _submitFence);
+
             _gpuCtr = 0;
             _cpuCtr = 0;
 
@@ -766,7 +799,7 @@ namespace ShowControl.Graphics
                 storeOp: AttachmentStoreOp.Store,
                 stencilLoadOp: AttachmentLoadOp.DontCare,
                 stencilStoreOp: AttachmentStoreOp.DontCare,
-                initialLayout: ImageLayout.ColorAttachmentOptimal,
+                initialLayout: ImageLayout.Undefined,
                 finalLayout: ImageLayout.ColorAttachmentOptimal
             );
             var attRef = new AttachmentReference(0, ImageLayout.ColorAttachmentOptimal);
@@ -805,11 +838,17 @@ namespace ShowControl.Graphics
             var vertBytes = streamReader.ReadBytes(Int32.MaxValue / 2);
 
 
-            using var stream2 = FileSystem.OpenAppPackageFileAsync("kaleidoscope.frag.spv").Result;
-            using var streamReader2 = new BinaryReader(stream2);
-            var fragBytes = streamReader2.ReadBytes(Int32.MaxValue / 2);
+            using var kaleidoscopeStream = FileSystem.OpenAppPackageFileAsync("kaleidoscope.frag.spv").Result;
+            using var kaleidoscopeStreamReader = new BinaryReader(kaleidoscopeStream);
+            var kaleidoscopeBytes = kaleidoscopeStreamReader.ReadBytes(Int32.MaxValue / 2);
+
+            using var geometryStream = FileSystem.OpenAppPackageFileAsync("geometry.frag.spv").Result;
+            using var geometryStreamReader = new BinaryReader(geometryStream);
+            var geometryBytes = geometryStreamReader.ReadBytes(Int32.MaxValue / 2);
+
             _vertShaderModule = CreateShaderModule(vertBytes);
-            _fragShaderModule = CreateShaderModule(fragBytes);
+            _kaleidoscopeShaderModule = CreateShaderModule(kaleidoscopeBytes);
+            _geometryShaderModule = CreateShaderModule(geometryBytes);
 
             var vp = new Viewport(0, 0, _offscreenExtent.Width, _offscreenExtent.Height, 0f, 1f);
             var sc = new Rect2D(new Offset2D(0, 0), _offscreenExtent);
@@ -821,7 +860,15 @@ namespace ShowControl.Graphics
 
             var shaderStages = stackalloc PipelineShaderStageCreateInfo[2];
             shaderStages[0] = new PipelineShaderStageCreateInfo(stage: ShaderStageFlags.VertexBit, module: _vertShaderModule, pName: (byte*)SilkMarshal.StringToPtr("main"));
-            shaderStages[1] = new PipelineShaderStageCreateInfo(stage: ShaderStageFlags.FragmentBit, module: _fragShaderModule, pName: (byte*)SilkMarshal.StringToPtr("main"));
+            if (_shader == Shader.Kaleidoscope)
+            {
+                shaderStages[1] = new PipelineShaderStageCreateInfo(stage: ShaderStageFlags.FragmentBit, module: _kaleidoscopeShaderModule, pName: (byte*)SilkMarshal.StringToPtr("main"));
+            }
+            else
+            {
+                shaderStages[1] = new PipelineShaderStageCreateInfo(stage: ShaderStageFlags.FragmentBit, module: _geometryShaderModule, pName: (byte*)SilkMarshal.StringToPtr("main"));
+            }
+            
 
             var vi = new PipelineVertexInputStateCreateInfo(StructureType.PipelineVertexInputStateCreateInfo);
             var ia = new PipelineInputAssemblyStateCreateInfo(topology: PrimitiveTopology.TriangleList);
@@ -921,7 +968,9 @@ namespace ShowControl.Graphics
             {
                 return;
             }
-
+            var present = PRESENT;
+            try
+            {
             // Decide ring slot we’re writing this frame:
             int slot = _stagingRing.WriteIndex;
             if (Volatile.Read(ref _slotReadyGpuValue[slot]) != 0)
@@ -966,7 +1015,7 @@ namespace ShowControl.Graphics
                     {
                         // Trigger your swapchain recreate path here
                         BeginSwapchainRecreate();
-                        _graphicsQueueIndex = CreateOrRecreateSwapchainPinned(_window);
+                        _graphicsQueueIndex = CreateOrRecreateSwapchainPinned(_presentWindow);
                         EndSwapchainRecreate();
                         return;
                     }
@@ -976,7 +1025,7 @@ namespace ShowControl.Graphics
 
                     if (_imageSerial[imageIndex] != 0)
                     {
-                        var wi = new SemaphoreWaitInfo { SemaphoreCount = 1 };
+                        var wi = new SemaphoreWaitInfo { SType = StructureType.SemaphoreWaitInfo, SemaphoreCount = 1 };
                         fixed (Semaphore* p = &_gpuDoneTL)
                         {
                             fixed(ulong* imageSerial = &_imageSerial[imageIndex])
@@ -995,8 +1044,12 @@ namespace ShowControl.Graphics
                 }
             }
 
+            // 1) Ensure last submit finished before touching this CB
+            _vk.WaitForFences(_device, 1, in _submitFence, true, ulong.MaxValue);
+
             // Record commands
             _vk.ResetCommandBuffer(cmd, 0);
+
             CommandBufferBeginInfo begin = new() { SType = StructureType.CommandBufferBeginInfo };
             _vk.BeginCommandBuffer(cmd, &begin);
 
@@ -1018,8 +1071,17 @@ namespace ShowControl.Graphics
             PushData pc = new()
             {
                 Resolution = new System.Numerics.Vector2(_offscreenExtent.Width, _offscreenExtent.Height),
-                Time = (float)_stopwatch.Elapsed.TotalSeconds
+                Time = (float)_stopwatch.Elapsed.TotalSeconds * 0.5f,
+                DistortionStrength = 0.12f,
+                HueTolerance = 0.35f,
+                Falloff = 0.6f,
+                ColorCount = Colors.Length
             };
+            var colors = Colors;
+            for (int i = 0; i < colors.Length && i < 6; i++)
+            {
+                pc.Colors[i] = new Vector4(colors[i].R, colors[i].G, colors[i].B, 0.0f);
+            }
             _vk.CmdPushConstants(cmd, _pipelineLayout, ShaderStageFlags.FragmentBit,
                 0, (uint)Unsafe.SizeOf<PushData>(), &pc);
 
@@ -1058,25 +1120,8 @@ namespace ShowControl.Graphics
             Buffer dst = _stagingRing.CurrentWriteBuffer;
             _vk.CmdCopyImageToBuffer(cmd, _offscreenImage, ImageLayout.TransferSrcOptimal, dst, 1, &region);
 
-            ImageMemoryBarrier backToColor = new()
-            {
-                SType = StructureType.ImageMemoryBarrier,
-                OldLayout = ImageLayout.TransferSrcOptimal,
-                NewLayout = ImageLayout.ColorAttachmentOptimal,
-                SrcAccessMask = AccessFlags.TransferReadBit,
-                DstAccessMask = AccessFlags.ColorAttachmentWriteBit,
-                Image = _offscreenImage,
-                SubresourceRange = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, 1, 0, 1)
-            };
-            _vk.CmdPipelineBarrier(
-                cmd,
-                PipelineStageFlags.TransferBit,
-                PipelineStageFlags.ColorAttachmentOutputBit,
-                0, 0, null, 0, null, 1, &backToColor
-            );
-
             // If we're presenting, blit the off-screen image into the swapchain image
-            if (PRESENT)
+            if (present)
             {
                 if (_swapExtent.Width == 0 || _swapExtent.Height == 0)
                 {
@@ -1141,7 +1186,24 @@ namespace ShowControl.Graphics
                 );
             }
 
-            _vk.EndCommandBuffer(cmd);
+                ImageMemoryBarrier backToColor = new()
+                {
+                    SType = StructureType.ImageMemoryBarrier,
+                    OldLayout = ImageLayout.TransferSrcOptimal,
+                    NewLayout = ImageLayout.ColorAttachmentOptimal,
+                    SrcAccessMask = AccessFlags.TransferReadBit,
+                    DstAccessMask = AccessFlags.ColorAttachmentWriteBit,
+                    Image = _offscreenImage,
+                    SubresourceRange = new ImageSubresourceRange(ImageAspectFlags.ColorBit, 0, 1, 0, 1)
+                };
+                _vk.CmdPipelineBarrier(
+                    cmd,
+                    PipelineStageFlags.TransferBit,
+                    PipelineStageFlags.ColorAttachmentOutputBit,
+                    0, 0, null, 0, null, 1, &backToColor
+                );
+
+                _vk.EndCommandBuffer(cmd);
 
             ulong frameValue = (ulong)Interlocked.Increment(ref _timelineValue);
 
@@ -1161,7 +1223,7 @@ namespace ShowControl.Graphics
                 waitVals[waitCount] = requiredRelease;        // <- value for timeline wait
                 waitCount++;
             }
-            if (PRESENT)
+            if (present)
             {
                 waitSems[waitCount] = _imageAvailableSemaphores[_currentFrame]; // binary
                 waitStages[waitCount] = PipelineStageFlags.PipelineStageTransferBit;
@@ -1179,7 +1241,7 @@ namespace ShowControl.Graphics
             sigVals[sigCount] = producedValue;                   // <- timeline value
             sigCount++;
 
-            if (PRESENT)
+            if (present)
             {
                 sigSems[sigCount] = _renderFinishedByImage[imageIndex]; // binary
                 sigVals[sigCount] = 0;                          // <- dummy, ignored for binary
@@ -1206,8 +1268,11 @@ namespace ShowControl.Graphics
             );
             submitInfo.PNext = &tl;
 
+
+            _vk.ResetFences(_device, 1, in _submitFence);
+
             // Submit
-            if (PRESENT)
+            if (present)
             {
                 var renderFinishedForThisImage = _renderFinishedByImage[imageIndex];
                 var waitStage = PipelineStageFlags.PipelineStageTransferBit; // we first use the swapchain image in a transfer op
@@ -1217,7 +1282,7 @@ namespace ShowControl.Graphics
 
                     CommandBuffer* pCmd = &cmd;
                     ulong val;
-                    var res = _vk.QueueSubmit(_graphicsQueue, 1, ref submitInfo, default);
+                    var res = _vk.QueueSubmit(_graphicsQueue, 1, ref submitInfo, _submitFence);
                     if (res != Result.Success)
                     {
                         System.Diagnostics.Debug.Print($"QueueSubmit failed: {res}");
@@ -1236,7 +1301,7 @@ namespace ShowControl.Graphics
                         _imageAcquired = false;
                         if ((pres == Result.ErrorOutOfDateKhr || pres == Result.SuboptimalKhr) && !_isClosing)
                         {
-                            _graphicsQueueIndex = CreateOrRecreateSwapchainPinned(_window);
+                            _graphicsQueueIndex = CreateOrRecreateSwapchainPinned(_presentWindow);
                             return;
                         }
                     }
@@ -1248,7 +1313,7 @@ namespace ShowControl.Graphics
 
 
                 // No presentation path: just submit the off-screen work
-                var res = _vk.QueueSubmit(_graphicsQueue, 1, ref submitInfo, default);
+                var res = _vk.QueueSubmit(_graphicsQueue, 1, ref submitInfo, _submitFence);
                 if (res != Result.Success)
                 {
                     System.Diagnostics.Debug.Print($"QueueSubmit failed: {res}");
@@ -1269,11 +1334,19 @@ namespace ShowControl.Graphics
             // memory should be in staging ring
 
             _currentFrame = (_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+
+            }
+            catch
+            {
+
+            }
         }
 
         public unsafe RenderedImageHandle<byte> ReadFromMemory()
         {
-            if (_stagingRing == null)
+            _readReadyEvent.Wait();
+
+            if (_stagingRing == null || _stagingRing.IsDisposed)
             {
                 return RenderedImageHandle<byte>.Empty;
             }
@@ -1288,7 +1361,8 @@ namespace ShowControl.Graphics
                     ulong p = Volatile.Read(ref _slotReadyGpuValue[s]);
                     if (p != 0) { _stagingRing.ReadIndex = s; slot = s; produced = p; break; }
                 }
-                if (produced == 0) return RenderedImageHandle<byte>.Empty;
+                if (produced == 0)
+                    return RenderedImageHandle<byte>.Empty;
             }
 
             // (1) Wait for GPU to produce this slot
@@ -1299,6 +1373,7 @@ namespace ShowControl.Graphics
                 wi.PValues = &produced;
                 _vk.WaitSemaphores(_device, &wi, ulong.MaxValue);
             }
+            Interlocked.Increment(ref _pendingMemoryReads);
 
             var memory = _stagingRing.CurrentReadMemory;
             var releaseAction = (int slotValue, ulong producedValue) =>
@@ -1313,9 +1388,9 @@ namespace ShowControl.Graphics
                     Volatile.Write(ref _slotReadyGpuValue[slotValue], 0);
                     _stagingRing.AdvanceRead();
                 }
-                catch (Exception e)
+                finally
                 {
-                    int x = 0;
+                    Interlocked.Decrement(ref _pendingMemoryReads);
                 }
             };
             return new RenderedImageHandle<byte>(memory, releaseAction, slot, produced);
@@ -1341,6 +1416,99 @@ namespace ShowControl.Graphics
                 }
                 return shaderModule;
             }
+        }
+
+        private unsafe void RecreateGraphicsPipeline()
+        {
+            // Destroy old pipeline(s)
+            if (_pipeline.Handle != 0)
+            {
+                _vk.DestroyPipeline(_device, _pipeline, null);
+                _pipeline = default;
+            }
+
+            // Optionally destroy/recreate only the fragment module and keep vertex module
+            if (_kaleidoscopeShaderModule.Handle != 0 && _shader != Shader.Kaleidoscope)
+            {
+                _vk.DestroyShaderModule(_device, _kaleidoscopeShaderModule, null);
+                _kaleidoscopeShaderModule = default;
+            }
+            if (_geometryShaderModule.Handle != 0 && _shader != Shader.Geometry)
+            {
+                _vk.DestroyShaderModule(_device, _geometryShaderModule, null);
+                _geometryShaderModule = default;
+            }
+
+            // Ensure the selected frag module exists (reload bytes if needed)
+            var fragModule = _shader == Shader.Kaleidoscope ? _kaleidoscopeShaderModule : _geometryShaderModule;
+            if (fragModule.Handle == 0)
+            {
+                using var stream = FileSystem.OpenAppPackageFileAsync($"{_shader.ToString().ToLower()}.frag.spv").Result;
+                using var streamReader = new BinaryReader(stream);
+                var bytes = streamReader.ReadBytes(Int32.MaxValue / 2);
+
+                fragModule = CreateShaderModule(bytes);
+                if (_shader == Shader.Kaleidoscope) _kaleidoscopeShaderModule = fragModule;
+                else _geometryShaderModule = fragModule;
+            }
+
+            // Rebuild pipeline with _pipelineLayout and _offscreenRenderPass
+            var vp = new Viewport(0, 0, _offscreenExtent.Width, _offscreenExtent.Height, 0f, 1f);
+            var sc = new Rect2D(new Offset2D(0, 0), _offscreenExtent);
+            var vpState = new PipelineViewportStateCreateInfo(viewportCount: 1, pViewports: &vp, scissorCount: 1, pScissors: &sc);
+
+            var stages = stackalloc PipelineShaderStageCreateInfo[2];
+            stages[0] = new PipelineShaderStageCreateInfo(stage: ShaderStageFlags.VertexBit, module: _vertShaderModule, pName: (byte*)SilkMarshal.StringToPtr("main"));
+            stages[1] = new PipelineShaderStageCreateInfo(stage: ShaderStageFlags.FragmentBit, module: fragModule, pName: (byte*)SilkMarshal.StringToPtr("main"));
+
+            var vi = new PipelineVertexInputStateCreateInfo() { SType = StructureType.PipelineVertexInputStateCreateInfo };
+            var ia = new PipelineInputAssemblyStateCreateInfo(topology: PrimitiveTopology.TriangleList);
+            var rs = new PipelineRasterizationStateCreateInfo(polygonMode: PolygonMode.Fill, cullMode: CullModeFlags.CullModeNone, frontFace: FrontFace.CounterClockwise, lineWidth: 1f);
+            var ms = new PipelineMultisampleStateCreateInfo(rasterizationSamples: SampleCountFlags.Count1Bit);
+            var blendAtt = new PipelineColorBlendAttachmentState(blendEnable: false,
+                colorWriteMask: ColorComponentFlags.ColorComponentRBit | ColorComponentFlags.ColorComponentGBit |
+                                ColorComponentFlags.ColorComponentBBit | ColorComponentFlags.ColorComponentABit);
+            var blend = new PipelineColorBlendStateCreateInfo(attachmentCount: 1, pAttachments: &blendAtt);
+
+            var gpCI = new GraphicsPipelineCreateInfo(
+                stageCount: 2, pStages: stages,
+                pVertexInputState: &vi, pInputAssemblyState: &ia,
+                pViewportState: &vpState, pRasterizationState: &rs,
+                pMultisampleState: &ms, pDepthStencilState: null,
+                pColorBlendState: &blend, pDynamicState: null,
+                layout: _pipelineLayout, renderPass: _offscreenRenderPass, subpass: 0
+            );
+
+            _vk.CreateGraphicsPipelines(_device, default, 1, gpCI, null, out _pipeline);
+            _stagingRing = new StagingRing(_vk, _device, _memProps, _graphicsQueueIndex, _imageSize);
+        }
+
+        public void SetShader(Shader shader)
+        {
+            // 1) Tell render loop to pause submits
+            _readReadyEvent.Reset();              // stop new ReadFromMemory users
+            _running = false;                     // ask render loop to exit its while-step boundary
+            var rt = _renderThread;
+            if (rt != null && rt.IsAlive && Thread.CurrentThread != rt)
+                rt.Join();                        // wait for render loop to be fully quiescent
+
+            _vk.WaitForFences(_device, 1, in _submitFence, true, ulong.MaxValue);
+
+            // 2) Drain GPU once (no WSI teardown)
+            _vk.QueueWaitIdle(_graphicsQueue);
+
+            _stagingRing?.Dispose();
+            _stagingRing = null;
+
+            // 3) Rebuild pipeline with the new fragment shader
+            _shader = shader;
+            RecreateGraphicsPipeline();           // destroy old _pipeline + chosen frag module, create new
+
+            // 4) Resume rendering
+            _running = true;
+            _renderThread = new Thread(RenderLoop) { IsBackground = true };
+            _renderThread.Start();
+            _readReadyEvent.Set();
         }
     }
 }

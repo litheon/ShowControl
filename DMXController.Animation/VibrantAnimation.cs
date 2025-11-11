@@ -38,6 +38,7 @@ namespace ShowControl.Animation
         private readonly object _modeLock = new object();
         private AnimationMode _lastMode;
         private AnimationMode _mode;
+        private Shader _shader;
         private readonly List<int> _pressedPads;
 #pragma warning disable IDE0052 // Remove unread private members
         private readonly Timer _navigationColorTimer;
@@ -52,7 +53,7 @@ namespace ShowControl.Animation
             Color.FromArgb(9, 254, 182)
         };
         private IGraphicsHost _graphicsHost;
-        public VibrantAnimation(int pixelCount, IAudioService audioService, IGraphicsHost graphicsHost, CancellationToken cancellationToken)
+        public VibrantAnimation(int pixelCount, IAudioService audioService, IGraphicsHost graphicsHost, Shader shader, CancellationToken cancellationToken)
         {
             _cancellationToken = cancellationToken;
             _mode = AnimationMode.Automatic;
@@ -67,6 +68,7 @@ namespace ShowControl.Animation
             _animationThread = new Thread(AutomationThreadStart);
             _animationThread.Start();
             _graphicsHost = graphicsHost;
+            _shader = shader;
             for (int i = 0; i < pixelCount; i++)
             {
                 _currentFrame[i] = new Pixel(_vibrantColors[_random.Next() % _vibrantColors.Length], 0, 0, 0x00);
@@ -90,7 +92,7 @@ namespace ShowControl.Animation
                 {
                     if (_currentFrameCountAnimationThreshold.InterlockedGet() == 0)
                     {
-                        AnimateFrame();
+                        //AnimateFrame();
                         Interlocked.Exchange(ref _currentFrameCountAnimationThreshold, _frameCountAnimationThreshold.InterlockedGet());
                     }
                     else
@@ -100,7 +102,7 @@ namespace ShowControl.Animation
                 }
                 else if (_mode == AnimationMode.Manual)
                 {
-                    AnimateFrame();
+                    //AnimateFrame();
                 }
                 Thread.Sleep(1);
             }
@@ -195,6 +197,7 @@ namespace ShowControl.Animation
 
         public Pixel[] GetNextFrame()
         {
+            AnimateFrame();
             return _currentFrame;
         }
 
@@ -231,7 +234,7 @@ namespace ShowControl.Animation
 
                 var width = _graphicsHost.Width;
                 var height = _graphicsHost.Height;
-                var initial = width * height / 2 - width / 2;
+                var initial = (width * height * 4) / 2 - 12 * width - (100 * 4);
                 int offset = 0;
                 for (int i = 0; i < _pixelCount; i++)
                 {
@@ -288,6 +291,7 @@ namespace ShowControl.Animation
                 padStates = new PadState[0];
             }
             AssignPadStates(padStates);
+            _graphicsHost.SetShader(_shader);
             return new DeviceState(padStates, new ButtonLightState[0]);
         }
 
@@ -333,6 +337,12 @@ namespace ShowControl.Animation
                     SetTargetFrameWithPressedPads();
                 }
             }
+            var graphicsColors = new Color[Math.Min(_pressedPads.Count, 6)];
+            for (int i = 0; i < graphicsColors.Length; i++)
+            {
+                graphicsColors[i] = _vibrantColors[_pressedPads[i] % _vibrantColors.Length];
+            }
+            _graphicsHost.Colors = graphicsColors;
         }
 
         private void SetNextFrameWithSingleColor(Color color)
