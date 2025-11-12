@@ -11,8 +11,6 @@ using System.IO;
 using Silk.NET.Vulkan.Extensions.EXT;
 using Device = Silk.NET.Vulkan.Device;
 using Semaphore = Silk.NET.Vulkan.Semaphore;
-using Silk.NET.Maths;
-using IWindow = Silk.NET.Windowing.IWindow;
 using Image = Silk.NET.Vulkan.Image;
 using System.Xml.Linq;
 using Buffer = Silk.NET.Vulkan.Buffer;
@@ -21,6 +19,8 @@ using Microsoft.Maui.Graphics;
 using System.Threading;
 
 #if !ARM64
+using Silk.NET.Maths;
+using IWindow = Silk.NET.Windowing.IWindow;
 using Silk.NET.Windowing;
 #endif
 
@@ -170,9 +170,9 @@ namespace ShowControl.Graphics
             {
                 //System.Threading.Thread.Sleep(20000);
                 RunHeadless();
-                //#if !ARM64
+                #if !ARM64
                 ShowHeadlessInWindow();
-                //#endif
+                #endif
             }
             catch (Exception e)
             {
@@ -1015,7 +1015,9 @@ namespace ShowControl.Graphics
                     {
                         // Trigger your swapchain recreate path here
                         BeginSwapchainRecreate();
+                        #if !ARM64
                         _graphicsQueueIndex = CreateOrRecreateSwapchainPinned(_presentWindow);
+                        #endif
                         EndSwapchainRecreate();
                         return;
                     }
@@ -1301,7 +1303,9 @@ namespace ShowControl.Graphics
                         _imageAcquired = false;
                         if ((pres == Result.ErrorOutOfDateKhr || pres == Result.SuboptimalKhr) && !_isClosing)
                         {
+                            #if !ARM64
                             _graphicsQueueIndex = CreateOrRecreateSwapchainPinned(_presentWindow);
+                            #endif
                             return;
                         }
                     }

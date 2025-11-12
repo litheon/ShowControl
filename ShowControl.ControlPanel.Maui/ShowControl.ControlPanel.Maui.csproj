@@ -1,6 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">
-    <DefineConstants>TRACE;ARM64</DefineConstants>
+    <DefineConstants>$(DefineConstants);TRACE;ARM64</DefineConstants>
   </PropertyGroup>
 	<PropertyGroup>
 		<TargetFrameworks>net8.0-maccatalyst</TargetFrameworks>

@@ -1,0 +1,6 @@
+<!-- Directory.Build.targets -->
+<Project>
+  <PropertyGroup Condition="'$(Configuration)'=='Debug'">
+    <DefineConstants>$(DefineConstants);ARM64</DefineConstants>
+  </PropertyGroup>
+</Project>
