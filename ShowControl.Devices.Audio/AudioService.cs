@@ -73,7 +73,7 @@ namespace ShowControl.Devices.Audio
             for (int i = 0; i < PortAudio.DeviceCount; i++)
             {
                 var inputDevice = PortAudio.GetDeviceInfo(i);
-                if (inputDevice.name.Contains("Focusrite USB ASIO") || inputDevice.name.Contains("Scarlett") || inputDevice.name.Contains("Universal Audio Thunderbolt"))
+                if (inputDevice.name.Contains("Focusrite USB ASIO") || inputDevice.name.Contains("Scarlett") || inputDevice.name == "Universal Audio Thunderbolt")
                 {
                     deviceIndex = i;
                     break;

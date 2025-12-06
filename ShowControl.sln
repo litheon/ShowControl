@@ -31,7 +31,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SoundTouch.Net", "external\
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ShowControl.ControlPanel.Maui", "ShowControl.ControlPanel.Maui\ShowControl.ControlPanel.Maui.csproj", "{172216A5-E400-450A-962D-4CDA37D1FDEB}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ShowControl.Graphics", "ShowControl.Graphics\ShowControl.Graphics.csproj", "{906456A1-7DB0-4CA1-9EA8-79F974079883}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ShowControl.Graphics", "ShowControl.Graphics\ShowControl.Graphics.csproj", "{906456A1-7DB0-4CA1-9EA8-79F974079883}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "portaudio", "external\portaudio\msvc\portaudio.vcxproj", "{0A18A071-125E-442F-AFF7-A3F68ABECF99}"
 EndProject
@@ -300,6 +300,7 @@ Global
 		{0A18A071-125E-442F-AFF7-A3F68ABECF99}.Debug|Any CPU.ActiveCfg = Debug|x64
 		{0A18A071-125E-442F-AFF7-A3F68ABECF99}.Debug|Any CPU.Build.0 = Debug|x64
 		{0A18A071-125E-442F-AFF7-A3F68ABECF99}.Debug|ARM64.ActiveCfg = Debug|x64
+		{0A18A071-125E-442F-AFF7-A3F68ABECF99}.Debug|ARM64.Build.0 = Debug|x64
 		{0A18A071-125E-442F-AFF7-A3F68ABECF99}.Debug|x64.ActiveCfg = Debug|x64
 		{0A18A071-125E-442F-AFF7-A3F68ABECF99}.Debug|x64.Build.0 = Debug|x64
 		{0A18A071-125E-442F-AFF7-A3F68ABECF99}.Debug|x86.ActiveCfg = Debug|Win32
@@ -307,6 +308,7 @@ Global
 		{0A18A071-125E-442F-AFF7-A3F68ABECF99}.Release|Any CPU.ActiveCfg = Release|x64
 		{0A18A071-125E-442F-AFF7-A3F68ABECF99}.Release|Any CPU.Build.0 = Release|x64
 		{0A18A071-125E-442F-AFF7-A3F68ABECF99}.Release|ARM64.ActiveCfg = Release|x64
+		{0A18A071-125E-442F-AFF7-A3F68ABECF99}.Release|ARM64.Build.0 = Release|x64
 		{0A18A071-125E-442F-AFF7-A3F68ABECF99}.Release|x64.ActiveCfg = Release|x64
 		{0A18A071-125E-442F-AFF7-A3F68ABECF99}.Release|x64.Build.0 = Release|x64
 		{0A18A071-125E-442F-AFF7-A3F68ABECF99}.Release|x86.ActiveCfg = Release|Win32
@@ -314,6 +316,7 @@ Global
 		{EBFE5EB3-182A-47A6-922B-52ECF777F6A3}.Debug|Any CPU.ActiveCfg = Debug|x64
 		{EBFE5EB3-182A-47A6-922B-52ECF777F6A3}.Debug|Any CPU.Build.0 = Debug|x64
 		{EBFE5EB3-182A-47A6-922B-52ECF777F6A3}.Debug|ARM64.ActiveCfg = Debug|x64
+		{EBFE5EB3-182A-47A6-922B-52ECF777F6A3}.Debug|ARM64.Build.0 = Debug|x64
 		{EBFE5EB3-182A-47A6-922B-52ECF777F6A3}.Debug|x64.ActiveCfg = Debug|x64
 		{EBFE5EB3-182A-47A6-922B-52ECF777F6A3}.Debug|x64.Build.0 = Debug|x64
 		{EBFE5EB3-182A-47A6-922B-52ECF777F6A3}.Debug|x86.ActiveCfg = Debug|Win32
@@ -321,6 +324,7 @@ Global
 		{EBFE5EB3-182A-47A6-922B-52ECF777F6A3}.Release|Any CPU.ActiveCfg = Release|x64
 		{EBFE5EB3-182A-47A6-922B-52ECF777F6A3}.Release|Any CPU.Build.0 = Release|x64
 		{EBFE5EB3-182A-47A6-922B-52ECF777F6A3}.Release|ARM64.ActiveCfg = Release|x64
+		{EBFE5EB3-182A-47A6-922B-52ECF777F6A3}.Release|ARM64.Build.0 = Release|x64
 		{EBFE5EB3-182A-47A6-922B-52ECF777F6A3}.Release|x64.ActiveCfg = Release|x64
 		{EBFE5EB3-182A-47A6-922B-52ECF777F6A3}.Release|x64.Build.0 = Release|x64
 		{EBFE5EB3-182A-47A6-922B-52ECF777F6A3}.Release|x86.ActiveCfg = Release|Win32

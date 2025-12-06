@@ -43,6 +43,7 @@
 		<AppxSymbolPackageEnabled>False</AppxSymbolPackageEnabled>
 		<GenerateTestArtifacts>True</GenerateTestArtifacts>
 		<HoursBetweenUpdateChecks>0</HoursBetweenUpdateChecks>
+		<Platforms>AnyCPU;x64</Platforms>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -102,9 +103,17 @@
 		</NativeReference>
 	</ItemGroup>
 
+	<!-- Map AnyCPU to x64 for native libraries (native DLLs are always architecture-specific) -->
+	<PropertyGroup Condition="'$(OS)' == 'Windows_NT'">
+		<NativePlatform Condition="'$(Platform)' == 'AnyCPU'">x64</NativePlatform>
+		<NativePlatform Condition="'$(Platform)' != 'AnyCPU'">$(Platform)</NativePlatform>
+	</PropertyGroup>
+
 	<!-- Windows native libraries - copy to output -->
 	<ItemGroup Condition="'$(OS)' == 'Windows_NT'">
-		<None Include="..\native\lib\win\$(Platform)\$(Configuration)\portaudio.dll" CopyToOutputDirectory="PreserveNewest" Link="portaudio.dll" />
-		<None Include="..\native\lib\win\$(Platform)\$(Configuration)\rtmidi.dll" CopyToOutputDirectory="PreserveNewest" Link="rtmidi.dll" />
+		<!-- portaudio.dll is built in native\lib\win with ASIO support -->
+		<None Include="..\native\lib\win\$(NativePlatform)\$(Configuration)\portaudio.dll" CopyToOutputDirectory="PreserveNewest" Link="portaudio.dll" />
+		<!-- rtmidi.dll is built in native\lib\win -->
+		<None Include="..\native\lib\win\$(NativePlatform)\$(Configuration)\rtmidi.dll" CopyToOutputDirectory="PreserveNewest" Link="rtmidi.dll" />
 	</ItemGroup>
 </Project>

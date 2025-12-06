@@ -341,3 +341,6 @@ healthchecksdb
 
 # Native libraries built from source
 native/
+
+# ASIO SDK since it needs to be downloaded
+external/ASIOSDK2/
