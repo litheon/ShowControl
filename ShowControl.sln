@@ -3,21 +3,21 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.13.35806.99
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ShowControl", "ShowControl.csproj", "{828BD265-9EDA-4CD6-9E8B-816D425008A2}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ShowControl", "ShowControl\ShowControl.csproj", "{828BD265-9EDA-4CD6-9E8B-816D425008A2}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ShowControl.Devices.Output", "DMXController.Devices.Output\ShowControl.Devices.Output.csproj", "{988EB2B2-61AA-4D94-A877-34FA82B89D65}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ShowControl.Devices.Output", "ShowControl.Devices.Output\ShowControl.Devices.Output.csproj", "{988EB2B2-61AA-4D94-A877-34FA82B89D65}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ShowControl.Devices.Input", "DMXController.Devices.Input\ShowControl.Devices.Input.csproj", "{29600D4F-F5DA-4C38-BC40-87E7DA89AC46}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ShowControl.Devices.Input", "ShowControl.Devices.Input\ShowControl.Devices.Input.csproj", "{29600D4F-F5DA-4C38-BC40-87E7DA89AC46}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ShowControl.Devices.DMX", "DMXController.Devices.DMX\ShowControl.Devices.DMX.csproj", "{D25469F2-5010-4F0B-AA84-10D2D9DF9411}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ShowControl.Devices.DMX", "ShowControl.Devices.DMX\ShowControl.Devices.DMX.csproj", "{D25469F2-5010-4F0B-AA84-10D2D9DF9411}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ShowControl.Devices.Audio", "DMXController.Devices.Audio\ShowControl.Devices.Audio.csproj", "{51FB569A-0CBD-434E-A818-84DD368D9310}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ShowControl.Devices.Audio", "ShowControl.Devices.Audio\ShowControl.Devices.Audio.csproj", "{51FB569A-0CBD-434E-A818-84DD368D9310}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ShowControl.Animation", "DMXController.Animation\ShowControl.Animation.csproj", "{3E63876A-1DC4-4E05-A453-88CA1D57E16C}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ShowControl.Animation", "ShowControl.Animation\ShowControl.Animation.csproj", "{3E63876A-1DC4-4E05-A453-88CA1D57E16C}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ShowControl.Host", "DMXController.Host\ShowControl.Host.csproj", "{56A205A5-F167-404F-8909-A27E2249A02D}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ShowControl.Host", "ShowControl.Host\ShowControl.Host.csproj", "{56A205A5-F167-404F-8909-A27E2249A02D}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ShowControl.Rendering", "DMXController\DMXController.Rendering\ShowControl.Rendering.csproj", "{1ABC33BF-7AE0-4AB9-AD75-2B1B8817E928}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ShowControl.Rendering", "ShowControl.Rendering\ShowControl.Rendering.csproj", "{1ABC33BF-7AE0-4AB9-AD75-2B1B8817E928}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ShowControl.ControlPanel", "ShowControl.ControlPanel\ShowControl.ControlPanel.csproj", "{DA2F31DA-E3F1-4526-90C6-4966BF891FA6}"
 EndProject

@@ -74,7 +74,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
-	  <ProjectReference Include="..\DMXController.Host\ShowControl.Host.csproj" />
+	  <ProjectReference Include="..\ShowControl.Host\ShowControl.Host.csproj" />
 	  <ProjectReference Include="..\ShowControl.Graphics\ShowControl.Graphics.csproj" />
 	</ItemGroup>
 

@@ -7,6 +7,6 @@
     <EnableWindowsTargeting>True</EnableWindowsTargeting>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\DMXController.Host\ShowControl.Host.csproj" />
+    <ProjectReference Include="..\ShowControl.Host\ShowControl.Host.csproj" />
   </ItemGroup>
 </Project>
