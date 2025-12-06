@@ -16,7 +16,4 @@
   <ItemGroup Condition="'$(OS)' == 'Windows_NT'">
     <PackageReference Include="Silk.NET.Windowing" Version="2.22.0" />
   </ItemGroup>
-  <PropertyGroup Condition="'$(OS)' != 'Windows_NT'">
-    <DefineConstants>$(DefineConstants);TRACE;ARM64</DefineConstants>
-  </PropertyGroup>
 </Project>

@@ -1,6 +1,12 @@
 <!-- Directory.Build.targets -->
 <Project>
-  <PropertyGroup Condition="'$(Configuration)'=='Debug'">
-    <DefineConstants>$(DefineConstants);ARM64</DefineConstants>
+  <!-- Windows build flavor -->
+  <PropertyGroup Condition="'$(OS)' == 'Windows_NT'">
+    <DefineConstants>$(DefineConstants);WINDOWS</DefineConstants>
+  </PropertyGroup>
+
+  <!-- MacCatalyst build flavor -->
+  <PropertyGroup Condition="'$(OS)' != 'Windows_NT'">
+    <DefineConstants>$(DefineConstants);MAC;ARM64</DefineConstants>
   </PropertyGroup>
 </Project>
