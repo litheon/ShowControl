@@ -1,4 +1,6 @@
-﻿using ShowControl.Animation;
+﻿using ArtNetSharp.Communication;
+using ArtNetSharp;
+using ShowControl.Animation;
 using ShowControl.Devices.Audio;
 using ShowControl.Devices.DMX;
 using ShowControl.Devices.Input;
@@ -159,6 +161,166 @@ namespace ShowControl.Rendering
 
             _pixelChannels = RenderSurface.Create(
                     new RenderSettings(255),
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
+                    WS2812B.Instance,
                     WS2812B.Instance,
                     WS2812B.Instance,
                     WS2812B.Instance,
@@ -2618,7 +2780,8 @@ namespace ShowControl.Rendering
 
         private void RenderThreadLoop()
         {
-            byte[] targetVector = new byte[1024];
+            byte[] targetVector = new byte[1080];
+            ControllerInstance controllerInstance = new ControllerInstance(ArtNet.Instance);
             while (!_cts.Token.IsCancellationRequested)
             {
                 IKeyAnimation keyAnimation = null;
@@ -2648,25 +2811,26 @@ namespace ShowControl.Rendering
                     pixelOffset += surface.TotalPixelCount;
                     channelOffset += surface.TotalChannelCount;
                 }
-                if (auxilaryAnimation != null)
-                {
-                    var renderSettings = new RenderSettings();
-                    renderSettings.MasterFader = _auxilaryMasterFader.InterlockedGet();
-                    var frame = auxilaryAnimation.GetNextFrame();
-                    var frameSpan = frame.AsSpan();
-                    var surface = _parChannels;
+                //if (auxilaryAnimation != null)
+                //{
+                //    var renderSettings = new RenderSettings();
+                //    renderSettings.MasterFader = _auxilaryMasterFader.InterlockedGet();
+                //    var frame = auxilaryAnimation.GetNextFrame();
+                //    var frameSpan = frame.AsSpan();
+                //    var surface = _parChannels;
 
-                    surface.Render(frameSpan, targetVector.AsSpan().Slice(channelOffset, surface.TotalChannelCount), renderSettings);
-                }
+                //    surface.Render(frameSpan, targetVector.AsSpan().Slice(channelOffset, surface.TotalChannelCount), renderSettings);
+                //}
 
-                int take = 300;
+                int take = 510;
                 int skip = 0;
                 foreach (IDmxOutputDevice outputDevice in _outputDevices)
                 {
                     outputDevice.Write(targetVector.Skip(skip).Take(take).ToArray());
                     skip += take;
                 }
-                Thread.Sleep(1);
+                ArtNetDevice.SendSync();
+                Thread.Sleep(4);
             }
             _tcs.SetResult(true);
         }

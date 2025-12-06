@@ -5,6 +5,8 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Platforms>AnyCPU;x64;x86;ARM64</Platforms>
+    <VulkanSDK Condition="'$(VulkanSDK)' == ''">C:\VulkanSDK\1.4.321.1</VulkanSDK>
+    <GlslcPath>$(VulkanSDK)\Bin\glslc.exe</GlslcPath>
   </PropertyGroup>
 
   <ItemGroup>
@@ -17,4 +19,34 @@
   <ItemGroup Condition="'$(OS)' == 'Windows_NT'">
     <PackageReference Include="Silk.NET.Windowing" Version="2.22.0" />
   </ItemGroup>
+
+  <!-- Shader files -->
+  <ItemGroup>
+    <ShaderSource Include="**\*.vert" />
+    <ShaderSource Include="**\*.frag" />
+    <!-- Exclude compiled shaders from project - they're copied to MAUI Resources -->
+    <None Remove="**\*.spv" />
+  </ItemGroup>
+
+  <!-- Compile shaders before build -->
+  <Target Name="CompileShaders" BeforeTargets="BeforeBuild">
+    <Message Text="Compiling Vulkan shaders..." Importance="high" />
+    <Exec Command="&quot;$(GlslcPath)&quot; &quot;%(ShaderSource.FullPath)&quot; -o &quot;%(ShaderSource.FullPath).spv&quot;"
+          Condition="Exists('$(GlslcPath)')"
+          WorkingDirectory="$(ProjectDir)" />
+    <Warning Text="Vulkan SDK not found at $(VulkanSDK). Shaders will not be compiled."
+             Condition="!Exists('$(GlslcPath)')" />
+  </Target>
+
+  <!-- Copy compiled shaders to MAUI Resources -->
+  <Target Name="CopyCompiledShadersToMaui" AfterTargets="CompileShaders" Condition="Exists('..\ShowControl.ControlPanel.Maui\Resources\Raw')">
+    <ItemGroup>
+      <CompiledShaders Include="**\*.spv" />
+    </ItemGroup>
+    <Copy SourceFiles="@(CompiledShaders)"
+          DestinationFolder="..\ShowControl.ControlPanel.Maui\Resources\Raw"
+          SkipUnchangedFiles="true" />
+    <Message Text="Copied %(CompiledShaders.Filename)%(CompiledShaders.Extension) to MAUI Resources\Raw"
+             Importance="high" />
+  </Target>
 </Project>

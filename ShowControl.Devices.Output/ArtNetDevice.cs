@@ -13,36 +13,47 @@ using System.Threading;
 
 namespace ShowControl.Devices.Output
 {
-    internal class ArtNetDevice : IDmxOutputDevice
+    public class ArtNetDevice : IDmxOutputDevice
     {
-        ControllerInstance controllerInstance = new ControllerInstance(ArtNet.Instance);
+        static ControllerInstance controllerInstance = new ControllerInstance(ArtNet.Instance);
         private byte _universe;
-        public ArtNetDevice(byte universe)
+        private byte _sequence = 1;
+        static ArtNetDevice()
         {
-            _universe = universe;
-            var broadcastIp = new IPAddress(new byte[] { 192, 168, 3, 255 });
-            ArtNet.Instance.NetworkClients.ToList().ForEach((ncb) => {
-                ncb.Enabled = IPAddress.Equals(broadcastIp, ncb.BroadcastIpAddress);
-            });
+            controllerInstance = new ControllerInstance(ArtNet.Instance);
             controllerInstance.Name = controllerInstance.ShortName = "ShowControl";
             controllerInstance.AddPortConfig(
                 new PortConfig(1, new org.dmxc.wkdt.Light.ArtNet.PortAddress(0), false, true) { PortNumber = (byte)0, Type = EPortType.InputToArtNet | EPortType.ArtNet });
             controllerInstance.AddPortConfig(
                 new PortConfig(2, new org.dmxc.wkdt.Light.ArtNet.PortAddress(1), false, true) { PortNumber = (byte)1, Type = EPortType.InputToArtNet | EPortType.ArtNet });
             controllerInstance.AddPortConfig(
-                new PortConfig(3, new org.dmxc.wkdt.Light.ArtNet.PortAddress(0),  false, true) { PortNumber = (byte)0, Type = EPortType.InputToArtNet | EPortType.ArtNet, ForceBroadcast = false});
-            controllerInstance.RemoteClientDiscovered += ControllerInstance_RemoteClientDiscovered; 
+                new PortConfig(3, new org.dmxc.wkdt.Light.ArtNet.PortAddress(0), false, true) { PortNumber = (byte)0, Type = EPortType.InputToArtNet | EPortType.ArtNet, ForceBroadcast = false });
+
+            //controllerInstance.RemoteClientDiscovered += ControllerInstance_RemoteClientDiscovered;
             ArtNet.Instance.AddInstance(controllerInstance);
+            var broadcastIp = new IPAddress(new byte[] { 192, 168, 3, 255 });
+            ArtNet.Instance.NetworkClients.ToList().ForEach((ncb) => {
+                ncb.Enabled = IPAddress.Equals(broadcastIp, ncb.BroadcastIpAddress);
+            });
         }
 
-        private void ControllerInstance_RemoteClientDiscovered(object sender, RemoteClient e)
+        public static void SendSync()
         {
-            int x = 0;
+            controllerInstance.SendArtSync().Wait();
+        }
+        public ArtNetDevice(byte universe)
+        {
+            _universe = universe;
         }
 
         public void Write(byte[] dmxData)
         {
-            controllerInstance.sendArtDMX(new IPv4Address(new byte[] { 192, 168, 3, 203 }), new org.dmxc.wkdt.Light.ArtNet.PortAddress(_universe), 0, dmxData, 0).Wait();
+            controllerInstance.sendArtDMX(new IPv4Address(new byte[] { 192, 168, 3, 234 }), new org.dmxc.wkdt.Light.ArtNet.PortAddress(_universe), 0, dmxData, (byte)(_sequence + 1)).Wait();
+            _sequence = (byte)((_sequence + 1) % 254);
+            if (_sequence == 255)
+            {
+                int x = 0;
+            }
             //controllerInstance.WriteDMXValues(1, dmxData);
             //controllerInstance.WriteDMXValues(0, dmxData);
         }

@@ -234,22 +234,22 @@ namespace ShowControl.Animation
 
                 var width = _graphicsHost.Width;
                 var height = _graphicsHost.Height;
-                var initial = (width * height * 4) / 2 - 12 * width - (100 * 4);
+                var initial = (width * height * 4) / 2 - 12 * width - (width / (2 * 4));
                 int offset = 0;
                 for (int i = 0; i < _pixelCount; i++)
                 {
                     //_nextFrame[i].Color = Color.FromArgb(0, ShowControl.Graphics.HelloWorldGraphicsHost.Bytes[len + 4 * (i * 6) + 2], ShowControl.Graphics.HelloWorldGraphicsHost.Bytes[len + 4 * (i * 6) + 1], ShowControl.Graphics.HelloWorldGraphicsHost.Bytes[len + 4 * (i * 6)]);
                     //
-                    var pixelStride = 4 * (i % 100 * 1);
+                    var pixelStride = 4 * (i);
                     var rowOffset = offset * width * 4;
                     var r = initial + pixelStride + rowOffset;
                     var g = initial + pixelStride + rowOffset + 1;
                     var b = initial + pixelStride + rowOffset + 2;
                     _nextFrame[i].Color = Color.FromArgb(0, span[r], span[g], span[b]);
-                    if (i == 100)
-                    {
-                        offset++;
-                    }
+                    //if (i == 100)
+                    //{
+                    //    offset++;
+                    //}
                 }
                 var temp = _currentFrame;
                 _currentFrame = _nextFrame;
