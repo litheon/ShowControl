@@ -1,8 +1,18 @@
 <!-- Directory.Build.targets -->
 <Project>
-  <!-- Windows build flavor -->
-  <PropertyGroup Condition="'$(OS)' == 'Windows_NT'">
-    <DefineConstants>$(DefineConstants);WINDOWS</DefineConstants>
+  <!-- Windows 64-bit build flavor -->
+  <PropertyGroup Condition="'$(OS)' == 'Windows_NT' And '$(Platform)' == 'x64'">
+    <DefineConstants>$(DefineConstants);WINDOWS;WIN64</DefineConstants>
+  </PropertyGroup>
+
+  <!-- Windows 32-bit build flavor -->
+  <PropertyGroup Condition="'$(OS)' == 'Windows_NT' And '$(Platform)' == 'x86'">
+    <DefineConstants>$(DefineConstants);WINDOWS;WIN32</DefineConstants>
+  </PropertyGroup>
+
+  <!-- Windows AnyCPU - default to 64-bit -->
+  <PropertyGroup Condition="'$(OS)' == 'Windows_NT' And '$(Platform)' != 'x64' And '$(Platform)' != 'x86'">
+    <DefineConstants>$(DefineConstants);WINDOWS;WIN64</DefineConstants>
   </PropertyGroup>
 
   <!-- MacCatalyst build flavor -->
