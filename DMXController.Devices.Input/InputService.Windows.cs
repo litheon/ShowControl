@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
-#if WINDOWS
+#if WINDOWS_TFM
 using Windows.Devices.Midi;
 using Windows.Devices.Enumeration;
 #endif
@@ -9,7 +9,7 @@ using System.Linq;
 
 namespace ShowControl.Devices.Input
 {
-    #if WINDOWS
+    #if WINDOWS_TFM
     public partial class InputService
     {
         private DeviceWatcher _watcher;

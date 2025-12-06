@@ -78,7 +78,7 @@
 	  <ProjectReference Include="..\ShowControl.Graphics\ShowControl.Graphics.csproj" />
 	</ItemGroup>
 
-	<ItemGroup>
+  <ItemGroup Condition="'$(OS)' != 'Windows_NT'">
 		<NativeReference Include="Platforms/MacCatalyst/librtmidi.dylib">
 			<Kind>Dynamic</Kind>
 			<ForceLoad>true</ForceLoad>

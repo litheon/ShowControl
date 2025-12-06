@@ -31,10 +31,7 @@ namespace ShowControl.Devices.Input
 
         public void DoPlatformInitalization()
         {
-            #if WINDOWS
-            PlatformInitialization();
-            #endif
-            #if ARM64
+            #if WINDOWS_TFM || ARM64
             PlatformInitialization();
             #endif
         }
