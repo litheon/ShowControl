@@ -19,4 +19,23 @@
   <PropertyGroup Condition="'$(OS)' != 'Windows_NT'">
     <DefineConstants>$(DefineConstants);MAC;ARM64</DefineConstants>
   </PropertyGroup>
+
+  <!-- Native library paths -->
+  <PropertyGroup>
+    <NativeLibOutputDir>$(MSBuildThisFileDirectory)native\lib\</NativeLibOutputDir>
+    <PortAudioSourceDir>$(MSBuildThisFileDirectory)external\portaudio\</PortAudioSourceDir>
+    <RtMidiSourceDir>$(MSBuildThisFileDirectory)external\rtmidi\</RtMidiSourceDir>
+  </PropertyGroup>
+
+  <!-- MacCatalyst native library outputs -->
+  <PropertyGroup Condition="'$(OS)' != 'Windows_NT'">
+    <PortAudioLib>$(NativeLibOutputDir)mac\libportaudio.dylib</PortAudioLib>
+    <RtMidiLib>$(NativeLibOutputDir)mac\librtmidi.dylib</RtMidiLib>
+  </PropertyGroup>
+
+  <!-- Windows native library outputs -->
+  <PropertyGroup Condition="'$(OS)' == 'Windows_NT'">
+    <PortAudioLib>$(NativeLibOutputDir)win\portaudio.dll</PortAudioLib>
+    <RtMidiLib>$(NativeLibOutputDir)win\rtmidi.dll</RtMidiLib>
+  </PropertyGroup>
 </Project>

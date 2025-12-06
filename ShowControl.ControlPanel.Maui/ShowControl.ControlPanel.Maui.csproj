@@ -78,12 +78,17 @@
 	  <ProjectReference Include="..\ShowControl.Graphics\ShowControl.Graphics.csproj" />
 	</ItemGroup>
 
-  <ItemGroup Condition="'$(OS)' != 'Windows_NT'">
-		<NativeReference Include="Platforms/MacCatalyst/librtmidi.dylib">
+	<Target Name="BeforeBuildScript" BeforeTargets="BeforeBuild" Condition="'$(OS)' != 'Windows_NT'">
+	  <Exec Command="sh ../scripts/build-native-mac.sh" />
+	</Target>
+
+	<!-- MacCatalyst native libraries -->
+	<ItemGroup Condition="'$(OS)' != 'Windows_NT'">
+		<NativeReference Include="..\native\lib\mac\librtmidi.dylib">
 			<Kind>Dynamic</Kind>
 			<ForceLoad>true</ForceLoad>
 		</NativeReference>
-		<NativeReference Include="Platforms/MacCatalyst/libportaudio.dylib">
+		<NativeReference Include="..\native\lib\mac\libportaudio.dylib">
 			<Kind>Dynamic</Kind>
 			<ForceLoad>true</ForceLoad>
 		</NativeReference>
@@ -91,13 +96,15 @@
 			<Kind>Dynamic</Kind>
 			<ForceLoad>true</ForceLoad>
 		</NativeReference>
-		<NativeReference Include="Platforms/MacCatalyst/foobar.dylib">
-			<Kind>Dynamic</Kind>
-			<ForceLoad>true</ForceLoad>
-		</NativeReference>
 		<NativeReference Include="Platforms/MacCatalyst/libMoltenVK.dylib">
 			<Kind>Dynamic</Kind>
 			<ForceLoad>true</ForceLoad>
 		</NativeReference>
+	</ItemGroup>
+
+	<!-- Windows native libraries - copy to output -->
+	<ItemGroup Condition="'$(OS)' == 'Windows_NT'">
+		<None Include="..\native\lib\win\$(Platform)\$(Configuration)\portaudio.dll" CopyToOutputDirectory="PreserveNewest" Link="portaudio.dll" />
+		<None Include="..\native\lib\win\$(Platform)\$(Configuration)\rtmidi.dll" CopyToOutputDirectory="PreserveNewest" Link="rtmidi.dll" />
 	</ItemGroup>
 </Project>
