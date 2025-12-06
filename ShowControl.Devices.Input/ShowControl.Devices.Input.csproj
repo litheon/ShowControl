@@ -13,6 +13,6 @@
     <PackageReference Include="NAudio" Version="2.2.1" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\RtMidi.Core\RtMidi.Core\RtMidi.Core.csproj" />
+    <ProjectReference Include="..\external\RtMidi.Core\RtMidi.Core\RtMidi.Core.csproj" />
   </ItemGroup>
 </Project>
