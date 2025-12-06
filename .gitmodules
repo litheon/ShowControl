@@ -1,0 +1,15 @@
+[submodule "external/portaudio"]
+	path = external/portaudio
+	url = https://github.com/PortAudio/portaudio
+[submodule "external/PortAudioSharp2"]
+	path = external/PortAudioSharp2
+	url = https://github.com/csukuangfj/PortAudioSharp2.git
+[submodule "external/rtmidi"]
+	path = external/rtmidi
+	url = https://github.com/thestk/rtmidi.git
+[submodule "external/RtMidi.Core"]
+	path = external/RtMidi.Core
+	url = https://github.com/litheon/RtMidi.Core.git
+[submodule "external/soundtouch.net"]
+	path = external/soundtouch.net
+	url = https://github.com/litheon/soundtouch.net.git
