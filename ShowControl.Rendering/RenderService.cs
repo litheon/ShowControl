@@ -15,6 +15,7 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Diagnostics;
 
 namespace ShowControl.Rendering
 {
@@ -59,6 +60,8 @@ namespace ShowControl.Rendering
             Button.Zoom, Button.Select, Button.Right, Button.Left, Button.Down
         };
         private static int _blinkIndex = 0;
+
+        private Stopwatch _frameRateStopWatch = new Stopwatch();
 
         private static void Blink(object state)
         {
@@ -2784,6 +2787,8 @@ namespace ShowControl.Rendering
             ControllerInstance controllerInstance = new ControllerInstance(ArtNet.Instance);
             while (!_cts.Token.IsCancellationRequested)
             {
+                _frameRateStopWatch.Start();
+                var frameStart = _frameRateStopWatch.Elapsed;
                 IKeyAnimation keyAnimation = null;
                 ITransformAnimation transformAnimation = null;
                 IKeyAnimation auxilaryAnimation = null;
@@ -2830,7 +2835,13 @@ namespace ShowControl.Rendering
                     skip += take;
                 }
                 ArtNetDevice.SendSync();
-                Thread.Sleep(4);
+
+                var frameEnd = _frameRateStopWatch.Elapsed;
+                var sendTime = TimeSpan.FromMilliseconds(25) - (frameEnd - frameStart);
+                if (sendTime.TotalMilliseconds > 0)
+                {
+                    SpinWait.SpinUntil(() => false, sendTime);
+                }
             }
             _tcs.SetResult(true);
         }
