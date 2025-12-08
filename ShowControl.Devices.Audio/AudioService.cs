@@ -79,6 +79,15 @@ namespace ShowControl.Devices.Audio
                     break;
                 }
             }
+            for (int i = 0; i < PortAudio.DeviceCount; i++)
+            {
+                var inputDevice = PortAudio.GetDeviceInfo(i);
+                if (inputDevice.name.Contains("Microphone") && !inputDevice.name.Contains("iPhone"))
+                {
+                    deviceIndex = i;
+                    break;
+                }
+            }
             var inputParameters = new StreamParameters
             {
                 device = deviceIndex,
@@ -231,8 +240,8 @@ namespace ShowControl.Devices.Audio
                 if (!_stopped)
                 {
                     _cancellationTokenSource.Cancel();
-                    _stream.Stop();
-                    _stream.Dispose();
+                    //_stream.Stop();
+                    //_stream.Dispose();
                     PortAudio.Terminate();
                     _stopped = true;
                 }

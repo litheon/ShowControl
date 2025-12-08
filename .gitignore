@@ -344,3 +344,6 @@ native/
 
 # ASIO SDK since it needs to be downloaded
 external/ASIOSDK2/
+
+# Compiled SPV files
+ShowControl.ControlPanel.Maui/Resources/Raw/*.spv

@@ -1501,6 +1501,25 @@ namespace ShowControl.Graphics
             // 2) Drain GPU once (no WSI teardown)
             _vk.QueueWaitIdle(_graphicsQueue);
 
+            // Bring _cpuDoneTL up to match _gpuCtr so no stale waits remain
+            if (_gpuCtr > 0)
+            {
+                SemaphoreSignalInfo sig = new()
+                {
+                    SType = StructureType.SemaphoreSignalInfo,
+                    Semaphore = _cpuDoneTL,
+                    Value = _gpuCtr
+                };
+                _vk.SignalSemaphore(_device, &sig);
+            }
+
+            // Clear slot tracking to prevent stale values from blocking new staging ring
+            for (int i = 0; i < StagingRing.RingSize; i++)
+            {
+                _slotReadyGpuValue[i] = 0;
+                _slotNeedCpuRelease[i] = 0;
+            }
+
             _stagingRing?.Dispose();
             _stagingRing = null;
 

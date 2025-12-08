@@ -48,14 +48,8 @@ namespace ShowControl.Devices.Output
 
         public void Write(byte[] dmxData)
         {
-            controllerInstance.sendArtDMX(new IPv4Address(new byte[] { 192, 168, 3, 234 }), new org.dmxc.wkdt.Light.ArtNet.PortAddress(_universe), 0, dmxData, (byte)(_sequence + 1)).Wait();
+            controllerInstance.sendArtDMX(new IPv4Address(new byte[] { 192, 168, 3, 203 }), new org.dmxc.wkdt.Light.ArtNet.PortAddress(_universe), 0, dmxData, (byte)(_sequence + 1)).Wait();
             _sequence = (byte)((_sequence + 1) % 254);
-            if (_sequence == 255)
-            {
-                int x = 0;
-            }
-            //controllerInstance.WriteDMXValues(1, dmxData);
-            //controllerInstance.WriteDMXValues(0, dmxData);
         }
     }
 }
