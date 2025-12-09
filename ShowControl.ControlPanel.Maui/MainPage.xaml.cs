@@ -60,9 +60,6 @@ namespace ShowControl.ControlPanel.Maui
 
         private void OnAudioFrameProcessed(object sender, AudioFrameProcessedEventArgs e)
         {
-
-            return;
-
             if (fftChartPoints == null || fftChartPoints.Length != e.AudioSpectrum.Points.Length)
             {
                 Array.Resize(ref fftChartPoints, e.AudioSpectrum.Points.Length);
@@ -99,7 +96,7 @@ namespace ShowControl.ControlPanel.Maui
                 for (int i = 0; i < fftChartPoints.Length; i++)
                 {
                     var X = fftChartPoints[i].X * polyline.Width;
-                    var Y = (fftChartPoints[i].Y / -140.0d) * polyline.Height;
+                    var Y = fftChartPoints[i].Y > double.NegativeInfinity ? (fftChartPoints[i].Y / -140.0d) * polyline.Height : 0;
 
                     if (fftChartPoints[i].X <= Limit)
                     {

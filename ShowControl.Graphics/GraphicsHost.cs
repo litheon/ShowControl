@@ -1073,7 +1073,7 @@ namespace ShowControl.Graphics
             PushData pc = new()
             {
                 Resolution = new System.Numerics.Vector2(_offscreenExtent.Width, _offscreenExtent.Height),
-                Time = (float)_stopwatch.Elapsed.TotalSeconds * 0.5f,
+                Time = (float)_stopwatch.Elapsed.TotalSeconds * 0.25f,
                 DistortionStrength = 0.12f,
                 HueTolerance = 0.35f,
                 Falloff = 0.6f,

@@ -18,7 +18,7 @@ namespace ShowControl.Devices.Audio
         public event EventHandler<AudioFrameProcessedEventArgs> AudioFrameProcessed;
 
         public const int SampleRate = 192000;
-        private const int ChannelOffset = 2;
+        private const int ChannelOffset = 0;
         private const int ChannelCount = 2;
 
         private const int SampleLevelWindowSeconds = 20;
@@ -69,7 +69,7 @@ namespace ShowControl.Devices.Audio
             _signalQueue = new ConcurrentQueue<AudioProcessSignal>();
             _audioFrameEventArgsQueue = new ConcurrentQueue<AudioFrameProcessedEventArgs>();
             PortAudio.Initialize();
-            int deviceIndex = 0;
+            int deviceIndex = -1;
             for (int i = 0; i < PortAudio.DeviceCount; i++)
             {
                 var inputDevice = PortAudio.GetDeviceInfo(i);
@@ -79,13 +79,16 @@ namespace ShowControl.Devices.Audio
                     break;
                 }
             }
-            for (int i = 0; i < PortAudio.DeviceCount; i++)
+            if (deviceIndex == -1)
             {
-                var inputDevice = PortAudio.GetDeviceInfo(i);
-                if (inputDevice.name.Contains("Microphone") && !inputDevice.name.Contains("iPhone"))
+                for (int i = 0; i < PortAudio.DeviceCount; i++)
                 {
-                    deviceIndex = i;
-                    break;
+                    var inputDevice = PortAudio.GetDeviceInfo(i);
+                    if (inputDevice.name.Contains("Microphone") && !inputDevice.name.Contains("iPhone"))
+                    {
+                        deviceIndex = i;
+                        break;
+                    }
                 }
             }
             var inputParameters = new StreamParameters
