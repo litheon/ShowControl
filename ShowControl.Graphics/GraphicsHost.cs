@@ -1384,9 +1384,25 @@ namespace ShowControl.Graphics
             {
                 try
                 {
-                    // (3) Signal CPU release with the SAME value
-                    SemaphoreSignalInfo sig = new() { SType = StructureType.SemaphoreSignalInfo, Semaphore = _cpuDoneTL, Value = producedValue };
-                    _vk.SignalSemaphore(_device, &sig);
+                    // (3) Signal CPU release - only if this value is higher than what we've signaled
+                    // Timeline semaphores require monotonically increasing values
+                    ulong current, newValue;
+                    do
+                    {
+                        current = Volatile.Read(ref _cpuSignaled);
+                        if (producedValue <= current)
+                        {
+                            // Already signaled past this value, skip signaling
+                            break;
+                        }
+                        newValue = producedValue;
+                    } while (Interlocked.CompareExchange(ref _cpuSignaled, newValue, current) != current);
+
+                    if (producedValue > current)
+                    {
+                        SemaphoreSignalInfo sig = new() { SType = StructureType.SemaphoreSignalInfo, Semaphore = _cpuDoneTL, Value = producedValue };
+                        _vk.SignalSemaphore(_device, &sig);
+                    }
 
                     // (4) Clear and advance
                     Volatile.Write(ref _slotReadyGpuValue[slotValue], 0);
@@ -1502,15 +1518,19 @@ namespace ShowControl.Graphics
             _vk.QueueWaitIdle(_graphicsQueue);
 
             // Bring _cpuDoneTL up to match _gpuCtr so no stale waits remain
-            if (_gpuCtr > 0)
+            if (_gpuCtr > _cpuSignaled)
             {
-                SemaphoreSignalInfo sig = new()
+                unsafe
                 {
-                    SType = StructureType.SemaphoreSignalInfo,
-                    Semaphore = _cpuDoneTL,
-                    Value = _gpuCtr
-                };
-                _vk.SignalSemaphore(_device, &sig);
+                    SemaphoreSignalInfo sig = new()
+                    {
+                        SType = StructureType.SemaphoreSignalInfo,
+                        Semaphore = _cpuDoneTL,
+                        Value = _gpuCtr
+                    };
+                    _vk.SignalSemaphore(_device, &sig);
+                    _cpuSignaled = _gpuCtr;
+                }
             }
 
             // Clear slot tracking to prevent stale values from blocking new staging ring
