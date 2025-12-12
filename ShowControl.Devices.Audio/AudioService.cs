@@ -212,6 +212,7 @@ namespace ShowControl.Devices.Audio
             var currentLevelDb = 20 * Math.Log10(_bassCurrentLevel.SampleAverage);
             var averageLevelDb = 20 * Math.Log10(_bassAverageLevel.SampleAverage);
             var amplitudeRatio = _overallAverageLevel.SampleAverage / _overallAverageLevelAverage.SampleAverage;
+
             var audioSpectrum = new AudioSpectrum(_pointPool, copyBuffer);
             var audioFrameProcessedEventArgs = new AudioFrameProcessedEventArgs(audioSpectrum, width, bpm, averageLevelDb, currentLevelDb, amplitudeRatio, seconds);
             _audioFrameEventArgsQueue.Enqueue(audioFrameProcessedEventArgs);
