@@ -17,9 +17,9 @@ namespace ShowControl.Devices.Audio
     {
         public event EventHandler<AudioFrameProcessedEventArgs> AudioFrameProcessed;
 
-        public const int SampleRate = 192000;
+        public const int SampleRate = 48000;
         private const int ChannelOffset = 0;
-        private const int ChannelCount = 2;
+        private const int ChannelCount = 1;
 
         private const int SampleLevelWindowSeconds = 20;
         private const int SampleQueueLength = SampleLevelWindowSeconds * SampleLevelWindowSeconds;
@@ -91,19 +91,19 @@ namespace ShowControl.Devices.Audio
                     }
                 }
             }
-            var inputParameters = new StreamParameters
-            {
-                device = deviceIndex,
-                channelCount = ChannelOffset + ChannelCount,
-                sampleFormat = SampleFormat.Float32,
-                suggestedLatency = PortAudio.GetDeviceInfo(deviceIndex).defaultLowInputLatency,
-                hostApiSpecificStreamInfo = IntPtr.Zero,
-            };
-            _stream = new PortAudioSharp.Stream(inputParameters, null, SampleRate, 0, StreamFlags.NoFlag, new Stream.Callback(Callback), null);
-            _stream.SetFinishedCallback(StreamFinishedCallback);
-            _audioDispatchThread.Start();
-            _audioProcessingThread.Start();
-            _stream.Start();
+            // var inputParameters = new StreamParameters
+            // {
+            //     device = deviceIndex,
+            //     channelCount = ChannelOffset + ChannelCount,
+            //     sampleFormat = SampleFormat.Float32,
+            //     suggestedLatency = PortAudio.GetDeviceInfo(deviceIndex).defaultLowInputLatency,
+            //     hostApiSpecificStreamInfo = IntPtr.Zero,
+            // };
+            // _stream = new PortAudioSharp.Stream(inputParameters, null, SampleRate, 0, StreamFlags.NoFlag, new Stream.Callback(Callback), null);
+            // _stream.SetFinishedCallback(StreamFinishedCallback);
+            // _audioDispatchThread.Start();
+            // _audioProcessingThread.Start();
+            // _stream.Start();
         }
 
         private void StreamFinishedCallback(IntPtr userData)

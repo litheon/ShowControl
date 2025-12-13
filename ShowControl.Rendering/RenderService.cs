@@ -47,8 +47,8 @@ namespace ShowControl.Rendering
         private PadState[] _padStates;
         private int _padTransitionStartIndex;
 
-        private int _masterFader = 15;
-        private int _auxilaryMasterFader = 251;
+        private int _masterFader = 255;
+        private int _auxilaryMasterFader = 255;
 
         private Timer NavButtonBlinkTimer;
         private Timer RenderOperatatorTimer;
@@ -173,28 +173,16 @@ namespace ShowControl.Rendering
                     AsteraAX3.Instance,
                     AsteraAX3.Instance,
                     AsteraAX3.Instance,
-                    AsteraAX3.Instance,
-                    Sheds.Instance,
-                    Sheds.Instance,
-                    Sheds.Instance,
-                    Sheds.Instance,
-                    Sheds.Instance,
-                    Sheds.Instance
+                    AsteraAX3.Instance
             );
             _parChannels = RenderSurface.Create(
                     new RenderSettings(255),
+                    Sheds.Instance,
+                    Sheds.Instance,
+                    Sheds.Instance,
+                    Sheds.Instance,
+                    Sheds.Instance,
                     Sheds.Instance
-                    //Sheds.Instance,
-                    //Sheds.Instance,
-                    //Sheds.Instance,
-                    //Sheds.Instance,
-                    //Sheds.Instance,
-                    //Sheds.Instance,
-                    //Sheds.Instance,
-                    //Sheds.Instance,
-                    //Sheds.Instance,
-                    //Sheds.Instance,
-                    //Sheds.Instance
             );
             _renderSurfaces = new IRenderSurface[]
             {
@@ -235,7 +223,7 @@ namespace ShowControl.Rendering
             _renderThread.Start();
             Initialize();
             NavButtonBlinkTimer = new Timer(Blink, this, 500, 500);
-            RenderOperatatorTimer = new Timer(ChangeAnimation, this, RenderDelayTime, RenderDelayTime);
+            //RenderOperatatorTimer = new Timer(ChangeAnimation, this, RenderDelayTime, RenderDelayTime);
             return Task.CompletedTask;
         }
 
@@ -408,7 +396,7 @@ namespace ShowControl.Rendering
                 var midiAwareTransformAnimation = activeTransformAnimation as MidiAwareAnimation;
                 midiAwareTransformAnimation?.MidiAware_OnMessageReceived(sender, e);
             }
-            RenderOperatatorTimer.Change(RenderDelayTime, RenderDelayTime);
+            //RenderOperatatorTimer.Change(RenderDelayTime, RenderDelayTime);
         }
 
         private void ProcessPadPressed(ButtonDirection direction, byte padNumber)
@@ -2376,7 +2364,7 @@ namespace ShowControl.Rendering
             {
                 //new RainbowAnimation(_pixelChannels.TotalPixelCount, plc, _audioService, _cts.Token, fastAnimate: true),
                 //new RainbowAnimation(_pixelChannels.TotalPixelCount, nochesCincoDeMayo1Long, _audioService, _cts.Token, fastAnimate: true),
-                new DragChurchAnimation(_pixelChannels.TotalPixelCount),
+                new DragChurchAnimation(_pixelChannels.TotalPixelCount, false),
                 new RainbowAnimation(_pixelChannels.TotalPixelCount, warmLucidas, _audioService, _cts.Token, fastAnimate: true),
                 new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg9, _audioService, _cts.Token, fastAnimate: true),
                 new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg2Lucidas, _audioService, _cts.Token, fastAnimate: true),
@@ -2388,7 +2376,8 @@ namespace ShowControl.Rendering
             {
                 //new RainbowAnimation(_parChannels.TotalPixelCount, plc, _audioService, _cts.Token),
                 //new RainbowAnimation(_parChannels.TotalPixelCount, nochesCincoDeMayo1Long, _audioService, _cts.Token),
-                new RainbowAnimation(_parChannels.TotalPixelCount, frequentWarmColdRoygviv, _audioService, _cts.Token),
+                new DragChurchAnimation(_parChannels.TotalPixelCount, true),
+                //new RainbowAnimation(_parChannels.TotalPixelCount, frequentWarmColdRoygviv, _audioService, _cts.Token),
                 new RainbowAnimation(_parChannels.TotalPixelCount, warmLucidas, _audioService, _cts.Token),
                 new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg9, _audioService, _cts.Token),
                 new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg2Lucidas, _audioService, _cts.Token),
@@ -2438,7 +2427,7 @@ namespace ShowControl.Rendering
 
         private void RenderThreadLoop()
         {
-            byte[] targetVector = new byte[2100];
+            byte[] targetVector = new byte[512];
             ControllerInstance controllerInstance = new ControllerInstance(ArtNet.Instance);
             while (!_cts.Token.IsCancellationRequested)
             {
@@ -2471,16 +2460,16 @@ namespace ShowControl.Rendering
                     pixelOffset += surface.TotalPixelCount;
                     channelOffset += surface.TotalChannelCount;
                 }
-                //if (auxilaryAnimation != null)
-                //{
-                //    var renderSettings = new RenderSettings();
-                //    renderSettings.MasterFader = _auxilaryMasterFader.InterlockedGet();
-                //    var frame = auxilaryAnimation.GetNextFrame();
-                //    var frameSpan = frame.AsSpan();
-                //    var surface = _parChannels;
+                if (auxilaryAnimation != null)
+                {
+                   var renderSettings = new RenderSettings();
+                   renderSettings.MasterFader = _auxilaryMasterFader.InterlockedGet();
+                   var frame = auxilaryAnimation.GetNextFrame();
+                   var frameSpan = frame.AsSpan();
+                   var surface = _parChannels;
 
-                //    surface.Render(frameSpan, targetVector.AsSpan().Slice(channelOffset, surface.TotalChannelCount), renderSettings);
-                //}
+                   surface.Render(frameSpan, targetVector.AsSpan().Slice(channelOffset, surface.TotalChannelCount), renderSettings);
+                }
 
                 int take = 510;
                 int skip = 0;
@@ -2491,13 +2480,13 @@ namespace ShowControl.Rendering
                 }
                 ArtNetDevice.SendSync();
 
-                Thread.Yield();
-                var frameEnd = _frameRateStopWatch.Elapsed;
-                var sendTime = TimeSpan.FromMilliseconds(25) - (frameEnd - frameStart);
-                if (sendTime.TotalMilliseconds > 0)
-                {
-                    SpinWait.SpinUntil(() => false, sendTime);
-                }
+                // Thread.Yield();
+                // var frameEnd = _frameRateStopWatch.Elapsed;
+                // var sendTime = TimeSpan.FromMilliseconds(25) - (frameEnd - frameStart);
+                // if (sendTime.TotalMilliseconds > 0)
+                // {
+                //     SpinWait.SpinUntil(() => false, sendTime);
+                // }
             }
             _tcs.SetResult(true);
         }

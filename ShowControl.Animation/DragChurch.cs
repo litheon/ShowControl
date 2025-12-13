@@ -14,23 +14,34 @@ namespace ShowControl.Animation
         private int B;
         private readonly Pixel[] _rootFrame;
 
-        public DragChurchAnimation(int pixelCount)
+        public DragChurchAnimation(int pixelCount, bool onStage)
         {
             _rootFrame = new Pixel[pixelCount];
-            for (int i = 0; i < _rootFrame.Length && i < 10; i++)
+            if (!onStage)
             {
-                if (i % 2 == 0)
+                for (int i = 0; i < _rootFrame.Length /* && i < 10 */; i++)
                 {
-                    _rootFrame[i] = new Pixel(System.Drawing.Color.FromArgb(0xFF, 0xFF, 0x00, 0x00), 0x00, 0x00, 0x00);
-                }
-                else
-                {
-                    _rootFrame[i] = new Pixel(System.Drawing.Color.FromArgb(0xFF, 0x00, 0xFF, 0x00), 0x00, 0x00, 0x00);
+                    // if (duringShow)
+                    // {
+                    //     _rootFrame[i] = new Pixel(System.Drawing.Color.FromArgb(0xFF, 0x00, 0x00, 0x00), 0x00, 0x00, 0x00);
+                    //     continue;
+                    // }
+                    if (i % 2 == 0)
+                    {
+                        _rootFrame[i] = new Pixel(System.Drawing.Color.FromArgb(0xFF, 0xFF, 0x00, 0x00), 0x00, 0x00, 0x00);
+                    }
+                    else
+                    {
+                        _rootFrame[i] = new Pixel(System.Drawing.Color.FromArgb(0xFF, 0x00, 0xFF, 0x00), 0x00, 0x00, 0x00);
+                    }
                 }
             }
-            for (int i = 10; i < _rootFrame.Length; i++)
+            else
             {
-               _rootFrame[i] = new Pixel(System.Drawing.Color.FromArgb(0xFF, 0x00, 0x00, 0xBB), 0x00, 0x00, 0x00);
+                for (int i = 0; i < _rootFrame.Length; i++)
+                {
+                    _rootFrame[i] = new Pixel(System.Drawing.Color.FromArgb(0xFF, 0x00, 0x00, 0xFF), 0x00, 0x00, 0x00);
+                }
             }
             SetNavigationColor(System.Drawing.Color.Violet);
         }
