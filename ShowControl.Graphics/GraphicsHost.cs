@@ -17,8 +17,18 @@ using Buffer = Silk.NET.Vulkan.Buffer;
 using System.Reflection.Metadata.Ecma335;
 using Microsoft.Maui.Graphics;
 using System.Threading;
+using System.Threading.Tasks;
 
-#if !ARM64
+#if MACCATALYST
+using Microsoft.Maui.ApplicationModel;
+using UIKit;
+using CoreGraphics;
+using CoreAnimation;
+using Foundation;
+using ObjCRuntime;
+#endif
+
+#if WINDOWS
 using Silk.NET.Maths;
 using IWindow = Silk.NET.Windowing.IWindow;
 using Silk.NET.Windowing;
@@ -32,8 +42,10 @@ namespace ShowControl.Graphics
         private Thread _backgroundThread;
         public GraphicsHost()
         {
+            System.Diagnostics.Debug.WriteLine("[GraphicsHost] Constructor called");
             _backgroundThread = new Thread(Run);
             _backgroundThread.Start();
+            System.Diagnostics.Debug.WriteLine("[GraphicsHost] Background thread started");
         }
         [StructLayout(LayoutKind.Sequential)]
         struct PushData
@@ -68,7 +80,7 @@ namespace ShowControl.Graphics
             private Vector4 _element; // the compiler synthesizes the rest
         }
 
-#if !ARM64
+#if WINDOWS
         private Silk.NET.Windowing.IWindow _window;
         private Silk.NET.Windowing.IWindow _presentWindow;
 #endif
@@ -76,9 +88,11 @@ namespace ShowControl.Graphics
         private Instance _instance;
         private SurfaceKHR _surface;
         private KhrSurface _khrSurface;
-        #if !ARM64
+#if MACCATALYST
+        private ExtMetalSurface _extMetalSurface;
+#elif WINDOWS
         private KhrWin32Surface _khrWin32Surface;
-        #endif
+#endif
         private PhysicalDevice _physicalDevice;
         private Device _device;
         private Queue _graphicsQueue;
@@ -163,20 +177,30 @@ namespace ShowControl.Graphics
         private volatile bool _recreatingSwapchain = false;
         private volatile bool _isClosing = false;
         private volatile bool _tearingDownWSI = false;
+        private volatile bool _resizePending = false;
 
         public void Run()
         {
+            System.Diagnostics.Debug.WriteLine("[GraphicsHost] Run() started");
             try
             {
                 //System.Threading.Thread.Sleep(20000);
+                System.Diagnostics.Debug.WriteLine("[GraphicsHost] Calling RunHeadless()");
                 RunHeadless();
-                #if !ARM64
+                System.Diagnostics.Debug.WriteLine("[GraphicsHost] RunHeadless() completed");
+#if MACCATALYST
+                // Auto-open preview window on Mac Catalyst
+                System.Diagnostics.Debug.WriteLine("[GraphicsHost] Calling ShowPreviewWindow()");
+                ShowPreviewWindow();
+                System.Diagnostics.Debug.WriteLine("[GraphicsHost] ShowPreviewWindow() dispatched");
+#elif WINDOWS
                 ShowHeadlessInWindow();
-                #endif
+#endif
             }
             catch (Exception e)
             {
-                int x = 0;
+                System.Diagnostics.Debug.WriteLine($"[GraphicsHost] Exception in Run(): {e.Message}");
+                System.Diagnostics.Debug.WriteLine($"[GraphicsHost] Stack trace: {e.StackTrace}");
             }
         }
 
@@ -200,8 +224,8 @@ namespace ShowControl.Graphics
             _stopwatch.Start();
             while (_running)
             {
-                OnRender(0);        // your existing OnRender with PRESENT=false
-                Thread.Yield();     // or Thread.Sleep(0) / Sleep(1) if you want to throttle
+                OnRender(0);
+                Thread.Sleep(0);    // Throttle to prevent 100% CPU usage
             }
         }
 
@@ -212,7 +236,7 @@ namespace ShowControl.Graphics
 
         }
 
-#if !ARM64
+#if WINDOWS
         public unsafe void ShowHeadlessInWindow(int width = 800, int height = 600, string title = "Viewer")
         {
             // We assume instance/device already have WSI + swapchain enabled.
@@ -331,7 +355,9 @@ namespace ShowControl.Graphics
 
             CreatePerImageSyncObjects(count);
         }
+#endif
 
+        // Shared methods used by both ARM64 and non-ARM64 presentation code
         private unsafe uint FindPresentQueueFamily(PhysicalDevice pd, SurfaceKHR surface)
         {
             uint count = 0;
@@ -385,10 +411,11 @@ namespace ShowControl.Graphics
                     return bit;
             }
 
-            // Last resort (shouldn’t happen on a valid surface):
+            // Last resort (shouldn't happen on a valid surface):
             return identity;
         }
 
+#if WINDOWS
         private unsafe uint CreateOrRecreateSwapchainPinned(IWindow window)
         {
             _vk.QueueWaitIdle(_graphicsQueue);
@@ -530,6 +557,446 @@ namespace ShowControl.Graphics
         }
 #endif
 
+#if MACCATALYST
+        private nint _metalLayerPtr;
+        private uint _metalSurfaceWidth;
+        private uint _metalSurfaceHeight;
+
+        /// <summary>
+        /// Creates a Vulkan surface from a CAMetalLayer pointer and sets up the swapchain for presentation.
+        /// Called when the MetalSurfaceView's layer is ready.
+        /// </summary>
+        public unsafe void EnableMetalPresentation(nint metalLayerPtr, uint width, uint height)
+        {
+            if (_surface.Handle != 0)
+            {
+                // Surface already exists, just resize
+                HandleMetalSurfaceResize(width, height);
+                return;
+            }
+
+            _metalLayerPtr = metalLayerPtr;
+            _metalSurfaceWidth = width;
+            _metalSurfaceHeight = height;
+
+            // Create Metal surface using VK_EXT_metal_surface
+            var createInfo = new MetalSurfaceCreateInfoEXT
+            {
+                SType = StructureType.MetalSurfaceCreateInfoExt,
+                PLayer = (nint*)metalLayerPtr
+            };
+
+            var result = _extMetalSurface.CreateMetalSurface(_instance, &createInfo, null, out _surface);
+            if (result != Result.Success)
+            {
+                throw new Exception($"Failed to create Metal surface: {result}");
+            }
+
+            // Initialize swapchain extension
+            _swapchainExtension = new KhrSwapchain(_vk.Context);
+
+            // Create swapchain
+            CreateSwapchainForMetalSurface(width, height);
+
+            // Enable presentation path in render loop
+            PRESENT = true;
+        }
+
+        private CancellationTokenSource? _resizeDebounceToken;
+        private uint _pendingResizeWidth;
+        private uint _pendingResizeHeight;
+
+        /// <summary>
+        /// Handles resize of the Metal surface by recreating the swapchain.
+        /// Debounces rapid resize events to avoid constant swapchain recreation.
+        /// </summary>
+        public void HandleMetalSurfaceResize(uint width, uint height)
+        {
+            if (width == 0 || height == 0) return;
+            if (_surface.Handle == 0) return;
+
+            _metalSurfaceWidth = width;
+            _metalSurfaceHeight = height;
+            _pendingResizeWidth = width;
+            _pendingResizeHeight = height;
+            _resizePending = true;  // Skip preview rendering while resize pending
+
+            // Cancel any pending resize
+            _resizeDebounceToken?.Cancel();
+            _resizeDebounceToken = new CancellationTokenSource();
+            var token = _resizeDebounceToken.Token;
+
+            // Debounce: wait 100ms after last resize before recreating swapchain
+            Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(100, token);
+                    if (!token.IsCancellationRequested)
+                    {
+                        RecreateSwapchainForSize(_pendingResizeWidth, _pendingResizeHeight);
+                        _resizePending = false;  // Resume preview rendering
+                    }
+                }
+                catch (TaskCanceledException)
+                {
+                    // Expected when resize is cancelled by a new resize
+                }
+            }, token);
+        }
+
+        /// <summary>
+        /// Creates or recreates the swapchain for the Metal surface.
+        /// </summary>
+        private unsafe void CreateSwapchainForMetalSurface(uint width, uint height)
+        {
+            // Query surface capabilities
+            _khrSurface.GetPhysicalDeviceSurfaceCapabilities(_physicalDevice, _surface, out var caps);
+
+            // Clamp extent to surface capabilities
+            var extent = new Extent2D(
+                Math.Clamp(width, caps.MinImageExtent.Width, caps.MaxImageExtent.Width),
+                Math.Clamp(height, caps.MinImageExtent.Height, caps.MaxImageExtent.Height)
+            );
+
+            // Query supported formats
+            uint fmtCount = 0;
+            _khrSurface.GetPhysicalDeviceSurfaceFormats(_physicalDevice, _surface, ref fmtCount, null);
+            var fmts = new SurfaceFormatKHR[fmtCount];
+            fixed (SurfaceFormatKHR* p = fmts)
+                _khrSurface.GetPhysicalDeviceSurfaceFormats(_physicalDevice, _surface, ref fmtCount, p);
+
+            // On Metal, prefer B8G8R8A8_SRGB (native format), then fall back to R8G8B8A8_SRGB
+            var pickFmt = fmts[0];
+            bool foundPreferred = false;
+            foreach (var f in fmts)
+            {
+                // First choice: B8G8R8A8 (Metal native)
+                if (f.Format == Format.B8G8R8A8Srgb && f.ColorSpace == ColorSpaceKHR.ColorspaceSrgbNonlinearKhr)
+                {
+                    pickFmt = f;
+                    foundPreferred = true;
+                    break;
+                }
+                // Second choice: R8G8B8A8
+                if (!foundPreferred && f.Format == Format.R8G8B8A8Srgb && f.ColorSpace == ColorSpaceKHR.ColorspaceSrgbNonlinearKhr)
+                {
+                    pickFmt = f;
+                }
+            }
+
+            // Image count
+            uint imageCount = Math.Max(2, caps.MinImageCount);
+            if (caps.MaxImageCount > 0 && imageCount > caps.MaxImageCount)
+                imageCount = caps.MaxImageCount;
+
+            var preTransform = PickPreTransform(caps);
+
+            var sci = new SwapchainCreateInfoKHR
+            {
+                SType = StructureType.SwapchainCreateInfoKhr,
+                Surface = _surface,
+                MinImageCount = imageCount,
+                ImageFormat = pickFmt.Format,
+                ImageColorSpace = pickFmt.ColorSpace,
+                ImageExtent = extent,
+                ImageArrayLayers = 1,
+                ImageUsage = ImageUsageFlags.ImageUsageTransferDstBit, // We blit into it
+                ImageSharingMode = SharingMode.Exclusive,
+                PreTransform = preTransform,
+                CompositeAlpha = CompositeAlphaFlagsKHR.CompositeAlphaOpaqueBitKhr,
+                PresentMode = PresentModeKHR.PresentModeFifoKhr, // FIFO is always supported
+                Clipped = true,
+                OldSwapchain = default
+            };
+
+            var result = _swapchainExtension.CreateSwapchain(_device, ref sci, null, out _swapchain);
+            if (result != Result.Success)
+                throw new Exception($"vkCreateSwapchainKHR failed: {result}");
+
+            // Fetch swapchain images
+            uint count = 0;
+            _swapchainExtension.GetSwapchainImages(_device, _swapchain, ref count, null);
+            _swapchainImages = new Image[count];
+            _imageSerial = new ulong[count];
+            fixed (Image* pImgs = _swapchainImages)
+                _swapchainExtension.GetSwapchainImages(_device, _swapchain, ref count, pImgs);
+
+            CreatePerImageSyncObjects(count);
+            _swapExtent = extent;
+        }
+
+        /// <summary>
+        /// Recreates the swapchain with a new size.
+        /// </summary>
+        private unsafe void RecreateSwapchainForSize(uint width, uint height)
+        {
+            // Stop OnRender from running during swapchain recreation
+            _recreatingSwapchain = true;
+            _imageAcquired = false;
+            _vk.QueueWaitIdle(_graphicsQueue);
+
+            try
+            {
+            // Query surface capabilities
+            _khrSurface.GetPhysicalDeviceSurfaceCapabilities(_physicalDevice, _surface, out var caps);
+
+            System.Diagnostics.Debug.WriteLine($"[GraphicsHost] RecreateSwapchain: requested={width}x{height}, caps.current={caps.CurrentExtent.Width}x{caps.CurrentExtent.Height}, caps.min={caps.MinImageExtent.Width}x{caps.MinImageExtent.Height}, caps.max={caps.MaxImageExtent.Width}x{caps.MaxImageExtent.Height}");
+
+            // On Metal, use the requested size directly since CAMetalLayer.drawableSize is already set
+            var extent = new Extent2D(width, height);
+
+            // Query formats again
+            uint fmtCount = 0;
+            _khrSurface.GetPhysicalDeviceSurfaceFormats(_physicalDevice, _surface, ref fmtCount, null);
+            var fmts = new SurfaceFormatKHR[fmtCount];
+            fixed (SurfaceFormatKHR* p = fmts)
+                _khrSurface.GetPhysicalDeviceSurfaceFormats(_physicalDevice, _surface, ref fmtCount, p);
+
+            // On Metal, prefer B8G8R8A8_SRGB (native format), then fall back to R8G8B8A8_SRGB
+            var pickFmt = fmts[0];
+            bool foundPreferred = false;
+            foreach (var f in fmts)
+            {
+                // First choice: B8G8R8A8 (Metal native)
+                if (f.Format == Format.B8G8R8A8Srgb && f.ColorSpace == ColorSpaceKHR.ColorspaceSrgbNonlinearKhr)
+                {
+                    pickFmt = f;
+                    foundPreferred = true;
+                    break;
+                }
+                // Second choice: R8G8B8A8
+                if (!foundPreferred && f.Format == Format.R8G8B8A8Srgb && f.ColorSpace == ColorSpaceKHR.ColorspaceSrgbNonlinearKhr)
+                {
+                    pickFmt = f;
+                }
+            }
+
+            uint imageCount = Math.Max(2, caps.MinImageCount);
+            if (caps.MaxImageCount > 0 && imageCount > caps.MaxImageCount)
+                imageCount = caps.MaxImageCount;
+
+            var preTransform = PickPreTransform(caps);
+
+            var sci = new SwapchainCreateInfoKHR
+            {
+                SType = StructureType.SwapchainCreateInfoKhr,
+                Surface = _surface,
+                MinImageCount = imageCount,
+                ImageFormat = pickFmt.Format,
+                ImageColorSpace = pickFmt.ColorSpace,
+                ImageExtent = extent,
+                ImageArrayLayers = 1,
+                ImageUsage = ImageUsageFlags.ImageUsageTransferDstBit,
+                ImageSharingMode = SharingMode.Exclusive,
+                PreTransform = preTransform,
+                CompositeAlpha = CompositeAlphaFlagsKHR.CompositeAlphaOpaqueBitKhr,
+                PresentMode = PresentModeKHR.PresentModeFifoKhr,
+                Clipped = true,
+                OldSwapchain = _swapchain // Pass old swapchain for safe recreation
+            };
+
+            var result = _swapchainExtension.CreateSwapchain(_device, ref sci, null, out var newSwapchain);
+            if (result != Result.Success)
+                throw new Exception($"vkCreateSwapchainKHR failed: {result}");
+
+            // Destroy old swapchain after creating new one
+            if (_swapchain.Handle != 0)
+            {
+                DestroyPerImageSyncObjects();
+                _swapchainExtension.DestroySwapchain(_device, _swapchain, null);
+            }
+            _swapchain = newSwapchain;
+
+            // Fetch new swapchain images
+            uint count = 0;
+            _swapchainExtension.GetSwapchainImages(_device, _swapchain, ref count, null);
+            _swapchainImages = new Image[count];
+            _imageSerial = new ulong[count];
+            fixed (Image* pImgs = _swapchainImages)
+                _swapchainExtension.GetSwapchainImages(_device, _swapchain, ref count, pImgs);
+
+            CreatePerImageSyncObjects(count);
+            _swapExtent = extent;
+            _imageAcquired = false;
+            }
+            finally
+            {
+                // Resume OnRender
+                _recreatingSwapchain = false;
+            }
+        }
+
+        /// <summary>
+        /// Cleans up Metal presentation resources when the window is closing.
+        /// </summary>
+        public unsafe void CleanupMetalPresentation()
+        {
+            PRESENT = false;
+            _imageAcquired = false;
+            _tearingDownWSI = true;
+
+            _vk.QueueWaitIdle(_graphicsQueue);
+
+            DestroyPerImageSyncObjects();
+
+            if (_swapchain.Handle != 0)
+            {
+                _swapchainExtension.DestroySwapchain(_device, _swapchain, null);
+                _swapchain = default;
+            }
+
+            if (_surface.Handle != 0)
+            {
+                _khrSurface.DestroySurface(_instance, _surface, null);
+                _surface = default;
+            }
+
+            _swapchainImages = null;
+            _metalLayerPtr = 0;
+            _tearingDownWSI = false;
+        }
+
+        private bool _previewWindowOpen = false;
+
+        /// <summary>
+        /// Event raised when the graphics host wants a preview window to be opened.
+        /// The MAUI app should handle this event and create the window.
+        /// </summary>
+        public event EventHandler<PreviewWindowRequestedEventArgs>? PreviewWindowRequested;
+
+        /// <summary>
+        /// Requests the MAUI app to open a preview window.
+        /// The app should handle the PreviewWindowRequested event.
+        /// </summary>
+        public void ShowPreviewWindow()
+        {
+            if (_previewWindowOpen)
+            {
+                return;
+            }
+
+            System.Diagnostics.Debug.WriteLine("[GraphicsHost] Requesting preview window from MAUI app...");
+            _previewWindowOpen = true;
+
+            // Wait for event handler to be subscribed (race condition with MainPage.Initialize)
+            Task.Run(async () =>
+            {
+                // Wait up to 5 seconds for a handler to be subscribed
+                for (int i = 0; i < 50 && PreviewWindowRequested == null; i++)
+                {
+                    await Task.Delay(100);
+                }
+
+                if (PreviewWindowRequested == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("[GraphicsHost] No handler subscribed to PreviewWindowRequested after 5 seconds");
+                    _previewWindowOpen = false;
+                    return;
+                }
+
+                // Raise event on main thread
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    PreviewWindowRequested?.Invoke(this, new PreviewWindowRequestedEventArgs(
+                        _offscreenExtent.Width,
+                        _offscreenExtent.Height
+                    ));
+                });
+            });
+        }
+
+        /// <summary>
+        /// Called by the MAUI app when the preview window is closed.
+        /// </summary>
+        public void OnPreviewWindowClosed()
+        {
+            System.Diagnostics.Debug.WriteLine("[GraphicsHost] Preview window closed");
+            CleanupMetalPresentation();
+            _previewWindowOpen = false;
+        }
+
+    /// <summary>
+    /// UIView subclass with CAMetalLayer as its backing layer.
+    /// </summary>
+    private class MetalBackedUIView : UIView
+    {
+        public event EventHandler<nint>? LayerReady;
+        public event EventHandler<CGSize>? SizeChanged;
+
+        private bool _layerReported = false;
+
+        public MetalBackedUIView() : base()
+        {
+            ContentScaleFactor = UIScreen.MainScreen.Scale;
+            BackgroundColor = UIColor.Black;
+        }
+
+        [Export("layerClass")]
+        public static Class LayerClass()
+        {
+            return new Class(typeof(CAMetalLayer));
+        }
+
+        public CAMetalLayer MetalLayer => (CAMetalLayer)Layer;
+
+        public override void LayoutSubviews()
+        {
+            base.LayoutSubviews();
+
+            var newSize = new CGSize(
+                Bounds.Width * ContentScaleFactor,
+                Bounds.Height * ContentScaleFactor
+            );
+
+            if (newSize.Width > 0 && newSize.Height > 0)
+            {
+                MetalLayer.DrawableSize = newSize;
+                SizeChanged?.Invoke(this, newSize);
+
+                if (!_layerReported)
+                {
+                    _layerReported = true;
+                    LayerReady?.Invoke(this, MetalLayer.Handle);
+                }
+            }
+        }
+
+        public override void MovedToWindow()
+        {
+            base.MovedToWindow();
+
+            if (Window != null && !_layerReported && Bounds.Width > 0 && Bounds.Height > 0)
+            {
+                _layerReported = true;
+                MetalLayer.DrawableSize = new CGSize(
+                    Bounds.Width * ContentScaleFactor,
+                    Bounds.Height * ContentScaleFactor
+                );
+                LayerReady?.Invoke(this, MetalLayer.Handle);
+            }
+        }
+    }
+#else
+        // Stub implementations for non-MACCATALYST builds (Windows)
+        public event EventHandler<PreviewWindowRequestedEventArgs>? PreviewWindowRequested;
+
+        public void EnableMetalPresentation(nint metalLayerPtr, uint width, uint height)
+        {
+            // Not supported on this platform
+        }
+
+        public void HandleMetalSurfaceResize(uint width, uint height)
+        {
+            // Not supported on this platform
+        }
+
+        public void OnPreviewWindowClosed()
+        {
+            // Not supported on this platform
+        }
+#endif
+
         private unsafe bool TryPickDeviceAndQueuesPreWindow(out PhysicalDevice picked, out uint gfxQ, out uint presentQ)
         {
             picked = default; gfxQ = presentQ = uint.MaxValue;
@@ -560,13 +1027,14 @@ namespace ShowControl.Graphics
 
                     // This is the key call: does this family support presenting to the Win32 desktop?
                     // No VkSurfaceKHR or window handle is required.
-#if !ARM64
+#if WINDOWS
                     if (pIdx == uint.MaxValue && _khrWin32Surface.GetPhysicalDeviceWin32PresentationSupport(pd, i))
                         pIdx = i;
 #else
+                    // On non-Windows platforms, just pick any queue family for present
                     if (pIdx == uint.MaxValue)
-                        pIdx = i;        
-                    #endif
+                        pIdx = i;
+#endif
                 }
 
                 if (g != uint.MaxValue && pIdx != uint.MaxValue)
@@ -613,9 +1081,9 @@ namespace ShowControl.Graphics
             // Instance extensions: none needed for pure headless.
             // On macOS/MoltenVK you likely need portability enumeration:
             var instExts = new List<string>();
-#if ARM64
-    //instExts.Add("VK_KHR_portability_enumeration");
-    instExts.Add("VK_MVK_macos_surface");
+#if MACCATALYST
+            //instExts.Add("VK_KHR_portability_enumeration");
+            instExts.Add("VK_EXT_metal_surface");  // Standard extension for Metal interop
 #else
             instExts.Add("VK_KHR_win32_surface");
 #endif
@@ -623,12 +1091,12 @@ namespace ShowControl.Graphics
             instExts.Add("VK_EXT_debug_utils");
             var instExtPtr = SilkMarshal.StringArrayToPtr(instExts.ToArray());
             var instFlags = InstanceCreateFlags.None;
-            
+
             var layers = new List<string>();
-#if ARM64
-    instFlags |= (InstanceCreateFlags)InstanceCreateFlags.InstanceCreateEnumeratePortabilityBitKhr;
+#if MACCATALYST
+            instFlags |= (InstanceCreateFlags)InstanceCreateFlags.InstanceCreateEnumeratePortabilityBitKhr;
 #else
-    layers.Add("VK_LAYER_KHRONOS_validation");
+            layers.Add("VK_LAYER_KHRONOS_validation");
 #endif
 
             
@@ -652,9 +1120,11 @@ namespace ShowControl.Graphics
             }
 
             _khrSurface = new KhrSurface(_vk.Context);
-            #if !ARM64
+#if WINDOWS
             _khrWin32Surface = new KhrWin32Surface(_vk.Context);
-            #endif
+#elif MACCATALYST
+            _extMetalSurface = new ExtMetalSurface(_vk.Context);
+#endif
 
             // --- Physical device & queue family ---
             if (!TryPickDeviceAndQueuesPreWindow(out _physicalDevice, out uint graphicsQueue, out uint presentQueue))
@@ -669,9 +1139,9 @@ namespace ShowControl.Graphics
             var devExts = new List<string>();
             devExts.Add("VK_KHR_swapchain");
             devExts.Add("VK_KHR_timeline_semaphore");
-#if ARM64
-    // MoltenVK requires this device extension
-    devExts.Add("VK_KHR_portability_subset");
+#if MACCATALYST
+            // MoltenVK requires this device extension
+            devExts.Add("VK_KHR_portability_subset");
 #endif
             var devExtPtr = SilkMarshal.StringArrayToPtr(devExts.ToArray());
 
@@ -968,7 +1438,8 @@ namespace ShowControl.Graphics
             {
                 return;
             }
-            var present = PRESENT;
+            // Skip presentation if resize is pending (swapchain size doesn't match window)
+            var present = PRESENT && !_resizePending;
             try
             {
             // Decide ring slot we’re writing this frame:
@@ -1015,9 +1486,9 @@ namespace ShowControl.Graphics
                     {
                         // Trigger your swapchain recreate path here
                         BeginSwapchainRecreate();
-                        #if !ARM64
+#if WINDOWS
                         _graphicsQueueIndex = CreateOrRecreateSwapchainPinned(_presentWindow);
-                        #endif
+#endif
                         EndSwapchainRecreate();
                         return;
                     }
@@ -1271,6 +1742,13 @@ namespace ShowControl.Graphics
             submitInfo.PNext = &tl;
 
 
+            // Check again before submit - swapchain may have been destroyed during command buffer recording
+            if (present && (_recreatingSwapchain || _swapchain.Handle == 0))
+            {
+                _imageAcquired = false;
+                return;
+            }
+
             _vk.ResetFences(_device, 1, in _submitFence);
 
             // Submit
@@ -1303,9 +1781,9 @@ namespace ShowControl.Graphics
                         _imageAcquired = false;
                         if ((pres == Result.ErrorOutOfDateKhr || pres == Result.SuboptimalKhr) && !_isClosing)
                         {
-                            #if !ARM64
+#if WINDOWS
                             _graphicsQueueIndex = CreateOrRecreateSwapchainPinned(_presentWindow);
-                            #endif
+#endif
                             return;
                         }
                     }

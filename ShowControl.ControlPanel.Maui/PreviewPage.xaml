@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:graphics="clr-namespace:ShowControl.Graphics;assembly=ShowControl.Graphics"
+             x:Class="ShowControl.ControlPanel.Maui.PreviewPage"
+             Title="Graphics Preview"
+             BackgroundColor="Black">
+    <graphics:MetalSurfaceView x:Name="metalSurface" />
+</ContentPage>

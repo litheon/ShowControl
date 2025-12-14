@@ -1,4 +1,9 @@
 ﻿using Microsoft.Extensions.Logging;
+using ShowControl.Graphics;
+
+#if MACCATALYST
+using ShowControl.ControlPanel.Maui.Platforms.MacCatalyst;
+#endif
 
 namespace ShowControl.ControlPanel.Maui
 {
@@ -13,6 +18,12 @@ namespace ShowControl.ControlPanel.Maui
                 {
                     fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
                     fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
+                })
+                .ConfigureMauiHandlers(handlers =>
+                {
+#if MACCATALYST
+                    handlers.AddHandler<MetalSurfaceView, MetalSurfaceHandler>();
+#endif
                 });
 
 #if DEBUG

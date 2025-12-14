@@ -244,8 +244,8 @@ namespace ShowControl.Devices.Audio
                 if (!_stopped)
                 {
                     _cancellationTokenSource.Cancel();
-                    //_stream.Stop();
-                    //_stream.Dispose();
+                    _stream.Stop();
+                    _stream.Dispose();
                     PortAudio.Terminate();
                     _stopped = true;
                 }

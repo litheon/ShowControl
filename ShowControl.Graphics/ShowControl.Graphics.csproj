@@ -1,10 +1,15 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <!-- Multi-target: net8.0 for Windows, net8.0 and net8.0-maccatalyst for Mac -->
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('osx'))">net8.0;net8.0-maccatalyst</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">net8.0</TargetFrameworks>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">13.1</SupportedOSPlatformVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Platforms>AnyCPU;x64;x86;ARM64</Platforms>
+    <!-- Define WINDOWS constant for conditional compilation -->
+    <DefineConstants Condition="$([MSBuild]::IsOSPlatform('windows'))">$(DefineConstants);WINDOWS</DefineConstants>
     <VulkanSDK Condition="'$(VulkanSDK)' == ''">C:\VulkanSDK\1.4.321.1</VulkanSDK>
     <GlslcPath>$(VulkanSDK)\Bin\glslc.exe</GlslcPath>
   </PropertyGroup>
