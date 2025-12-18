@@ -15,6 +15,8 @@ namespace ShowControl.Devices.Output
 #elif ARM64
         private UInt64 _handle = 0;
 #endif
+        public int MaxChannels => 512;
+
         public uint Id { get; private set; }
 
         private readonly Timer _ftdiFrameTimer;

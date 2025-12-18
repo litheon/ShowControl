@@ -7,5 +7,7 @@ namespace ShowControl.Devices.Output
     public interface IDmxOutputDevice
     {
         public void Write(byte[] dmxData);
+
+        public int MaxChannels { get; }
     }
 }

@@ -19,6 +19,7 @@ namespace ShowControl.Devices.Output
         private byte _universe;
         private byte _sequence = 1;
         private byte[] _ipAddress;
+        public int MaxChannels { get; private set; }
         static ArtNetDevice()
         {
             controllerInstance = new ControllerInstance(ArtNet.Instance);
@@ -33,7 +34,8 @@ namespace ShowControl.Devices.Output
             //controllerInstance.RemoteClientDiscovered += ControllerInstance_RemoteClientDiscovered;
             ArtNet.Instance.AddInstance(controllerInstance);
             var broadcastIp = new IPAddress(new byte[] { 192, 168, 3, 255 });
-            ArtNet.Instance.NetworkClients.ToList().ForEach((ncb) => {
+            ArtNet.Instance.NetworkClients.ToList().ForEach((ncb) =>
+            {
                 ncb.Enabled = IPAddress.Equals(broadcastIp, ncb.BroadcastIpAddress);
             });
         }
@@ -42,14 +44,25 @@ namespace ShowControl.Devices.Output
         {
             controllerInstance.SendArtSync().Wait();
         }
-        public ArtNetDevice(byte universe, byte[] ipAddress)
+        public ArtNetDevice(byte universe, byte[] ipAddress, int maxChannels)
         {
+            MaxChannels = maxChannels;
             _universe = universe;
             _ipAddress = ipAddress;
         }
 
         public void Write(byte[] dmxData)
         {
+            if (dmxData.Length < 512)
+            {
+                Array.Resize(ref dmxData, 512);
+                // for (int i = 511; i >= 2; i--)
+                // {
+                //     dmxData[i] = dmxData[i - 2];
+                // }
+                // dmxData[1] = 0;
+                // dmxData[0] = 0;
+            }
             controllerInstance.sendArtDMX(new IPv4Address(_ipAddress), new org.dmxc.wkdt.Light.ArtNet.PortAddress(_universe), 0, dmxData, (byte)(_sequence + 1)).Wait();
             _sequence = (byte)((_sequence + 1) % 254);
         }
