@@ -1730,8 +1730,10 @@ namespace ShowControl.Graphics
             var present = PRESENT && !_resizePending;
             try
             {
-            // Decide ring slot we’re writing this frame:
+            // Decide ring slot we're writing this frame:
+            // If ring is full, we skip staging copy but still render and present
             int slot = _stagingRing.WriteIndex;
+            bool canDoStagingCopy = true;
             if (Volatile.Read(ref _slotReadyGpuValue[slot]) != 0)
             {
                 int free = -1;
@@ -1740,9 +1742,16 @@ namespace ShowControl.Graphics
                     int s = (slot + i) % StagingRing.RingSize;
                     if (Volatile.Read(ref _slotReadyGpuValue[s]) == 0) { free = s; break; }
                 }
-                if (free < 0) return; // ring full -> backpressure
-                _stagingRing.WriteIndex = free;   // add this to StagingRing if missing
-                slot = free;
+                if (free < 0)
+                {
+                    // Ring full - skip staging copy but continue with render and presentation
+                    canDoStagingCopy = false;
+                }
+                else
+                {
+                    _stagingRing.WriteIndex = free;
+                    slot = free;
+                }
             }
 
             var cmd = _cmds[_currentFrame];
@@ -1868,18 +1877,21 @@ namespace ShowControl.Graphics
                 0, 0, null, 0, null, 1, &toSrc
             );
 
-            // Always copy off-screen -> staging buffer for CPU readback
-            BufferImageCopy region = new()
+            // Copy off-screen -> staging buffer for CPU readback (if slot available)
+            if (canDoStagingCopy)
             {
-                BufferOffset = 0,
-                BufferRowLength = 0,
-                BufferImageHeight = 0,
-                ImageSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
-                ImageOffset = new Offset3D(0, 0, 0),
-                ImageExtent = new Extent3D(_offscreenExtent.Width, _offscreenExtent.Height, 1),
-            };
-            Buffer dst = _stagingRing.CurrentWriteBuffer;
-            _vk.CmdCopyImageToBuffer(cmd, _offscreenImage, ImageLayout.TransferSrcOptimal, dst, 1, &region);
+                BufferImageCopy region = new()
+                {
+                    BufferOffset = 0,
+                    BufferRowLength = 0,
+                    BufferImageHeight = 0,
+                    ImageSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
+                    ImageOffset = new Offset3D(0, 0, 0),
+                    ImageExtent = new Extent3D(_offscreenExtent.Width, _offscreenExtent.Height, 1),
+                };
+                Buffer dst = _stagingRing.CurrentWriteBuffer;
+                _vk.CmdCopyImageToBuffer(cmd, _offscreenImage, ImageLayout.TransferSrcOptimal, dst, 1, &region);
+            }
 
             // If we're presenting, blit the off-screen image into the swapchain image
             if (present)
@@ -1968,7 +1980,8 @@ namespace ShowControl.Graphics
 
             ulong frameValue = (ulong)Interlocked.Increment(ref _timelineValue);
 
-            ulong requiredRelease = Volatile.Read(ref _slotNeedCpuRelease[slot]);
+            // Only wait for CPU release if we're actually using a staging slot
+            ulong requiredRelease = canDoStagingCopy ? Volatile.Read(ref _slotNeedCpuRelease[slot]) : 0;
             bool needWait = requiredRelease != 0;
 
             // --- assemble waits in a single consistent order ---
@@ -2091,17 +2104,17 @@ namespace ShowControl.Graphics
                 }
             }
 
-            Volatile.Write(ref _slotReadyGpuValue[slot], producedValue);
+            // Only update slot tracking if we actually used a staging slot
+            if (canDoStagingCopy)
+            {
+                Volatile.Write(ref _slotReadyGpuValue[slot], producedValue);
 
-            // and record that this is the value that must be released before next reuse:
-            Volatile.Write(ref _slotNeedCpuRelease[slot], producedValue);
+                // and record that this is the value that must be released before next reuse:
+                Volatile.Write(ref _slotNeedCpuRelease[slot], producedValue);
 
-            _slotSignaledValue[_stagingRing.WriteIndex] = frameValue;
-            _stagingRing.AdvanceWrite();
-            // Wait for GPU, then map staging buffer and copy to Bytes[]
-            //_vk.WaitForFences(_device, 1, in _inFlightFences[_currentFrame], true, ulong.MaxValue);
-
-            // memory should be in staging ring
+                _slotSignaledValue[_stagingRing.WriteIndex] = frameValue;
+                _stagingRing.AdvanceWrite();
+            }
 
             _currentFrame = (_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 
