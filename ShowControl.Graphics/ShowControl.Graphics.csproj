@@ -10,6 +10,8 @@
     <Platforms>AnyCPU;x64;x86;ARM64</Platforms>
     <!-- Define WINDOWS constant for conditional compilation -->
     <DefineConstants Condition="$([MSBuild]::IsOSPlatform('windows'))">$(DefineConstants);WINDOWS</DefineConstants>
+    <!-- Define MACCATALYST constant when targeting maccatalyst -->
+    <DefineConstants Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">$(DefineConstants);MACCATALYST</DefineConstants>
     <VulkanSDK Condition="'$(VulkanSDK)' == ''">C:\VulkanSDK\1.4.321.1</VulkanSDK>
     <GlslcPath>$(VulkanSDK)\Bin\glslc.exe</GlslcPath>
   </PropertyGroup>

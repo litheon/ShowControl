@@ -164,7 +164,7 @@ namespace ShowControl.Rendering
 
             _pixelChannels = RenderSurface.Create(
                     new RenderSettings(255),
-                    Enumerable.Repeat(WS2812B.Instance, 920).ToArray()
+                    Enumerable.Repeat(WS2812B.Instance, 1080).ToArray()
             );
             _parChannels = RenderSurface.Create(
                     new RenderSettings(255),
@@ -211,11 +211,18 @@ namespace ShowControl.Rendering
 
         public Task StartAsync(CancellationToken cancellationToken)
         {
+            Console.WriteLine("Test");
+            System.Diagnostics.Debug.WriteLine("Init");
             _inputService.OnInputReceived += InputService_OnInputReceived;
             _inputService.OnInputDeviceReconnected += _inputService_OnInputDeviceReconnected;
+            System.Diagnostics.Debug.WriteLine("Input service");
+            Console.WriteLine("Input service");
             _inputDevice = _inputService.Devices.FirstOrDefault();
+            Console.WriteLine("Input Device null: " + (_inputDevice == null ? "True" : "False"));
+            System.Diagnostics.Debug.WriteLine("Input Device null: " + _inputDevice == null ? "True" : "False");
             _padTransitionStartIndex = _inputDevice.PadCount / 2;
-
+            Console.WriteLine("_deviceEnumerator null: " + (_deviceEnumerator == null ? "True" : "False"));
+            Console.WriteLine("_cts null: " + (_cts == null ? "True" : "False"));
             _outputDevices = _deviceEnumerator.GetDmxDevices(_cts.Token);
             _renderThread.Start();
             Initialize();
@@ -2423,7 +2430,7 @@ namespace ShowControl.Rendering
 
         private void RenderThreadLoop()
         {
-            byte[] targetVector = new byte[3180];
+            byte[] targetVector = new byte[3240];
             ControllerInstance controllerInstance = new ControllerInstance(ArtNet.Instance);
             while (!_cts.Token.IsCancellationRequested)
             {
@@ -2480,7 +2487,7 @@ namespace ShowControl.Rendering
 
                 Thread.Yield();
                 var frameEnd = _frameRateStopWatch.Elapsed;
-                var sendTime = TimeSpan.FromMilliseconds(10) - (frameEnd - frameStart);
+                var sendTime = TimeSpan.FromMilliseconds(25) - (frameEnd - frameStart);
                 if (sendTime.TotalMilliseconds > 0)
                 {
                     SpinWait.SpinUntil(() => false, sendTime);

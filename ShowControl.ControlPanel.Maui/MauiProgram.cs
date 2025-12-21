@@ -3,6 +3,8 @@ using ShowControl.Graphics;
 
 #if MACCATALYST
 using ShowControl.ControlPanel.Maui.Platforms.MacCatalyst;
+#elif WINDOWS
+using ShowControl.ControlPanel.Maui.Platforms.Windows;
 #endif
 
 namespace ShowControl.ControlPanel.Maui
@@ -23,6 +25,9 @@ namespace ShowControl.ControlPanel.Maui
                 {
 #if MACCATALYST
                     handlers.AddHandler<MetalSurfaceView, MetalSurfaceHandler>();
+                    handlers.AddHandler<VulkanSurfaceView, VulkanSurfaceHandler>();
+#elif WINDOWS
+                    handlers.AddHandler<VulkanSurfaceView, Win32SurfaceHandler>();
 #endif
                 });
 

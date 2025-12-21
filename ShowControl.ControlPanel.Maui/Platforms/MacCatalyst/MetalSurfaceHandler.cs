@@ -62,6 +62,58 @@ namespace ShowControl.ControlPanel.Maui.Platforms.MacCatalyst
     }
 
     /// <summary>
+    /// Platform handler for VulkanSurfaceView on Mac Catalyst.
+    /// Uses the same MetalBackedView as MetalSurfaceHandler.
+    /// </summary>
+    public partial class VulkanSurfaceHandler : ViewHandler<VulkanSurfaceView, MetalBackedView>
+    {
+        public static IPropertyMapper<VulkanSurfaceView, VulkanSurfaceHandler> Mapper =
+            new PropertyMapper<VulkanSurfaceView, VulkanSurfaceHandler>(ViewMapper);
+
+        public VulkanSurfaceHandler() : base(Mapper)
+        {
+        }
+
+        protected override MetalBackedView CreatePlatformView()
+        {
+            return new MetalBackedView();
+        }
+
+        protected override void ConnectHandler(MetalBackedView platformView)
+        {
+            base.ConnectHandler(platformView);
+
+            platformView.LayerReady += OnLayerReady;
+            platformView.SizeChanged += OnSizeChanged;
+            platformView.ViewRemoving += OnViewRemoving;
+        }
+
+        protected override void DisconnectHandler(MetalBackedView platformView)
+        {
+            platformView.LayerReady -= OnLayerReady;
+            platformView.SizeChanged -= OnSizeChanged;
+            platformView.ViewRemoving -= OnViewRemoving;
+
+            base.DisconnectHandler(platformView);
+        }
+
+        private void OnLayerReady(object? sender, nint layerPtr)
+        {
+            VirtualView?.OnSurfaceReady(layerPtr);
+        }
+
+        private void OnSizeChanged(object? sender, CGSize size)
+        {
+            VirtualView?.OnSurfaceSizeChanged(size.Width, size.Height);
+        }
+
+        private void OnViewRemoving(object? sender, EventArgs e)
+        {
+            VirtualView?.OnSurfaceDestroying();
+        }
+    }
+
+    /// <summary>
     /// UIView subclass with CAMetalLayer as its backing layer.
     /// This provides the surface for Vulkan/MoltenVK rendering.
     /// </summary>

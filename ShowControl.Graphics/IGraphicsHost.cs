@@ -22,14 +22,24 @@ namespace ShowControl.Graphics
         event EventHandler<PreviewWindowRequestedEventArgs>? PreviewWindowRequested;
 
         /// <summary>
-        /// Called by the MAUI app when the Metal layer is ready.
+        /// Called by the MAUI app when the Metal layer is ready (Mac Catalyst).
         /// </summary>
         void EnableMetalPresentation(nint metalLayerPtr, uint width, uint height);
+
+        /// <summary>
+        /// Called by the MAUI app when the Win32 HWND is ready (Windows).
+        /// </summary>
+        void EnableWin32Presentation(nint hwnd, uint width, uint height);
 
         /// <summary>
         /// Called by the MAUI app when the Metal surface is resized.
         /// </summary>
         void HandleMetalSurfaceResize(uint width, uint height);
+
+        /// <summary>
+        /// Called by the MAUI app when the Win32 surface is resized.
+        /// </summary>
+        void HandleWin32SurfaceResize(uint width, uint height);
 
         /// <summary>
         /// Called by the MAUI app when the preview window is closed.

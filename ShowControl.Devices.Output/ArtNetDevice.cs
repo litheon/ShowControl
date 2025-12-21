@@ -53,16 +53,16 @@ namespace ShowControl.Devices.Output
 
         public void Write(byte[] dmxData)
         {
-            if (dmxData.Length < 512)
-            {
-                Array.Resize(ref dmxData, 512);
-                // for (int i = 511; i >= 2; i--)
-                // {
-                //     dmxData[i] = dmxData[i - 2];
-                // }
-                // dmxData[1] = 0;
-                // dmxData[0] = 0;
-            }
+            // if (dmxData.Length < 512)
+            // {
+            //     Array.Resize(ref dmxData, 512);
+            //     // for (int i = 511; i >= 2; i--)
+            //     // {
+            //     //     dmxData[i] = dmxData[i - 2];
+            //     // }
+            //     // dmxData[1] = 0;
+            //     // dmxData[0] = 0;
+            // }
             controllerInstance.sendArtDMX(new IPv4Address(_ipAddress), new org.dmxc.wkdt.Light.ArtNet.PortAddress(_universe), 0, dmxData, (byte)(_sequence + 1)).Wait();
             _sequence = (byte)((_sequence + 1) % 254);
         }

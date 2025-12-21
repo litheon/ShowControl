@@ -23,7 +23,9 @@ namespace ShowControl.Devices.Input
 
         public InputService()
         {
-
+            System.Diagnostics.Debug.Print("Input service constructor");
+            Console.WriteLine("Input service constructor");
+            DoPlatformInitalization();
             _deviceDictionary = new Dictionary<string, List<IMidiInputDevice>>();
             ConstructMidiDevices();
             _devices = new List<IMidiInputDevice>(_deviceDictionary.SelectMany(d => d.Value));
@@ -31,8 +33,11 @@ namespace ShowControl.Devices.Input
 
         public void DoPlatformInitalization()
         {
-            #if WINDOWS_TFM || ARM64
+            #if WINDOWS_TFM || MACCATALYST || ARM64
+            Console.WriteLine("Doing platform initialization");
             PlatformInitialization();
+            #else
+            Console.WriteLine("Not doing platform initialization");
             #endif
         }
 
@@ -50,6 +55,7 @@ namespace ShowControl.Devices.Input
         private void ConstructMidiDevices()
         {
             var midiInDevices = MidiDeviceEnumerator.GetMidiDevices();
+            Console.WriteLine(string.Format("Midi devices count: {0}", midiInDevices.Length));
             for (int i = 0; i < midiInDevices.Length; i++)
             {
                 var key = midiInDevices[i].DeviceName.Trim();

@@ -11,27 +11,35 @@ namespace ShowControl.ControlPanel.Maui
             InitializeComponent();
             _graphicsHost = graphicsHost;
 
-            // Wire up events from the Metal surface view
-            metalSurface.LayerReady += OnLayerReady;
-            metalSurface.DrawableSizeChanged += OnDrawableSizeChanged;
-            metalSurface.ViewRemoving += OnViewRemoving;
+            // Wire up events from the Vulkan surface view
+            vulkanSurface.SurfaceReady += OnSurfaceReady;
+            vulkanSurface.SurfaceSizeChanged += OnSurfaceSizeChanged;
+            vulkanSurface.SurfaceDestroying += OnSurfaceDestroying;
         }
 
-        private void OnLayerReady(object? sender, nint layerPtr)
+        private void OnSurfaceReady(object? sender, nint surfaceHandle)
         {
-            System.Diagnostics.Debug.WriteLine("[PreviewPage] Metal layer ready");
-            _graphicsHost.EnableMetalPresentation(layerPtr, (uint)metalSurface.Width, (uint)metalSurface.Height);
+            System.Diagnostics.Debug.WriteLine("[PreviewPage] Surface ready");
+#if MACCATALYST
+            _graphicsHost.EnableMetalPresentation(surfaceHandle, (uint)vulkanSurface.Width, (uint)vulkanSurface.Height);
+#elif WINDOWS
+            _graphicsHost.EnableWin32Presentation(surfaceHandle, (uint)vulkanSurface.Width, (uint)vulkanSurface.Height);
+#endif
         }
 
-        private void OnDrawableSizeChanged(object? sender, DrawableSizeChangedEventArgs e)
+        private void OnSurfaceSizeChanged(object? sender, SurfaceSizeChangedEventArgs e)
         {
-            System.Diagnostics.Debug.WriteLine($"[PreviewPage] Drawable size changed: {e.Width}x{e.Height}");
+            System.Diagnostics.Debug.WriteLine($"[PreviewPage] Surface size changed: {e.Width}x{e.Height}");
+#if MACCATALYST
             _graphicsHost.HandleMetalSurfaceResize((uint)e.Width, (uint)e.Height);
+#elif WINDOWS
+            _graphicsHost.HandleWin32SurfaceResize((uint)e.Width, (uint)e.Height);
+#endif
         }
 
-        private void OnViewRemoving(object? sender, EventArgs e)
+        private void OnSurfaceDestroying(object? sender, EventArgs e)
         {
-            System.Diagnostics.Debug.WriteLine("[PreviewPage] View removing");
+            System.Diagnostics.Debug.WriteLine("[PreviewPage] Surface destroying");
         }
 
         protected override void OnDisappearing()

@@ -44,6 +44,8 @@
 		<GenerateTestArtifacts>True</GenerateTestArtifacts>
 		<HoursBetweenUpdateChecks>0</HoursBetweenUpdateChecks>
 		<Platforms>AnyCPU;x64</Platforms>
+		<!-- Define MACCATALYST for conditional compilation -->
+		<DefineConstants Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">$(DefineConstants);MACCATALYST</DefineConstants>
 	</PropertyGroup>
 
 	<ItemGroup>

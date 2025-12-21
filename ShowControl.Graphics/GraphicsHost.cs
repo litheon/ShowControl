@@ -178,6 +178,10 @@ namespace ShowControl.Graphics
         private volatile bool _isClosing = false;
         private volatile bool _tearingDownWSI = false;
         private volatile bool _resizePending = false;
+        private bool _previewWindowOpen = false;
+        private CancellationTokenSource? _resizeDebounceToken;
+        private uint _pendingResizeWidth;
+        private uint _pendingResizeHeight;
 
         public void Run()
         {
@@ -602,10 +606,6 @@ namespace ShowControl.Graphics
             PRESENT = true;
         }
 
-        private CancellationTokenSource? _resizeDebounceToken;
-        private uint _pendingResizeWidth;
-        private uint _pendingResizeHeight;
-
         /// <summary>
         /// Handles resize of the Metal surface by recreating the swapchain.
         /// Debounces rapid resize events to avoid constant swapchain recreation.
@@ -857,8 +857,6 @@ namespace ShowControl.Graphics
             _tearingDownWSI = false;
         }
 
-        private bool _previewWindowOpen = false;
-
         /// <summary>
         /// Event raised when the graphics host wants a preview window to be opened.
         /// The MAUI app should handle this event and create the window.
@@ -914,6 +912,17 @@ namespace ShowControl.Graphics
             System.Diagnostics.Debug.WriteLine("[GraphicsHost] Preview window closed");
             CleanupMetalPresentation();
             _previewWindowOpen = false;
+        }
+
+        // Win32 stubs for Mac Catalyst (not supported)
+        public void EnableWin32Presentation(nint hwnd, uint width, uint height)
+        {
+            // Not supported on this platform
+        }
+
+        public void HandleWin32SurfaceResize(uint width, uint height)
+        {
+            // Not supported on this platform
         }
 
     /// <summary>
@@ -978,7 +987,7 @@ namespace ShowControl.Graphics
         }
     }
 #else
-        // Stub implementations for non-MACCATALYST builds (Windows)
+        // Stub implementations for non-MACCATALYST builds
         public event EventHandler<PreviewWindowRequestedEventArgs>? PreviewWindowRequested;
 
         public void EnableMetalPresentation(nint metalLayerPtr, uint width, uint height)
@@ -991,10 +1000,289 @@ namespace ShowControl.Graphics
             // Not supported on this platform
         }
 
+#if WINDOWS
+        public unsafe void OnPreviewWindowClosed()
+        {
+            PRESENT = false;
+            _imageAcquired = false;
+            _tearingDownWSI = true;
+
+            _vk.QueueWaitIdle(_graphicsQueue);
+
+            DestroyPerImageSyncObjects();
+            if (_swapchain.Handle != 0)
+            {
+                _swapchainExtension.DestroySwapchain(_device, _swapchain, null);
+                _swapchain = default;
+            }
+            if (_surface.Handle != 0)
+            {
+                _khrSurface.DestroySurface(_instance, _surface, null);
+                _surface = default;
+            }
+
+            _swapchainImages = null;
+            _acquiredImageIndex = 0;
+            _tearingDownWSI = false;
+            _previewWindowOpen = false;
+        }
+
+        private nint _win32Hwnd;
+        private uint _win32SurfaceWidth;
+        private uint _win32SurfaceHeight;
+
+        /// <summary>
+        /// Creates a Vulkan surface from a Win32 HWND and sets up the swapchain for presentation.
+        /// </summary>
+        public unsafe void EnableWin32Presentation(nint hwnd, uint width, uint height)
+        {
+            if (_surface.Handle != 0)
+            {
+                // Surface already exists, just resize
+                HandleWin32SurfaceResize(width, height);
+                return;
+            }
+
+            System.Diagnostics.Debug.WriteLine($"[GraphicsHost] EnableWin32Presentation: hwnd=0x{hwnd:X}, size={width}x{height}");
+
+            _win32Hwnd = hwnd;
+            _win32SurfaceWidth = width;
+            _win32SurfaceHeight = height;
+
+            // Create Win32 surface
+            _khrSurface = new KhrSurface(_vk.Context);
+
+            var createInfo = new Win32SurfaceCreateInfoKHR
+            {
+                SType = StructureType.Win32SurfaceCreateInfoKhr,
+                Hinstance = System.Diagnostics.Process.GetCurrentProcess().Handle,
+                Hwnd = hwnd
+            };
+
+            var result = _khrWin32Surface.CreateWin32Surface(_instance, &createInfo, null, out _surface);
+            if (result != Result.Success)
+                throw new Exception($"vkCreateWin32SurfaceKHR failed: {result}");
+
+            System.Diagnostics.Debug.WriteLine($"[GraphicsHost] Win32 surface created: {_surface.Handle}");
+
+            // Create swapchain
+            _swapchainExtension = new KhrSwapchain(_vk.Context);
+            CreateSwapchainForWin32Surface(width, height);
+
+            // Enable presentation
+            PRESENT = true;
+            _previewWindowOpen = true;
+        }
+
+        private unsafe void CreateSwapchainForWin32Surface(uint width, uint height)
+        {
+            // Query surface capabilities
+            _khrSurface.GetPhysicalDeviceSurfaceCapabilities(_physicalDevice, _surface, out var caps);
+
+            var extent = new Extent2D(
+                Math.Clamp(width, caps.MinImageExtent.Width, caps.MaxImageExtent.Width),
+                Math.Clamp(height, caps.MinImageExtent.Height, caps.MaxImageExtent.Height)
+            );
+
+            // Query formats
+            uint fmtCount = 0;
+            _khrSurface.GetPhysicalDeviceSurfaceFormats(_physicalDevice, _surface, ref fmtCount, null);
+            var fmts = new SurfaceFormatKHR[fmtCount];
+            fixed (SurfaceFormatKHR* p = fmts)
+                _khrSurface.GetPhysicalDeviceSurfaceFormats(_physicalDevice, _surface, ref fmtCount, p);
+
+            // Prefer B8G8R8A8 or R8G8B8A8 SRGB
+            var pickFmt = fmts[0];
+            foreach (var f in fmts)
+            {
+                if ((f.Format == Format.B8G8R8A8Srgb || f.Format == Format.R8G8B8A8Srgb) &&
+                    f.ColorSpace == ColorSpaceKHR.ColorspaceSrgbNonlinearKhr)
+                {
+                    pickFmt = f;
+                    break;
+                }
+            }
+
+            uint imageCount = Math.Max(2, caps.MinImageCount);
+            if (caps.MaxImageCount > 0 && imageCount > caps.MaxImageCount)
+                imageCount = caps.MaxImageCount;
+
+            var preTransform = PickPreTransform(caps);
+
+            var sci = new SwapchainCreateInfoKHR
+            {
+                SType = StructureType.SwapchainCreateInfoKhr,
+                Surface = _surface,
+                MinImageCount = imageCount,
+                ImageFormat = pickFmt.Format,
+                ImageColorSpace = pickFmt.ColorSpace,
+                ImageExtent = extent,
+                ImageArrayLayers = 1,
+                ImageUsage = ImageUsageFlags.ImageUsageTransferDstBit,
+                ImageSharingMode = SharingMode.Exclusive,
+                PreTransform = preTransform,
+                CompositeAlpha = CompositeAlphaFlagsKHR.CompositeAlphaOpaqueBitKhr,
+                PresentMode = PresentModeKHR.PresentModeFifoKhr,
+                Clipped = true,
+                OldSwapchain = default
+            };
+
+            var result = _swapchainExtension.CreateSwapchain(_device, ref sci, null, out _swapchain);
+            if (result != Result.Success)
+                throw new Exception($"vkCreateSwapchainKHR failed: {result}");
+
+            // Fetch swapchain images
+            uint count = 0;
+            _swapchainExtension.GetSwapchainImages(_device, _swapchain, ref count, null);
+            _swapchainImages = new Image[count];
+            _imageSerial = new ulong[count];
+            fixed (Image* pImgs = _swapchainImages)
+                _swapchainExtension.GetSwapchainImages(_device, _swapchain, ref count, pImgs);
+
+            CreatePerImageSyncObjects(count);
+            _swapExtent = extent;
+        }
+
+        /// <summary>
+        /// Handles resize of the Win32 surface by recreating the swapchain.
+        /// </summary>
+        public void HandleWin32SurfaceResize(uint width, uint height)
+        {
+            if (width == 0 || height == 0) return;
+            if (_surface.Handle == 0) return;
+
+            _win32SurfaceWidth = width;
+            _win32SurfaceHeight = height;
+            _pendingResizeWidth = width;
+            _pendingResizeHeight = height;
+            _resizePending = true;
+
+            // Cancel any pending resize
+            _resizeDebounceToken?.Cancel();
+            _resizeDebounceToken = new CancellationTokenSource();
+            var token = _resizeDebounceToken.Token;
+
+            // Debounce resize
+            Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(100, token);
+                    if (!token.IsCancellationRequested)
+                    {
+                        RecreateWin32Swapchain(_pendingResizeWidth, _pendingResizeHeight);
+                        _resizePending = false;
+                    }
+                }
+                catch (TaskCanceledException) { }
+            }, token);
+        }
+
+        private unsafe void RecreateWin32Swapchain(uint width, uint height)
+        {
+            _recreatingSwapchain = true;
+            _imageAcquired = false;
+            _vk.QueueWaitIdle(_graphicsQueue);
+
+            try
+            {
+                // Query surface capabilities
+                _khrSurface.GetPhysicalDeviceSurfaceCapabilities(_physicalDevice, _surface, out var caps);
+
+                var extent = new Extent2D(
+                    Math.Clamp(width, caps.MinImageExtent.Width, caps.MaxImageExtent.Width),
+                    Math.Clamp(height, caps.MinImageExtent.Height, caps.MaxImageExtent.Height)
+                );
+
+                // Query formats
+                uint fmtCount = 0;
+                _khrSurface.GetPhysicalDeviceSurfaceFormats(_physicalDevice, _surface, ref fmtCount, null);
+                var fmts = new SurfaceFormatKHR[fmtCount];
+                fixed (SurfaceFormatKHR* p = fmts)
+                    _khrSurface.GetPhysicalDeviceSurfaceFormats(_physicalDevice, _surface, ref fmtCount, p);
+
+                var pickFmt = fmts[0];
+                foreach (var f in fmts)
+                {
+                    if ((f.Format == Format.B8G8R8A8Srgb || f.Format == Format.R8G8B8A8Srgb) &&
+                        f.ColorSpace == ColorSpaceKHR.ColorspaceSrgbNonlinearKhr)
+                    {
+                        pickFmt = f;
+                        break;
+                    }
+                }
+
+                uint imageCount = Math.Max(2, caps.MinImageCount);
+                if (caps.MaxImageCount > 0 && imageCount > caps.MaxImageCount)
+                    imageCount = caps.MaxImageCount;
+
+                var preTransform = PickPreTransform(caps);
+
+                var sci = new SwapchainCreateInfoKHR
+                {
+                    SType = StructureType.SwapchainCreateInfoKhr,
+                    Surface = _surface,
+                    MinImageCount = imageCount,
+                    ImageFormat = pickFmt.Format,
+                    ImageColorSpace = pickFmt.ColorSpace,
+                    ImageExtent = extent,
+                    ImageArrayLayers = 1,
+                    ImageUsage = ImageUsageFlags.ImageUsageTransferDstBit,
+                    ImageSharingMode = SharingMode.Exclusive,
+                    PreTransform = preTransform,
+                    CompositeAlpha = CompositeAlphaFlagsKHR.CompositeAlphaOpaqueBitKhr,
+                    PresentMode = PresentModeKHR.PresentModeFifoKhr,
+                    Clipped = true,
+                    OldSwapchain = _swapchain
+                };
+
+                var result = _swapchainExtension.CreateSwapchain(_device, ref sci, null, out var newSwapchain);
+                if (result != Result.Success)
+                    throw new Exception($"vkCreateSwapchainKHR failed: {result}");
+
+                // Destroy old swapchain
+                if (_swapchain.Handle != 0)
+                {
+                    DestroyPerImageSyncObjects();
+                    _swapchainExtension.DestroySwapchain(_device, _swapchain, null);
+                }
+                _swapchain = newSwapchain;
+
+                // Fetch new swapchain images
+                uint count = 0;
+                _swapchainExtension.GetSwapchainImages(_device, _swapchain, ref count, null);
+                _swapchainImages = new Image[count];
+                _imageSerial = new ulong[count];
+                fixed (Image* pImgs = _swapchainImages)
+                    _swapchainExtension.GetSwapchainImages(_device, _swapchain, ref count, pImgs);
+
+                CreatePerImageSyncObjects(count);
+                _swapExtent = extent;
+                _imageAcquired = false;
+            }
+            finally
+            {
+                _recreatingSwapchain = false;
+            }
+        }
+#else
+        // Stubs for non-Windows platforms (e.g., plain net8.0)
         public void OnPreviewWindowClosed()
+        {
+            PRESENT = false;
+            _previewWindowOpen = false;
+        }
+
+        public void EnableWin32Presentation(nint hwnd, uint width, uint height)
         {
             // Not supported on this platform
         }
+
+        public void HandleWin32SurfaceResize(uint width, uint height)
+        {
+            // Not supported on this platform
+        }
+#endif
 #endif
 
         private unsafe bool TryPickDeviceAndQueuesPreWindow(out PhysicalDevice picked, out uint gfxQ, out uint presentQ)

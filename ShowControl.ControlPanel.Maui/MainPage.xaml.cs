@@ -55,7 +55,8 @@ namespace ShowControl.ControlPanel.Maui
         private async void Initialize()
         {
             var result = await _hostTask;
-            result.Services.GetRequiredService<IInputService>().DoPlatformInitalization();
+            Console.WriteLine("Do platform initialization");
+            //result.Services.GetRequiredService<IInputService>().DoPlatformInitalization();
 
 #if MACCATALYST
             // Subscribe to the preview window requested event
@@ -91,22 +92,27 @@ namespace ShowControl.ControlPanel.Maui
                 };
 
                 // Delay to allow main window to fully initialize (timing issue)
-                System.Diagnostics.Debug.WriteLine("[MainPage] Scheduling OpenWindow with delay...");
+                Console.WriteLine("[MainPage] Scheduling OpenWindow with delay...");
                 _ = Task.Run(async () =>
                 {
-                    //await Task.Delay(500);
+                    await Task.Delay(500);
                     MainThread.BeginInvokeOnMainThread(() =>
                     {
-                        System.Diagnostics.Debug.WriteLine($"[MainPage] Calling OpenWindow... Application.Current={Application.Current}");
-                        Application.Current?.OpenWindow(window);
-                        System.Diagnostics.Debug.WriteLine("[MainPage] OpenWindow called successfully");
+                        Console.WriteLine($"[MainPage] Calling OpenWindow... Application.Current={Application.Current}");
+                        if (Application.Current == null)
+                        {
+                            Console.WriteLine("[MainPage] ERROR: Application.Current is null!");
+                            return;
+                        }
+                        Application.Current.OpenWindow(window);
+                        Console.WriteLine("[MainPage] OpenWindow called successfully");
                     });
                 });
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[MainPage] EXCEPTION in OnPreviewWindowRequested: {ex.Message}");
-                System.Diagnostics.Debug.WriteLine($"[MainPage] Stack trace: {ex.StackTrace}");
+                Console.WriteLine($"[MainPage] EXCEPTION in OnPreviewWindowRequested: {ex.Message}");
+                Console.WriteLine($"[MainPage] Stack trace: {ex.StackTrace}");
             }
         }
 #endif
