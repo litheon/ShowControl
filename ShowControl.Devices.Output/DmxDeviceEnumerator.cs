@@ -17,6 +17,9 @@ namespace ShowControl.Devices.Output
             return new IDmxOutputDevice[] {
                 // new ArtNetDevice(0, new byte[] { 192, 168, 3, 109 }, 300),
                 // new ArtNetDevice(1, new byte[] { 192, 168, 3, 109 }, 300),
+                new ArtNetDevice(0, new byte[] { 192, 168, 3, 209 }, 510),
+                new ArtNetDevice(1, new byte[] { 192, 168, 3, 209 }, 510),
+                new ArtNetDevice(2, new byte[] { 192, 168, 3, 209 }, 60),
                 new ArtNetDevice(5, new byte[] { 192, 168, 3, 209 }, 510),
                 new ArtNetDevice(6, new byte[] { 192, 168, 3, 209 }, 510),
                 new ArtNetDevice(7, new byte[] { 192, 168, 3, 209 }, 60),

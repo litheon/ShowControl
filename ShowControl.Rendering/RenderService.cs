@@ -164,7 +164,7 @@ namespace ShowControl.Rendering
 
             _pixelChannels = RenderSurface.Create(
                     new RenderSettings(255),
-                    Enumerable.Repeat(WS2812B.Instance, 1080).ToArray()
+                    Enumerable.Repeat(WS2812B.Instance, 1440).ToArray()
             );
             _parChannels = RenderSurface.Create(
                     new RenderSettings(255),
@@ -2430,7 +2430,7 @@ namespace ShowControl.Rendering
 
         private void RenderThreadLoop()
         {
-            byte[] targetVector = new byte[3240];
+            byte[] targetVector = new byte[4320];
             ControllerInstance controllerInstance = new ControllerInstance(ArtNet.Instance);
             while (!_cts.Token.IsCancellationRequested)
             {
