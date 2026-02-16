@@ -164,7 +164,7 @@ namespace ShowControl.Rendering
 
             _pixelChannels = RenderSurface.Create(
                     new RenderSettings(255),
-                    Enumerable.Repeat(WS2812B.Instance, 1440).ToArray()
+                    Enumerable.Repeat(WS2812B.Instance, 2160).ToArray()
             );
             _parChannels = RenderSurface.Create(
                     new RenderSettings(255),
@@ -607,11 +607,10 @@ namespace ShowControl.Rendering
 
             var frequentWarmColdRoygviv = new Color[]
             {
-                Color.FromArgb(0xFE, Color.DarkRed),
-                Color.FromArgb(0xFD, Color.OrangeRed),
+                Color.FromArgb(0xFF, Color.Red),
                 Color.FromArgb(0XFD, Color.Orange),
 
-                Color.FromArgb(0xC7, 0xFF, 0xFF, 0x00),
+                Color.FromArgb(0xC7, Color.Yellow),
                 Color.FromArgb(0xF9, Color.Gold),
                 Color.FromArgb(0xB6, Color.DarkGoldenrod),
 
@@ -2430,7 +2429,7 @@ namespace ShowControl.Rendering
 
         private void RenderThreadLoop()
         {
-            byte[] targetVector = new byte[4320];
+            byte[] targetVector = new byte[6480];
             ControllerInstance controllerInstance = new ControllerInstance(ArtNet.Instance);
             while (!_cts.Token.IsCancellationRequested)
             {
@@ -2478,7 +2477,8 @@ namespace ShowControl.Rendering
                 int skip = 0;
                 foreach (IDmxOutputDevice outputDevice in _outputDevices)
                 {
-                    var t = Math.Min(take, outputDevice.MaxChannels);
+                    //var t = Math.Min(take, outputDevice.MaxChannels);
+                    var t = outputDevice.MaxChannels;
                     var output = targetVector.Skip(skip).Take(t).ToArray();
                     outputDevice.Write(output);
                     skip += t;

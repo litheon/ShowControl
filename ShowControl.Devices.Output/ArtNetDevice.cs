@@ -17,7 +17,7 @@ namespace ShowControl.Devices.Output
     {
         static ControllerInstance controllerInstance = new ControllerInstance(ArtNet.Instance);
         private byte _universe;
-        private byte _sequence = 1;
+        private byte _sequence = 0;
         private byte[] _ipAddress;
         public int MaxChannels { get; private set; }
         static ArtNetDevice()
@@ -53,9 +53,9 @@ namespace ShowControl.Devices.Output
 
         public void Write(byte[] dmxData)
         {
-            // if (dmxData.Length < 512)
+            // if (dmxData.Length < 510)
             // {
-            //     Array.Resize(ref dmxData, 512);
+            //     Array.Resize(ref dmxData, 510);
             //     // for (int i = 511; i >= 2; i--)
             //     // {
             //     //     dmxData[i] = dmxData[i - 2];
@@ -63,8 +63,8 @@ namespace ShowControl.Devices.Output
             //     // dmxData[1] = 0;
             //     // dmxData[0] = 0;
             // }
-            controllerInstance.sendArtDMX(new IPv4Address(_ipAddress), new org.dmxc.wkdt.Light.ArtNet.PortAddress(_universe), 0, dmxData, (byte)(_sequence + 1)).Wait();
-            _sequence = (byte)((_sequence + 1) % 254);
+            controllerInstance.sendArtDMX(new IPv4Address(_ipAddress), new org.dmxc.wkdt.Light.ArtNet.PortAddress(_universe), 0, dmxData, (byte)(_sequence)).Wait();
+            //_sequence = (byte)((_sequence + 1) % 254);
         }
     }
 }

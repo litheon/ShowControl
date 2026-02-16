@@ -631,7 +631,7 @@ namespace ShowControl.Graphics
             {
                 try
                 {
-                    await Task.Delay(100, token);
+                     await Task.Delay(100, token);
                     if (!token.IsCancellationRequested)
                     {
                         RecreateSwapchainForSize(_pendingResizeWidth, _pendingResizeHeight);
@@ -642,7 +642,12 @@ namespace ShowControl.Graphics
                 {
                     // Expected when resize is cancelled by a new resize
                 }
-            }, token);
+            }, token).ContinueWith((t) => {
+                if (t.IsFaulted)
+                {
+                    var exception = t.Exception.ToString();
+                }
+            });
         }
 
         /// <summary>
