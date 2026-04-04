@@ -2363,6 +2363,16 @@ namespace ShowControl.Rendering
                 Color.FromArgb(0xA1, 0x00, 0x00, 0xFF),
             };
 
+            var dragChurch = new Color[]
+            {
+                Color.FromArgb(Convert.ToInt32("0x00AEEEEE", 16)), // Baby Pink
+                Color.FromArgb(Convert.ToInt32("0x00F4C2C2", 16)), // Baby Pink
+                Color.FromArgb(Convert.ToInt32("0x00FFF5BA", 16)), // Lavender
+                Color.FromArgb(Convert.ToInt32("0x00C1E1C1", 16)), // Mint Green
+                Color.FromArgb(Convert.ToInt32("0x00CDE7F0", 16)), // Baby Blue
+                Color.FromArgb(Convert.ToInt32("0x00FFF5BA", 16)), // Pale Yellow
+            };
+
             _keyAnimations = new IKeyAnimation[]
             {
                 //new RainbowAnimation(_pixelChannels.TotalPixelCount, plc, _audioService, _cts.Token, fastAnimate: true),
