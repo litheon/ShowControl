@@ -227,7 +227,7 @@ namespace ShowControl.Rendering
             _renderThread.Start();
             Initialize();
             NavButtonBlinkTimer = new Timer(Blink, this, 500, 500);
-            RenderOperatatorTimer = new Timer(ChangeAnimation, this, RenderDelayTime, RenderDelayTime);
+            //RenderOperatatorTimer = new Timer(ChangeAnimation, this, RenderDelayTime, RenderDelayTime);
             return Task.CompletedTask;
         }
 
@@ -400,7 +400,7 @@ namespace ShowControl.Rendering
                 var midiAwareTransformAnimation = activeTransformAnimation as MidiAwareAnimation;
                 midiAwareTransformAnimation?.MidiAware_OnMessageReceived(sender, e);
             }
-            RenderOperatatorTimer.Change(RenderDelayTime, RenderDelayTime);
+            //RenderOperatatorTimer.Change(RenderDelayTime, RenderDelayTime);
         }
 
         private void ProcessPadPressed(ButtonDirection direction, byte padNumber)
@@ -2365,19 +2365,40 @@ namespace ShowControl.Rendering
 
             var dragChurch = new Color[]
             {
-                Color.FromArgb(Convert.ToInt32("0x00AEEEEE", 16)), // Baby Pink
-                Color.FromArgb(Convert.ToInt32("0x00F4C2C2", 16)), // Baby Pink
-                Color.FromArgb(Convert.ToInt32("0x00FFF5BA", 16)), // Lavender
-                Color.FromArgb(Convert.ToInt32("0x00C1E1C1", 16)), // Mint Green
-                Color.FromArgb(Convert.ToInt32("0x00CDE7F0", 16)), // Baby Blue
-                Color.FromArgb(Convert.ToInt32("0x00FFF5BA", 16)), // Pale Yellow
+                // Color.FromArgb(Convert.ToInt32("0x00AEEEEE", 16)), // Baby Pink
+                // Color.FromArgb(Convert.ToInt32("0x00F4C2C2", 16)), // Baby Pink
+                // Color.FromArgb(Convert.ToInt32("0x00FFF5BA", 16)), // Lavender
+                // Color.FromArgb(Convert.ToInt32("0x00C1E1C1", 16)), // Mint Green
+                // Color.FromArgb(Convert.ToInt32("0x00CDE7F0", 16)), // Baby Blue
+                // Color.FromArgb(Convert.ToInt32("0x00FFF5BA", 16)), // Pale Yellow
+
+                // Color.FromArgb(Convert.ToInt32("0x00FF9EC7", 16)), // Baby Pink
+                // Color.FromArgb(Convert.ToInt32("0x00FFE066", 16)), // Baby Pink
+                // Color.FromArgb(Convert.ToInt32("0x00C79BFF", 16)), // Lavender
+                // Color.FromArgb(Convert.ToInt32("0x007EE4B8", 16)), // Mint Green
+                // Color.FromArgb(Convert.ToInt32("0x00CDE7F0", 16)), // Baby Blue
+                // Color.FromArgb(Convert.ToInt32("0x006FE7E7", 16)), // Pale Yellow
+
+                Color.FromArgb(Convert.ToInt32("0x00FF7FB8", 16)), // Pink (more vivid, less white)
+                Color.FromArgb(Convert.ToInt32("0x00FFD633", 16)), // Yellow (richer but still safe)
+                Color.FromArgb(Convert.ToInt32("0x00B574FF", 16)), // Lavender (deeper purple)
+                Color.FromArgb(Convert.ToInt32("0x005FE0A6", 16)), // Mint (more color, less milky)
+                Color.FromArgb(Convert.ToInt32("0x009EDAF0", 16)), // Baby Blue (cleaner cyan-blue)
+                Color.FromArgb(Convert.ToInt32("0x004FDCDC", 16)), // Robin Egg (more saturated cyan)
+
+                Color.FromArgb(Convert.ToInt32("0x00FF66A8", 16)), // Pink (punchy but still soft)
+                Color.FromArgb(Convert.ToInt32("0x00FFCC1A", 16)), // Yellow (approaching gold, still clean)
+                Color.FromArgb(Convert.ToInt32("0x009F5BFF", 16)), // Lavender (vivid lilac)
+                Color.FromArgb(Convert.ToInt32("0x004DD89C", 16)), // Mint (stronger green tint)
+                Color.FromArgb(Convert.ToInt32("0x007FD0F0", 16)), // Baby Blue (more defined blue)
+                Color.FromArgb(Convert.ToInt32("0x003AD6D6", 16)), // Robin Egg (crisper cyan)
             };
 
             _keyAnimations = new IKeyAnimation[]
             {
                 //new RainbowAnimation(_pixelChannels.TotalPixelCount, plc, _audioService, _cts.Token, fastAnimate: true),
                 //new RainbowAnimation(_pixelChannels.TotalPixelCount, nochesCincoDeMayo1Long, _audioService, _cts.Token, fastAnimate: true),
-                new RainbowAnimation(_pixelChannels.TotalPixelCount, frequentWarmColdRoygviv, _audioService, _cts.Token, fastAnimate: true),
+                new RainbowAnimation(_pixelChannels.TotalPixelCount, dragChurch, _audioService, _cts.Token, fastAnimate: true),
                 new RainbowAnimation(_pixelChannels.TotalPixelCount, warmLucidas, _audioService, _cts.Token, fastAnimate: true),
                 new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg9, _audioService, _cts.Token, fastAnimate: true),
                 new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg2Lucidas, _audioService, _cts.Token, fastAnimate: true),
@@ -2389,7 +2410,7 @@ namespace ShowControl.Rendering
             {
                 //new RainbowAnimation(_parChannels.TotalPixelCount, plc, _audioService, _cts.Token),
                 //new RainbowAnimation(_parChannels.TotalPixelCount, nochesCincoDeMayo1Long, _audioService, _cts.Token),
-                new RainbowAnimation(_parChannels.TotalPixelCount, frequentWarmColdRoygviv, _audioService, _cts.Token),
+                new RainbowAnimation(_parChannels.TotalPixelCount, dragChurch, _audioService, _cts.Token),
                 new RainbowAnimation(_parChannels.TotalPixelCount, warmLucidas, _audioService, _cts.Token),
                 new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg9, _audioService, _cts.Token),
                 new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg2Lucidas, _audioService, _cts.Token),
