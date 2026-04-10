@@ -2451,6 +2451,7 @@ namespace ShowControl.Rendering
                 new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg2Lucidas, _audioService, _cts.Token),
                 new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg6, _audioService, _cts.Token),
                 new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg6, _audioService, _cts.Token),
+                new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg6, _audioService, _cts.Token),
                 //commented so we don't have multiple calls to graphics host
                 //new VibrantAnimation(_parChannels.TotalPixelCount, _audioService, _graphicsHost, _cts.Token)
                 //new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg8, _audioService, _cts.Token),

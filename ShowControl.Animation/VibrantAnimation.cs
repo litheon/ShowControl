@@ -227,7 +227,7 @@ namespace ShowControl.Animation
 
                 var width = _graphicsHost.Width;
                 var height = _graphicsHost.Height;
-                var initial = (height / 2) * width * 4 - width * 12 * 4;
+                var initial = (height / 2) * width * 4 - width * 120 * 4;
                 int offset = 0;
                 int pixelStride = 0;
                 for (int i = 0; i < _pixelCount; i++)
@@ -242,7 +242,7 @@ namespace ShowControl.Animation
                     _nextFrame[i].Color = Color.FromArgb(0, span[r], span[g], span[b]);
                     if (i == 479 || i == 959 || i == 1439 || i == 1919 || i == 2519 || i == 2519)
                     {
-                        offset++;
+                        offset += 10;
                         pixelStride = 0;
                     }
                     else

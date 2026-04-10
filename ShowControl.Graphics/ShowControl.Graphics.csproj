@@ -1,9 +1,9 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <!-- Multi-target: net8.0 for Windows, net8.0 and net8.0-maccatalyst for Mac -->
-    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('osx'))">net10.0;net10.0-maccatalyst</TargetFrameworks>
-    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">net10.0</TargetFrameworks>
-    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">13.1</SupportedOSPlatformVersion>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('osx'))">net9.0;net9.0-maccatalyst</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">net9.0</TargetFrameworks>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -13,7 +13,7 @@
     <!-- Define MACCATALYST constant when targeting maccatalyst -->
     <DefineConstants Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">$(DefineConstants);MACCATALYST</DefineConstants>
     <!-- Fallback for when building outside the MAUI app context -->
-    <MauiVersion Condition="'$(MauiVersion)' == ''">10.0.0</MauiVersion>
+    <MauiVersion Condition="'$(MauiVersion)' == ''">9.0.0</MauiVersion>
     <!-- Windows: full path to glslc.exe inside the Vulkan SDK -->
     <VulkanSDK Condition="'$(VulkanSDK)' == '' AND $([MSBuild]::IsOSPlatform('windows'))">C:\VulkanSDK\1.4.321.1</VulkanSDK>
     <GlslcPath Condition="$([MSBuild]::IsOSPlatform('windows'))">$(VulkanSDK)\Bin\glslc.exe</GlslcPath>
