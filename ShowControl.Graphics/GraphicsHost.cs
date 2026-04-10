@@ -38,7 +38,7 @@ namespace ShowControl.Graphics
 {
     public class GraphicsHost : IGraphicsHost
     {
-        private Shader _shader = Shader.Kaleidoscope;
+        private string _shader = Shaders.Kaleidoscope;
         private Thread _backgroundThread;
         public GraphicsHost()
         {
@@ -50,34 +50,11 @@ namespace ShowControl.Graphics
         [StructLayout(LayoutKind.Sequential)]
         struct PushData
         {
-            public Vector2 Resolution;  // width, height
-            public float Time;
-            private float _pad;         // keep total size multiple of 16
-
-            public float DistortionStrength;
-            public float HueTolerance;
-            public float Falloff;
-            public int ColorCount;
-
-            [MarshalAs(System.Runtime.InteropServices.UnmanagedType.ByValArray, SizeConst = 6)]
-            public Vector4Array Colors;
-
-            public PushData()
-            {
-            }
-
-            //public Vector4 c0;
-            //public Vector4 c1;
-            //public Vector4 c2;
-            //public Vector4 c3;
-            //public Vector4 c4;
-            //public Vector4 c5;
-        }
-
-        [InlineArray(6)]
-        public struct Vector4Array // represents float[64], inline
-        {
-            private Vector4 _element; // the compiler synthesizes the rest
+            public Vector2 Resolution;         //  8
+            public float   Time;               //  4
+            public float   DistortionStrength; //  4
+            public float   HueTolerance;       //  4
+            public float   Falloff;            //  4  = 24 bytes total
         }
 
 #if WINDOWS
@@ -138,8 +115,7 @@ namespace ShowControl.Graphics
         private StagingRing _stagingRing;
 
         private ShaderModule _vertShaderModule;
-        private ShaderModule _kaleidoscopeShaderModule;
-        private ShaderModule _geometryShaderModule;
+        private ShaderModule _fragShaderModule;
 
         private uint _graphicsQueueIndex;
         private PhysicalDeviceMemoryProperties _memProps;
@@ -156,6 +132,27 @@ namespace ShowControl.Graphics
         private Silk.NET.Vulkan.Buffer _buffer;
 
         private Stopwatch _stopwatch = new Stopwatch();
+
+        private struct EffectiveColor
+        {
+            public System.Drawing.Color Color;
+            public double AddedTime;
+            public double RemovedTime; // double.NegativeInfinity while still active
+        }
+
+        private readonly List<EffectiveColor> _effectiveColors = new List<EffectiveColor>();
+        // Snapshot of color state taken just before a color-count change, used for SSBO cross-fade
+        private List<Vector4> _snapshotColors = new List<Vector4>();
+        private double _transitionStart = double.NegativeInfinity;
+        private const double COLOR_FADE_DURATION_SECS = 2.0;
+
+        // Per-frame SSBO resources (one per MAX_FRAMES_IN_FLIGHT slot)
+        private DescriptorSetLayout _ssboSetLayout;
+        private DescriptorPool      _ssboPool;
+        private DescriptorSet[]     _ssboSets     = new DescriptorSet[MAX_FRAMES_IN_FLIGHT];
+        private Buffer[]            _ssboBuffers  = new Buffer[MAX_FRAMES_IN_FLIGHT];
+        private DeviceMemory[]      _ssboMemories = new DeviceMemory[MAX_FRAMES_IN_FLIGHT];
+        private unsafe void*[]      _ssboMapped   = new void*[MAX_FRAMES_IN_FLIGHT];
 
         const int MAX_FRAMES_IN_FLIGHT = 3;
 
@@ -1600,37 +1597,32 @@ namespace ShowControl.Graphics
             using var streamReader = new BinaryReader(stream);
             var vertBytes = streamReader.ReadBytes(Int32.MaxValue / 2);
 
-
-            using var kaleidoscopeStream = FileSystem.OpenAppPackageFileAsync("kaleidoscope.frag.spv").Result;
-            using var kaleidoscopeStreamReader = new BinaryReader(kaleidoscopeStream);
-            var kaleidoscopeBytes = kaleidoscopeStreamReader.ReadBytes(Int32.MaxValue / 2);
-
-            using var geometryStream = FileSystem.OpenAppPackageFileAsync("geometry.frag.spv").Result;
-            using var geometryStreamReader = new BinaryReader(geometryStream);
-            var geometryBytes = geometryStreamReader.ReadBytes(Int32.MaxValue / 2);
+            using var fragStream = FileSystem.OpenAppPackageFileAsync($"{_shader}.frag.spv").Result;
+            using var fragStreamReader = new BinaryReader(fragStream);
+            var fragBytes = fragStreamReader.ReadBytes(Int32.MaxValue / 2);
 
             _vertShaderModule = CreateShaderModule(vertBytes);
-            _kaleidoscopeShaderModule = CreateShaderModule(kaleidoscopeBytes);
-            _geometryShaderModule = CreateShaderModule(geometryBytes);
+            _fragShaderModule = CreateShaderModule(fragBytes);
 
             var vp = new Viewport(0, 0, _offscreenExtent.Width, _offscreenExtent.Height, 0f, 1f);
             var sc = new Rect2D(new Offset2D(0, 0), _offscreenExtent);
             var vpState = new PipelineViewportStateCreateInfo(viewportCount: 1, pViewports: &vp, scissorCount: 1, pScissors: &sc);
 
+            // SSBO descriptor set layout (binding 0 = storage buffer, fragment stage)
+            CreateSsboResources();
+
             var pushRange = new PushConstantRange(ShaderStageFlags.FragmentBit, 0, (uint)Unsafe.SizeOf<PushData>());
-            var plCI = new PipelineLayoutCreateInfo(pushConstantRangeCount: 1, pPushConstantRanges: &pushRange);
-            _vk.CreatePipelineLayout(_device, plCI, null, out _pipelineLayout);
+            fixed (DescriptorSetLayout* pSetLayout = &_ssboSetLayout)
+            {
+                var plCI = new PipelineLayoutCreateInfo(
+                    pushConstantRangeCount: 1, pPushConstantRanges: &pushRange,
+                    setLayoutCount: 1, pSetLayouts: pSetLayout);
+                _vk.CreatePipelineLayout(_device, plCI, null, out _pipelineLayout);
+            }
 
             var shaderStages = stackalloc PipelineShaderStageCreateInfo[2];
             shaderStages[0] = new PipelineShaderStageCreateInfo(stage: ShaderStageFlags.VertexBit, module: _vertShaderModule, pName: (byte*)SilkMarshal.StringToPtr("main"));
-            if (_shader == Shader.Kaleidoscope)
-            {
-                shaderStages[1] = new PipelineShaderStageCreateInfo(stage: ShaderStageFlags.FragmentBit, module: _kaleidoscopeShaderModule, pName: (byte*)SilkMarshal.StringToPtr("main"));
-            }
-            else
-            {
-                shaderStages[1] = new PipelineShaderStageCreateInfo(stage: ShaderStageFlags.FragmentBit, module: _geometryShaderModule, pName: (byte*)SilkMarshal.StringToPtr("main"));
-            }
+            shaderStages[1] = new PipelineShaderStageCreateInfo(stage: ShaderStageFlags.FragmentBit, module: _fragShaderModule, pName: (byte*)SilkMarshal.StringToPtr("main"));
             
 
             var vi = new PipelineVertexInputStateCreateInfo(StructureType.PipelineVertexInputStateCreateInfo);
@@ -1693,6 +1685,198 @@ namespace ShowControl.Graphics
 
             if (_debugUtils.CreateDebugUtilsMessenger(_instance, in createInfo, null, out _debugMessenger) != Result.Success)
                 throw new Exception("Failed to create debug messenger");
+        }
+
+        // Build current-frame color vectors from effective color list
+        private List<Vector4> BuildCurrentColorVectors(double elapsed)
+        {
+            var list = new List<Vector4>(_effectiveColors.Count);
+            foreach (var e in _effectiveColors)
+            {
+                float fadeIn  = (float)Math.Clamp((elapsed - e.AddedTime) / COLOR_FADE_DURATION_SECS, 0.0, 1.0);
+                float fadeOut = e.RemovedTime > double.NegativeInfinity
+                    ? (float)Math.Clamp(1.0 - (elapsed - e.RemovedTime) / COLOR_FADE_DURATION_SECS, 0.0, 1.0)
+                    : 1.0f;
+                // Normalize 0-255 → 0-1
+                list.Add(new Vector4(e.Color.R / 255f, e.Color.G / 255f, e.Color.B / 255f, fadeIn * fadeOut));
+            }
+            return list;
+        }
+
+        // ──────────────────────────────────────────────────────────────────────────
+        // SSBO helpers
+        // ──────────────────────────────────────────────────────────────────────────
+
+        // SSBO header layout (std430, matches GLSL ColorState header)
+        [StructLayout(LayoutKind.Sequential)]
+        private struct ColorStateHeader
+        {
+            public int   CurrentCount;
+            public int   PreviousCount;
+            public float TransitionT;
+            private float _pad;
+        }
+
+        private unsafe void CreateSsboResources()
+        {
+            // Descriptor set layout: one storage buffer at binding 0
+            var binding = new DescriptorSetLayoutBinding
+            {
+                Binding            = 0,
+                DescriptorType     = DescriptorType.StorageBuffer,
+                DescriptorCount    = 1,
+                StageFlags         = ShaderStageFlags.FragmentBit,
+            };
+            var dslCI = new DescriptorSetLayoutCreateInfo
+            {
+                SType        = StructureType.DescriptorSetLayoutCreateInfo,
+                BindingCount = 1,
+                PBindings    = &binding,
+            };
+            _vk.CreateDescriptorSetLayout(_device, dslCI, null, out _ssboSetLayout);
+
+            // Descriptor pool
+            var poolSize = new DescriptorPoolSize
+            {
+                Type            = DescriptorType.StorageBuffer,
+                DescriptorCount = (uint)MAX_FRAMES_IN_FLIGHT,
+            };
+            var poolCI = new DescriptorPoolCreateInfo
+            {
+                SType         = StructureType.DescriptorPoolCreateInfo,
+                MaxSets       = (uint)MAX_FRAMES_IN_FLIGHT,
+                PoolSizeCount = 1,
+                PPoolSizes    = &poolSize,
+            };
+            _vk.CreateDescriptorPool(_device, poolCI, null, out _ssboPool);
+
+            // One buffer + descriptor set per frame-in-flight slot
+            // Max size: header (16) + 64 entries * 16 bytes each = 1040 bytes; allocate 4 KB
+            const uint bufferSize = 4096;
+            for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+            {
+                var bufCI = new BufferCreateInfo
+                {
+                    SType       = StructureType.BufferCreateInfo,
+                    Size        = bufferSize,
+                    Usage       = BufferUsageFlags.StorageBufferBit,
+                    SharingMode = SharingMode.Exclusive,
+                };
+                _vk.CreateBuffer(_device, bufCI, null, out _ssboBuffers[i]);
+
+                _vk.GetBufferMemoryRequirements(_device, _ssboBuffers[i], out var memReq);
+                var allocInfo = new MemoryAllocateInfo
+                {
+                    SType           = StructureType.MemoryAllocateInfo,
+                    AllocationSize  = memReq.Size,
+                    MemoryTypeIndex = FindMemoryType(
+                        memReq.MemoryTypeBits,
+                        MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit,
+                        _memProps),
+                };
+                _vk.AllocateMemory(_device, allocInfo, null, out _ssboMemories[i]);
+                _vk.BindBufferMemory(_device, _ssboBuffers[i], _ssboMemories[i], 0);
+
+                void* mapped;
+                _vk.MapMemory(_device, _ssboMemories[i], 0, bufferSize, 0, &mapped);
+                _ssboMapped[i] = mapped;
+            }
+
+            // Allocate and write descriptor sets
+            var layouts = stackalloc DescriptorSetLayout[MAX_FRAMES_IN_FLIGHT];
+            for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) layouts[i] = _ssboSetLayout;
+            fixed (DescriptorSet* pSets = _ssboSets)
+            {
+                var dsAllocInfo = new DescriptorSetAllocateInfo
+                {
+                    SType              = StructureType.DescriptorSetAllocateInfo,
+                    DescriptorPool     = _ssboPool,
+                    DescriptorSetCount = (uint)MAX_FRAMES_IN_FLIGHT,
+                    PSetLayouts        = layouts,
+                };
+                _vk.AllocateDescriptorSets(_device, dsAllocInfo, pSets);
+            }
+
+            for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+            {
+                var bufInfo = new DescriptorBufferInfo
+                {
+                    Buffer = _ssboBuffers[i],
+                    Offset = 0,
+                    Range  = bufferSize,
+                };
+                var write = new WriteDescriptorSet
+                {
+                    SType           = StructureType.WriteDescriptorSet,
+                    DstSet          = _ssboSets[i],
+                    DstBinding      = 0,
+                    DstArrayElement = 0,
+                    DescriptorType  = DescriptorType.StorageBuffer,
+                    DescriptorCount = 1,
+                    PBufferInfo     = &bufInfo,
+                };
+                _vk.UpdateDescriptorSets(_device, 1, &write, 0, null);
+            }
+        }
+
+        private unsafe void WriteSsboData(int frameSlot, List<Vector4> current, List<Vector4> previous, float transitionT)
+        {
+            byte* ptr = (byte*)_ssboMapped[frameSlot];
+
+            // Write header
+            var header = new ColorStateHeader
+            {
+                CurrentCount  = current.Count,
+                PreviousCount = previous.Count,
+                TransitionT   = transitionT,
+            };
+            *(ColorStateHeader*)ptr = header;
+            ptr += sizeof(ColorStateHeader); // 16 bytes
+
+            // Write current color entries
+            for (int i = 0; i < current.Count; i++)
+            {
+                *(Vector4*)ptr = current[i];
+                ptr += sizeof(Vector4);
+            }
+            // Write snapshot (previous) entries
+            for (int i = 0; i < previous.Count; i++)
+            {
+                *(Vector4*)ptr = previous[i];
+                ptr += sizeof(Vector4);
+            }
+        }
+
+        private unsafe void DestroySsboResources()
+        {
+            for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+            {
+                if (_ssboMapped[i] != null)
+                {
+                    _vk.UnmapMemory(_device, _ssboMemories[i]);
+                    _ssboMapped[i] = null;
+                }
+                if (_ssboBuffers[i].Handle != 0)
+                {
+                    _vk.DestroyBuffer(_device, _ssboBuffers[i], null);
+                    _ssboBuffers[i] = default;
+                }
+                if (_ssboMemories[i].Handle != 0)
+                {
+                    _vk.FreeMemory(_device, _ssboMemories[i], null);
+                    _ssboMemories[i] = default;
+                }
+            }
+            if (_ssboPool.Handle != 0)
+            {
+                _vk.DestroyDescriptorPool(_device, _ssboPool, null);
+                _ssboPool = default;
+            }
+            if (_ssboSetLayout.Handle != 0)
+            {
+                _vk.DestroyDescriptorSetLayout(_device, _ssboSetLayout, null);
+                _ssboSetLayout = default;
+            }
         }
 
         private uint FindMemoryType(
@@ -1843,20 +2027,123 @@ namespace ShowControl.Graphics
             _vk.CmdBeginRenderPass(cmd, &rpBegin, SubpassContents.Inline);
             _vk.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, _pipeline);
 
+            double elapsed = _stopwatch.Elapsed.TotalSeconds;
+            var targetColors = Colors;
+
+            // --- Update effective color list (handles fade-in and fade-out) ---
+            // Mark colors that have been removed
+            for (int i = 0; i < _effectiveColors.Count; i++)
+            {
+                var e = _effectiveColors[i];
+                if (e.RemovedTime > double.NegativeInfinity) continue;
+                bool stillPresent = false;
+                for (int j = 0; j < targetColors.Length; j++)
+                    if (targetColors[j] == e.Color) { stillPresent = true; break; }
+                if (!stillPresent)
+                {
+                    e.RemovedTime = elapsed;
+                    _effectiveColors[i] = e;
+                }
+            }
+
+            // Remove fully faded-out slots.
+            // If a cross-fade transition is already in progress, don't restart it —
+            // the existing snapshot already holds the fading color at the right weight
+            // and will carry it smoothly to zero. Only take a new snapshot when idle.
+            bool anyRemoved = false;
+            for (int i = _effectiveColors.Count - 1; i >= 0; i--)
+            {
+                var e = _effectiveColors[i];
+                if (e.RemovedTime > double.NegativeInfinity && (elapsed - e.RemovedTime) >= COLOR_FADE_DURATION_SECS)
+                {
+                    if (!anyRemoved)
+                    {
+                        float currentTransitionT = (float)Math.Clamp(
+                            (elapsed - _transitionStart) / COLOR_FADE_DURATION_SECS, 0.0, 0.999);
+                        bool transitionIdle = currentTransitionT >= 0.999f || _snapshotColors.Count == 0;
+                        if (transitionIdle)
+                        {
+                            _snapshotColors = BuildCurrentColorVectors(elapsed);
+                            _transitionStart = elapsed;
+                        }
+                        // If a transition is already in progress we intentionally keep the
+                        // existing snapshot and transitionStart so the existing cross-fade
+                        // continues fading the snapshot entries to zero naturally.
+                        anyRemoved = true;
+                    }
+                    _effectiveColors.RemoveAt(i);
+                }
+            }
+
+            // Add newly appeared colors — take a single snapshot before any additions
+            bool anyAdded = false;
+            for (int j = 0; j < targetColors.Length; j++)
+            {
+                var c = targetColors[j];
+                bool alreadyTracked = false;
+                for (int i = 0; i < _effectiveColors.Count; i++)
+                    if (_effectiveColors[i].Color == c && _effectiveColors[i].RemovedTime <= double.NegativeInfinity)
+                    { alreadyTracked = true; break; }
+
+                if (!alreadyTracked)
+                {
+                    // Re-add a color that's still fading out — rehabilitate it
+                    bool rehabilitated = false;
+                    for (int i = 0; i < _effectiveColors.Count; i++)
+                    {
+                        var e = _effectiveColors[i];
+                        if (e.Color == c && e.RemovedTime > double.NegativeInfinity)
+                        {
+                            // Adjust AddedTime so fade-in continues from current fade-out level
+                            double currentFadeOut = Math.Clamp(1.0 - (elapsed - e.RemovedTime) / COLOR_FADE_DURATION_SECS, 0.0, 1.0);
+                            double equivalentFadeInAge = currentFadeOut * COLOR_FADE_DURATION_SECS;
+                            _effectiveColors[i] = new EffectiveColor
+                            {
+                                Color = c,
+                                AddedTime = elapsed - equivalentFadeInAge,
+                                RemovedTime = double.NegativeInfinity
+                            };
+                            rehabilitated = true;
+                            break;
+                        }
+                    }
+
+                    if (!rehabilitated)
+                    {
+                        if (!anyAdded && !anyRemoved)
+                        {
+                            // Snapshot current state before first addition this frame
+                            _snapshotColors = BuildCurrentColorVectors(elapsed);
+                            _transitionStart = elapsed;
+                        }
+                        anyAdded = true;
+                        _effectiveColors.Add(new EffectiveColor { Color = c, AddedTime = elapsed, RemovedTime = double.NegativeInfinity });
+                    }
+                }
+            }
+
+            // Build current color vectors for SSBO
+            var currentColors = BuildCurrentColorVectors(elapsed);
+
+            float transitionT = (float)Math.Clamp(
+                (elapsed - _transitionStart) / COLOR_FADE_DURATION_SECS, 0.0, 0.999);
+
+            // Write SSBO for this frame slot
+            WriteSsboData(_currentFrame, currentColors, _snapshotColors, transitionT);
+
+            // Bind SSBO descriptor set
+            fixed (DescriptorSet* pSet = &_ssboSets[_currentFrame])
+                _vk.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _pipelineLayout,
+                    0, 1, pSet, 0, null);
+
             PushData pc = new()
             {
                 Resolution = new System.Numerics.Vector2(_offscreenExtent.Width, _offscreenExtent.Height),
-                Time = (float)_stopwatch.Elapsed.TotalSeconds * 0.25f,
+                Time = (float)elapsed * 0.25f,
                 DistortionStrength = 0.12f,
                 HueTolerance = 0.35f,
                 Falloff = 0.6f,
-                ColorCount = Colors.Length
             };
-            var colors = Colors;
-            for (int i = 0; i < colors.Length && i < 6; i++)
-            {
-                pc.Colors[i] = new Vector4(colors[i].R, colors[i].G, colors[i].B, 0.0f);
-            }
             _vk.CmdPushConstants(cmd, _pipelineLayout, ShaderStageFlags.FragmentBit,
                 0, (uint)Unsafe.SizeOf<PushData>(), &pc);
 
@@ -2231,29 +2518,18 @@ namespace ShowControl.Graphics
                 _pipeline = default;
             }
 
-            // Optionally destroy/recreate only the fragment module and keep vertex module
-            if (_kaleidoscopeShaderModule.Handle != 0 && _shader != Shader.Kaleidoscope)
+            // Destroy the old fragment module and reload for the new shader
+            if (_fragShaderModule.Handle != 0)
             {
-                _vk.DestroyShaderModule(_device, _kaleidoscopeShaderModule, null);
-                _kaleidoscopeShaderModule = default;
-            }
-            if (_geometryShaderModule.Handle != 0 && _shader != Shader.Geometry)
-            {
-                _vk.DestroyShaderModule(_device, _geometryShaderModule, null);
-                _geometryShaderModule = default;
+                _vk.DestroyShaderModule(_device, _fragShaderModule, null);
+                _fragShaderModule = default;
             }
 
-            // Ensure the selected frag module exists (reload bytes if needed)
-            var fragModule = _shader == Shader.Kaleidoscope ? _kaleidoscopeShaderModule : _geometryShaderModule;
-            if (fragModule.Handle == 0)
             {
-                using var stream = FileSystem.OpenAppPackageFileAsync($"{_shader.ToString().ToLower()}.frag.spv").Result;
+                using var stream = FileSystem.OpenAppPackageFileAsync($"{_shader}.frag.spv").Result;
                 using var streamReader = new BinaryReader(stream);
                 var bytes = streamReader.ReadBytes(Int32.MaxValue / 2);
-
-                fragModule = CreateShaderModule(bytes);
-                if (_shader == Shader.Kaleidoscope) _kaleidoscopeShaderModule = fragModule;
-                else _geometryShaderModule = fragModule;
+                _fragShaderModule = CreateShaderModule(bytes);
             }
 
             // Rebuild pipeline with _pipelineLayout and _offscreenRenderPass
@@ -2263,7 +2539,7 @@ namespace ShowControl.Graphics
 
             var stages = stackalloc PipelineShaderStageCreateInfo[2];
             stages[0] = new PipelineShaderStageCreateInfo(stage: ShaderStageFlags.VertexBit, module: _vertShaderModule, pName: (byte*)SilkMarshal.StringToPtr("main"));
-            stages[1] = new PipelineShaderStageCreateInfo(stage: ShaderStageFlags.FragmentBit, module: fragModule, pName: (byte*)SilkMarshal.StringToPtr("main"));
+            stages[1] = new PipelineShaderStageCreateInfo(stage: ShaderStageFlags.FragmentBit, module: _fragShaderModule, pName: (byte*)SilkMarshal.StringToPtr("main"));
 
             var vi = new PipelineVertexInputStateCreateInfo() { SType = StructureType.PipelineVertexInputStateCreateInfo };
             var ia = new PipelineInputAssemblyStateCreateInfo(topology: PrimitiveTopology.TriangleList);
@@ -2287,7 +2563,7 @@ namespace ShowControl.Graphics
             _stagingRing = new StagingRing(_vk, _device, _memProps, _graphicsQueueIndex, _imageSize);
         }
 
-        public void SetShader(Shader shader)
+        public void SetShader(string shader)
         {
             // 1) Tell render loop to pause submits
             _readReadyEvent.Reset();              // stop new ReadFromMemory users

@@ -3,20 +3,35 @@
 layout(location=0) out vec4 outColor;
 
 // ───────────────────────────────────────────────────────────
-// Push constants (128B total; 6 colors @ 16B stride each)
+// Push constants (scalars only — color data is in SSBO)
 // ───────────────────────────────────────────────────────────
 layout(push_constant) uniform Push {
     vec2  u_resolution;          //  8
     float u_time;                //  4
-    float _pad0;                 //  4  -> 16
-
     float u_distortionStrength;  //  4
-    float u_hueTolerance;        //  4  (radians; bandwidth for hue match)
-    float u_falloff;             //  4  (kernel sharpness)
-    int   u_colorCount;          //  4  -> 32
-
-    vec3  u_colors[6];           // 6 * 16 = 96  (vec3 has 16B stride)
+    float u_hueTolerance;        //  4
+    float u_falloff;             //  4  = 24 bytes total
 } pc;
+
+// ───────────────────────────────────────────────────────────
+// SSBO — color state (unbounded, written CPU-side each frame)
+//
+// Layout:
+//   data[0 .. currentCount-1]                  = current colors
+//   data[currentCount .. currentCount+previousCount-1] = snapshot colors
+//
+// Each vec4: .xyz = linear RGB, .w = per-color fade weight [0..1]
+// ───────────────────────────────────────────────────────────
+layout(std430, set=0, binding=0) readonly buffer ColorState {
+    int   currentCount;
+    int   previousCount;
+    float transitionT;  // 0..1 — how far current→previous cross-fade has progressed
+    float _pad;
+    vec4  data[];       // currentCount + previousCount entries
+} cs;
+
+vec4 currentColor(int i)  { return cs.data[i]; }
+vec4 previousColor(int i) { return cs.data[cs.currentCount + i]; }
 
 // ───────────────────────────────────────────────────────────
 // Tunables (no ABI changes)
@@ -30,8 +45,7 @@ const float PULSE_GAIN     = 2.5;
 const float PULSE_SPEED    = 6.2831; // ~1 Hz
 
 // Regional bias strength
-const float REGION_SNAP_STRENGTH  = 0.007; // 0..1 hue snap toward region's assigned color
-const float REGION_GRADE_STRENGTH = 0.007; // 0..1 gentle grading toward assigned color
+const float REGION_GRADE_STRENGTH = 0.55;  // 0..1 direct color blend toward assigned color
 
 // Region layout
 const int   REGION_RINGS   = 6;     // number of radial rings
@@ -74,25 +88,27 @@ float hueDistance01(float h1, float h2) {
 }
 
 float hueMatchWeight(float hue01) {
-    if (pc.u_colorCount <= 0) return 0.0;
+    if (cs.currentCount <= 0) return 0.0;
     float tolHue = clamp(pc.u_hueTolerance / TAU, 0.0, 0.5);
     float w = 0.0;
-    for (int i = 0; i < pc.u_colorCount && i < 6; ++i) {
-        float selHue01 = rgb2hsv(pc.u_colors[i]).x;
+    for (int i = 0; i < cs.currentCount; ++i) {
+        vec4  c   = currentColor(i);
+        float selHue01 = rgb2hsv(c.xyz).x;
         float d = hueDistance01(hue01, selHue01);
-        float k = 1.0 - smoothstep(0.0, tolHue, d);
+        float k = max(0.0, 1.0 - smoothstep(0.0, tolHue, d)); // clamp before pow to prevent NaN
         k = pow(k, max(pc.u_falloff, 0.0001));
+        k *= c.w;  // scale by per-color fade weight
         w = max(w, k);
     }
     return clamp(w, 0.0, 1.0);
 }
 
 float nearestSelectedHue01(float h) {
-    if (pc.u_colorCount <= 0) return h;
+    if (cs.currentCount <= 0) return h;
     float bestH = h;
     float bestD = 1.0;
-    for (int i = 0; i < pc.u_colorCount && i < 6; ++i) {
-        float sh = rgb2hsv(pc.u_colors[i]).x;
+    for (int i = 0; i < cs.currentCount; ++i) {
+        float sh = rgb2hsv(currentColor(i).xyz).x;
         float d = hueDistance01(h, sh);
         if (d < bestD) { bestD = d; bestH = sh; }
     }
@@ -104,12 +120,6 @@ float hueLerp01(float h, float th, float s) {
     if (d >  0.5) d -= 1.0;
     if (d < -0.5) d += 1.0;
     return fract(h + d * s);
-}
-
-// Smooth region masks for nicer edges
-float smoothStepEdge(float x, float edgeCenter, float halfWidth) {
-    float t = (x - (edgeCenter - halfWidth)) / (2.0 * halfWidth);
-    return clamp(t, 0.0, 1.0);
 }
 
 // ───────────────────────────────────────────────────────────
@@ -163,7 +173,7 @@ void main(){
     col *= 1.2 / max(1e-6, (1.0 + dot(p2, p2)));
 
     // ───────────────────────────────────────────────────────
-    // Highlight + Pulse on matched hues (kept from prior)
+    // Highlight + Pulse on matched hues
     // ───────────────────────────────────────────────────────
     float w2 = hueMatchWeight(hue2);
     float pulse = 0.5 + 0.5 * sin(time * PULSE_SPEED + hue2 * 12.0);
@@ -171,13 +181,18 @@ void main(){
     col *= (1.0 + w2 * pulse * PULSE_GAIN);
 
     // ───────────────────────────────────────────────────────
-    // NEW: Regional palette bias
+    // Regional palette bias
     //   - Partition by sector (angular) and ring (radial)
-    //   - Assign each region to a selected color index
+    //   - Assign each region to a color index
     //   - Snap hue & gently grade toward that color
+    //   - Cross-fade using SSBO snapshot when count changes
     // ───────────────────────────────────────────────────────
-    if (pc.u_colorCount > 0) {
-        // Sector index based on world angle (so regions align with kaleidoscope)
+    // Run regional bias when there are active colors OR when a snapshot transition is
+    // still fading out (e.g., all colors removed but cross-fade not yet complete).
+    bool hasCurrent   = cs.currentCount > 0;
+    bool hasTransition = cs.previousCount > 0 && cs.transitionT < 0.999;
+    if (hasCurrent || hasTransition) {
+        // Sector index based on world angle
         float sectorAngle = TAU / N;
 
         // Map aWorld into [0, TAU)
@@ -187,46 +202,50 @@ void main(){
 
         int sectorIndex = int(floor(aNorm / sectorAngle));  // 0..N-1
 
-        // --- KEY CHANGE: no clamp; scale radius so rings can extend off-screen
-        // rScaled = 1.0 corresponds to radius = RING_SPAN * (screen "unit" radius)
+        // Scale radius so rings can extend off-screen
         float rScaled = rWorld / RING_SPAN;
 
-        // Pick ring by scaled radius (still clamp index into valid range)
+        // Pick ring by scaled radius
         int ringIndex = int(floor(rScaled * float(REGION_RINGS)));
         ringIndex = clamp(ringIndex, 0, REGION_RINGS - 1);
 
-        // Region id → color
         int regionId = sectorIndex + ringIndex;
-        int colorIdx = (pc.u_colorCount > 0) ? (regionId % pc.u_colorCount) : 0;
 
-        // --- Soft masks with adjustable thickness so a ring can cover the whole view
-        // Sector softness: distance to nearest sector boundary (unchanged)
+        // Sector softness
         float sectorCenter = (float(sectorIndex) + 0.5) * sectorAngle;
         float dSector = abs(atan(sin(aWorld - sectorCenter), cos(aWorld - sectorCenter)));
         float mSector = 1.0 - smoothstep(sectorAngle * 0.5 - SECTOR_SMOOTH,
                                          sectorAngle * 0.5,
                                          dSector);
 
-        // Ring softness: distance to ring center in the *scaled* radius domain
-        float ringCenter = (float(ringIndex) + 0.5) / float(REGION_RINGS);           // in [0,1]
-        float ringHalf   = RING_THICKNESS_MULT * (0.5 / float(REGION_RINGS));        // widened
+        // Ring softness
+        float ringCenter = (float(ringIndex) + 0.5) / float(REGION_RINGS);
+        float ringHalf   = RING_THICKNESS_MULT * (0.5 / float(REGION_RINGS));
         float dRing      = abs(rScaled - ringCenter);
         float mRing      = 1.0 - smoothstep(ringHalf - RING_SMOOTH, ringHalf, dRing);
 
-        // Final region mask (can reach ~1.0 everywhere if RING_THICKNESS_MULT is big)
         float mRegion = clamp(mSector * mRing, 0.0, 1.0);
 
-        // --- Use mRegion exactly as before for hue snap + grading toward target
-        vec3  targetRGB = pc.u_colors[colorIdx];
-        float targetHue = rgb2hsv(targetRGB).x;
+        // Start from current color assignment (zero when no current colors)
+        vec3  targetRGB = vec3(0.0);
+        float colorFade = 0.0;
+        if (hasCurrent) {
+            int colorIdx = regionId % cs.currentCount;
+            vec4 curColor = currentColor(colorIdx);
+            targetRGB = curColor.xyz;
+            colorFade = curColor.w;
+        }
 
-        vec3 hsv = rgb2hsv(col);
-        float snapS = REGION_SNAP_STRENGTH * mRegion;
-        hsv.x = hueLerp01(hsv.x, targetHue, snapS);
-        vec3 snapped = hsv2rgb(hsv);
+        // Cross-fade with snapshot when count changed or colors are finishing fade-out
+        if (hasTransition) {
+            int  oldIdx  = clamp(regionId % cs.previousCount, 0, cs.previousCount - 1);
+            vec4 oldColor = previousColor(oldIdx);
+            targetRGB = mix(oldColor.xyz, targetRGB, cs.transitionT);
+            colorFade = mix(oldColor.w,   colorFade,  cs.transitionT);
+        }
 
-        vec3 graded = mix(snapped, mix(snapped, targetRGB, 0.5), REGION_GRADE_STRENGTH * mRegion);
-        col = graded;
+        // Direct color blend — no HSV roundtrip, no threshold, purely continuous
+        col = mix(col, mix(col, targetRGB, 0.65), REGION_GRADE_STRENGTH * mRegion * colorFade);
     }
 
     outColor = vec4(col, 1.0);

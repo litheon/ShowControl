@@ -38,22 +38,14 @@ namespace ShowControl.Animation
         private readonly object _modeLock = new object();
         private AnimationMode _lastMode;
         private AnimationMode _mode;
-        private Shader _shader;
+        private string _shader;
         private readonly List<int> _pressedPads;
 #pragma warning disable IDE0052 // Remove unread private members
         private readonly Timer _navigationColorTimer;
 #pragma warning restore IDE0052 // Remove unread private members
-        private readonly Color[] _vibrantColors = new Color[]
-        {
-            Color.Red,
-            Color.FromArgb(255, 0, 137),
-            Color.FromArgb(255, 0, 35),
-            Color.FromArgb(67, 112, 0),
-            Color.FromArgb(255, 74, 0),
-            Color.FromArgb(9, 254, 182)
-        };
+        private readonly Color[] _vibrantColors;
         private IGraphicsHost _graphicsHost;
-        public VibrantAnimation(int pixelCount, IAudioService audioService, IGraphicsHost graphicsHost, Shader shader, CancellationToken cancellationToken)
+        public VibrantAnimation(int pixelCount, IAudioService audioService, IGraphicsHost graphicsHost, string shader, Color[] colors, CancellationToken cancellationToken)
         {
             _cancellationToken = cancellationToken;
             _mode = AnimationMode.Automatic;
@@ -69,6 +61,7 @@ namespace ShowControl.Animation
             _animationThread.Start();
             _graphicsHost = graphicsHost;
             _shader = shader;
+            _vibrantColors = colors;
             for (int i = 0; i < pixelCount; i++)
             {
                 _currentFrame[i] = new Pixel(_vibrantColors[_random.Next() % _vibrantColors.Length], 0, 0, 0x00);
@@ -234,22 +227,28 @@ namespace ShowControl.Animation
 
                 var width = _graphicsHost.Width;
                 var height = _graphicsHost.Height;
-                var initial = (width * height * 4) / 2 - 12 * width - (width / (2 * 4));
+                var initial = (height / 2) * width * 4 - width * 12 * 4;
                 int offset = 0;
+                int pixelStride = 0;
                 for (int i = 0; i < _pixelCount; i++)
                 {
                     //_nextFrame[i].Color = Color.FromArgb(0, ShowControl.Graphics.HelloWorldGraphicsHost.Bytes[len + 4 * (i * 6) + 2], ShowControl.Graphics.HelloWorldGraphicsHost.Bytes[len + 4 * (i * 6) + 1], ShowControl.Graphics.HelloWorldGraphicsHost.Bytes[len + 4 * (i * 6)]);
                     //
-                    var pixelStride = 4 * (i);
+
                     var rowOffset = offset * width * 4;
                     var r = initial + pixelStride + rowOffset;
                     var g = initial + pixelStride + rowOffset + 1;
                     var b = initial + pixelStride + rowOffset + 2;
                     _nextFrame[i].Color = Color.FromArgb(0, span[r], span[g], span[b]);
-                    //if (i == 100)
-                    //{
-                    //    offset++;
-                    //}
+                    if (i == 479 || i == 959 || i == 1439 || i == 1919 || i == 2519 || i == 2519)
+                    {
+                        offset++;
+                        pixelStride = 0;
+                    }
+                    else
+                    {
+                        pixelStride += 4;
+                    }
                 }
                 var temp = _currentFrame;
                 _currentFrame = _nextFrame;

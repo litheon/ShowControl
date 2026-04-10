@@ -1,8 +1,8 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <!-- Multi-target: net8.0 for Windows, net8.0 and net8.0-maccatalyst for Mac -->
-    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('osx'))">net8.0;net8.0-maccatalyst</TargetFrameworks>
-    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">net8.0</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('osx'))">net10.0;net10.0-maccatalyst</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">net10.0</TargetFrameworks>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">13.1</SupportedOSPlatformVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -12,8 +12,13 @@
     <DefineConstants Condition="$([MSBuild]::IsOSPlatform('windows'))">$(DefineConstants);WINDOWS</DefineConstants>
     <!-- Define MACCATALYST constant when targeting maccatalyst -->
     <DefineConstants Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">$(DefineConstants);MACCATALYST</DefineConstants>
-    <VulkanSDK Condition="'$(VulkanSDK)' == ''">C:\VulkanSDK\1.4.321.1</VulkanSDK>
-    <GlslcPath>$(VulkanSDK)\Bin\glslc.exe</GlslcPath>
+    <!-- Fallback for when building outside the MAUI app context -->
+    <MauiVersion Condition="'$(MauiVersion)' == ''">10.0.0</MauiVersion>
+    <!-- Windows: full path to glslc.exe inside the Vulkan SDK -->
+    <VulkanSDK Condition="'$(VulkanSDK)' == '' AND $([MSBuild]::IsOSPlatform('windows'))">C:\VulkanSDK\1.4.321.1</VulkanSDK>
+    <GlslcPath Condition="$([MSBuild]::IsOSPlatform('windows'))">$(VulkanSDK)\Bin\glslc.exe</GlslcPath>
+    <!-- Mac/Linux: glslc expected on PATH (from LunarG Vulkan SDK or Homebrew) -->
+    <GlslcPath Condition="!$([MSBuild]::IsOSPlatform('windows'))">glslc</GlslcPath>
   </PropertyGroup>
 
   <ItemGroup>
@@ -38,11 +43,16 @@
   <!-- Compile shaders before build -->
   <Target Name="CompileShaders" BeforeTargets="BeforeBuild">
     <Message Text="Compiling Vulkan shaders..." Importance="high" />
+    <!-- Windows: check that glslc.exe exists at the known SDK path before invoking -->
     <Exec Command="&quot;$(GlslcPath)&quot; &quot;%(ShaderSource.FullPath)&quot; -o &quot;%(ShaderSource.FullPath).spv&quot;"
-          Condition="Exists('$(GlslcPath)')"
+          Condition="$([MSBuild]::IsOSPlatform('windows')) AND Exists('$(GlslcPath)')"
           WorkingDirectory="$(ProjectDir)" />
-    <Warning Text="Vulkan SDK not found at $(VulkanSDK). Shaders will not be compiled."
-             Condition="!Exists('$(GlslcPath)')" />
+    <Warning Text="Vulkan SDK glslc.exe not found at $(GlslcPath). Shaders will not be compiled."
+             Condition="$([MSBuild]::IsOSPlatform('windows')) AND !Exists('$(GlslcPath)')" />
+    <!-- Mac/Linux: invoke glslc from PATH; will error at build time if not installed -->
+    <Exec Command="glslc &quot;%(ShaderSource.FullPath)&quot; -o &quot;%(ShaderSource.FullPath).spv&quot;"
+          Condition="!$([MSBuild]::IsOSPlatform('windows'))"
+          WorkingDirectory="$(ProjectDir)" />
   </Target>
 
   <!-- Copy compiled shaders to MAUI Resources -->

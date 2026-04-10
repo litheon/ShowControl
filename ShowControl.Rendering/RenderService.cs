@@ -164,7 +164,7 @@ namespace ShowControl.Rendering
 
             _pixelChannels = RenderSurface.Create(
                     new RenderSettings(255),
-                    Enumerable.Repeat(WS2812B.Instance, 2160).ToArray()
+                    Enumerable.Repeat(WS2812B.Instance, 3720).ToArray()
             );
             _parChannels = RenderSurface.Create(
                     new RenderSettings(255),
@@ -2402,8 +2402,43 @@ namespace ShowControl.Rendering
                 new RainbowAnimation(_pixelChannels.TotalPixelCount, warmLucidas, _audioService, _cts.Token, fastAnimate: true),
                 new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg9, _audioService, _cts.Token, fastAnimate: true),
                 new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg2Lucidas, _audioService, _cts.Token, fastAnimate: true),
-                new VibrantAnimation(_pixelChannels.TotalPixelCount, _audioService, _graphicsHost, Shader.Geometry, _cts.Token),
-                new VibrantAnimation(_pixelChannels.TotalPixelCount, _audioService, _graphicsHost, Shader.Kaleidoscope, _cts.Token)
+                new VibrantAnimation(_pixelChannels.TotalPixelCount, _audioService, _graphicsHost, Shaders.Geometry, new Color[]
+                {
+                    Color.Red,
+                    Color.FromArgb(255, 0, 137),
+                    Color.FromArgb(255, 0, 35),
+                    Color.FromArgb(67, 112, 0),
+                    Color.FromArgb(255, 74, 0),
+                    Color.FromArgb(9, 254, 182)
+                }, _cts.Token),
+                new VibrantAnimation(_pixelChannels.TotalPixelCount, _audioService, _graphicsHost, Shaders.Kaleidoscope, new Color[]
+                {
+                    Color.Red,
+                    Color.FromArgb(255, 0, 137),
+                    Color.FromArgb(255, 0, 35),
+                    Color.FromArgb(67, 112, 0),
+                    Color.FromArgb(255, 74, 0),
+                    Color.FromArgb(9, 254, 182)
+                }, _cts.Token),
+                new VibrantAnimation(_pixelChannels.TotalPixelCount, _audioService, _graphicsHost, Shaders.Clown, new Color[]
+                {
+                    Color.FromArgb(220,  20,  20), // red
+                    Color.FromArgb(255, 200,   0), // yellow
+                    Color.FromArgb(  0, 200, 220), // cyan
+                    Color.FromArgb(230,   0, 180), // hot pink
+                    Color.FromArgb(255, 100,   0), // orange
+                    Color.FromArgb(  0, 200,  30), // lime green
+                    Color.FromArgb(150,   0, 220), // purple
+                    Color.FromArgb(  0,  60, 230), // electric blue
+                    Color.FromArgb(220,  50,  50), // tomato
+                    Color.FromArgb(160, 220,   0), // chartreuse
+                    Color.FromArgb(  0, 180, 160), // teal
+                    Color.FromArgb(220,   0, 100), // deep rose
+                    Color.FromArgb(255, 140,   0), // amber
+                    Color.FromArgb(120,   0, 200), // violet
+                    Color.FromArgb(  0, 220, 120), // seafoam
+                    Color.FromArgb(200,   0,  40), // crimson
+                }, _cts.Token)
                 //new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg8, _audioService, _cts.Token, fastAnimate: true),
             };
             _auxilaryKeyAnimations = new IKeyAnimation[]
@@ -2460,7 +2495,7 @@ namespace ShowControl.Rendering
 
         private void RenderThreadLoop()
         {
-            byte[] targetVector = new byte[6480];
+            byte[] targetVector = new byte[22460];
             ControllerInstance controllerInstance = new ControllerInstance(ArtNet.Instance);
             while (!_cts.Token.IsCancellationRequested)
             {

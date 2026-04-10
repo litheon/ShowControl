@@ -6,14 +6,20 @@ using System.Threading.Tasks;
 
 namespace ShowControl.Graphics
 {
-    public enum Shader { Kaleidoscope, Geometry};
+    public static class Shaders
+    {
+        public const string Kaleidoscope = "kaleidoscope";
+        public const string Geometry = "geometry";
+        public const string Clown = "clown";
+    }
+
     public interface IGraphicsHost
     {
         public RenderedImageHandle<byte> GetRenderedImage();
         public int Width { get;  }
         public int Height { get; }
         public System.Drawing.Color[] Colors { get; set; }
-        public void SetShader(Shader shader);
+        public void SetShader(string fragmentShaderResource);
 
         /// <summary>
         /// Event raised when the graphics host wants a preview window to be opened.
