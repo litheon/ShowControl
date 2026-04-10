@@ -2506,6 +2506,7 @@ namespace ShowControl.Rendering
         private void RenderThreadLoop()
         {
             byte[] targetVector = new byte[22460];
+<<<<<<< HEAD
             try
             {
             // Pre-warm MatchIP routing caches by sending sequentially before the main loop.
@@ -2517,6 +2518,9 @@ namespace ShowControl.Rendering
             foreach (IDmxOutputDevice outputDevice in _outputDevices)
                 outputDevice.Write(new byte[outputDevice.MaxChannels]).GetAwaiter().GetResult();
 
+=======
+            ControllerInstance controllerInstance = new ControllerInstance(ArtNet.Instance);
+>>>>>>> f4efadc (Commit the build craziness to its own branch)
             while (!_cts.Token.IsCancellationRequested)
             {
                 _frameRateStopWatch.Start();
