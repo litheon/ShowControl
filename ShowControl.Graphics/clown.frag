@@ -120,21 +120,13 @@ void main() {
     vec2  p2 = vec2(cos(a2), sin(a2)) * r2;
 
     // ── Layer 1: Spinning fan blades ─────────────────────────────────────────
-<<<<<<< HEAD
     // Rotating wedges like a circus top/pinwheel, each a different vivid color.
     float N_BLADES    = pc.u_param1;
     float BLADE_WIDTH = TAU / N_BLADES;
     const float GAP_FRAC = 0.07;      // fraction at each edge that is dark
 
-    float spinAngle  = a2 + time * 0.32 + pc.u_param2;
-=======
-    // 14 rotating wedges like a circus top/pinwheel, each a different vivid color.
-    const float N_BLADES    = 14.0;
-    const float BLADE_WIDTH = TAU / N_BLADES;
-    const float GAP_FRAC    = 0.07;   // fraction at each edge that is dark
 
-    float spinAngle  = a2 + time * 0.32;
->>>>>>> f4efadc (Commit the build craziness to its own branch)
+    float spinAngle  = a2 + time * 0.32 + pc.u_param2;
     float normAngle  = mod(spinAngle + PI, TAU);
     float bladeID    = floor(normAngle / BLADE_WIDTH);
     float bladePhase = fract(normAngle / BLADE_WIDTH);  // [0, 1) within blade
@@ -144,11 +136,7 @@ void main() {
                     smoothstep(1.0, 1.0 - GAP_FRAC, bladePhase);
 
     // Each blade holds a stable hue from the circus palette, drifting slowly
-<<<<<<< HEAD
     float bladeHue = hash11(bladeID) + time * 0.016 + pc.u_param3;
-=======
-    float bladeHue = hash11(bladeID) + time * 0.016;
->>>>>>> f4efadc (Commit the build craziness to its own branch)
     vec3  fanColor = circusColor(bladeHue) * gapMask;
 
     // Radial fade: black stub at center, fade out past screen edges
@@ -189,11 +177,8 @@ void main() {
     // Each dot drifts hue at its own rate (more chaotic, more clown)
     float dotDriftRate = 0.025 + 0.035 * hash21(dotCell + vec2(5.5, 2.3));
     float dotHue  = hash21(dotCell) + time * dotDriftRate;
-<<<<<<< HEAD
-    float dotR    = pc.u_param4 + 0.07 * sin(time * 1.9 + dotPhase);  // breathing radius
-=======
     float dotR    = 0.29 + 0.07 * sin(time * 1.9 + dotPhase);  // breathing radius
->>>>>>> f4efadc (Commit the build craziness to its own branch)
+    float dotR    = pc.u_param4 + 0.07 * sin(time * 1.9 + dotPhase);  // breathing radiu
 
     // Solid dot center with dark outline ring (face-paint outline look)
     float outerMask = 1.0 - smoothstep(dotR - 0.015, dotR + 0.015, dotDist);

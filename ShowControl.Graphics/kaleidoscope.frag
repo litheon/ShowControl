@@ -48,12 +48,8 @@ const float HIGHLIGHT_GAIN = 2.0;
 const float PULSE_GAIN     = 2.5;
 const float PULSE_SPEED    = 6.2831; // ~1 Hz
 
-<<<<<<< HEAD
 // Regional bias strength — driven by u_param4 (default 0.55)
-=======
-// Regional bias strength
 const float REGION_GRADE_STRENGTH = 0.55;  // 0..1 direct color blend toward assigned color
->>>>>>> f4efadc (Commit the build craziness to its own branch)
 
 // Region layout
 const int   REGION_RINGS   = 6;     // number of radial rings
@@ -253,11 +249,7 @@ void main(){
         }
 
         // Direct color blend — no HSV roundtrip, no threshold, purely continuous
-<<<<<<< HEAD
         col = mix(col, mix(col, targetRGB, 0.65), 0.55 * mRegion * colorFade);
-=======
-        col = mix(col, mix(col, targetRGB, 0.65), REGION_GRADE_STRENGTH * mRegion * colorFade);
->>>>>>> f4efadc (Commit the build craziness to its own branch)
     }
 
     outColor = vec4(col, 1.0);
