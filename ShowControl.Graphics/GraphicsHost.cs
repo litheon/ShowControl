@@ -1999,8 +1999,9 @@ namespace ShowControl.Graphics
 
                     if (acq == Result.NotReady)
                     {
-                        // No image available right now. Don’t reset the fence, just try again next frame.
-                        return;
+                        // No image available right now — fall through to non-present path
+                        // so we still render and produce staging frames for LED output
+                        present = false;
                     }
                     if (acq == Result.ErrorOutOfDateKhr && !_isClosing)
                     {
