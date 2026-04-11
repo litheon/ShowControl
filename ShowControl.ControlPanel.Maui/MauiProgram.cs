@@ -14,16 +14,16 @@ namespace ShowControl.ControlPanel.Maui
     {
         public static MauiApp CreateMauiApp()
         {
-            int x = 10;
-            while (x > 0)
-            {
-                Thread.Sleep(1000);
-                x--;
-                if (x <= 5 && System.Diagnostics.Debugger.IsAttached)
-                {
-                    break;
-                }
-            }
+            //int x = 10;
+            //while (x > 0)
+            //{
+            //    Thread.Sleep(1000);
+            //    x--;
+            //    if (x <= 5 && System.Diagnostics.Debugger.IsAttached)
+            //    {
+            //        break;
+            //    }
+            //}
 
             AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
             {

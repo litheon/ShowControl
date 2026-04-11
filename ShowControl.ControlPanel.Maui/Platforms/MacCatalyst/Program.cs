@@ -10,7 +10,6 @@ namespace ShowControl.ControlPanel.Maui
         {
             // if you want to use a different Application Delegate class from "AppDelegate"
             // you can specify it here.
-            Thread.Sleep(100);
             UIApplication.Main(args, null, typeof(AppDelegate));
         }
     }
