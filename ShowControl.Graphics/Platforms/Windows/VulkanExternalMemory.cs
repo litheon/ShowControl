@@ -69,7 +69,7 @@ public unsafe class VulkanExternalMemory : IDisposable
             SType = StructureType.ImageCreateInfo,
             PNext = &externalMemoryInfo,
             ImageType = ImageType.Type2D,
-            Format = Format.B8G8R8A8Unorm, // Compatible with DXGI_FORMAT_B8G8R8A8_UNORM
+            Format = Format.B8G8R8A8Srgb, // Compatible with DXGI_FORMAT_B8G8R8A8_UNORM
             Extent = new Extent3D(width, height, 1),
             MipLevels = 1,
             ArrayLayers = 1,

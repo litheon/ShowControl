@@ -1113,10 +1113,29 @@ namespace ShowControl.Graphics
             if (width == 0 || height == 0) return;
             if (!PRESENT_DCOMP) return;
 
-            // Don't resize the D3D11 swap chain or shared texture.
-            // SwapChainPanel's Scaling.Stretch will handle scaling the content to fit the window.
-            // This avoids complex D3D11/Vulkan interop issues during resize.
-            System.Diagnostics.Debug.WriteLine($"[GraphicsHost] HandleDirectCompositionResize: {width}x{height} (letting SwapChainPanel scale)");
+            _pendingResizeWidth = width;
+            _pendingResizeHeight = height;
+            _resizePending = true;
+
+            // Cancel any pending resize
+            _resizeDebounceToken?.Cancel();
+            _resizeDebounceToken = new CancellationTokenSource();
+            var token = _resizeDebounceToken.Token;
+
+            // Debounce: wait 100ms after last resize before recreating
+            Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(100, token);
+                    if (!token.IsCancellationRequested)
+                    {
+                        RecreateDirectCompositionSharedImage(_pendingResizeWidth, _pendingResizeHeight);
+                        _resizePending = false;
+                    }
+                }
+                catch (TaskCanceledException) { }
+            }, token);
         }
 
         private unsafe void RecreateDirectCompositionSharedImage(uint width, uint height)

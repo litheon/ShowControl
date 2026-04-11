@@ -67,15 +67,12 @@ public partial class SwapChainPanelHandler : ViewHandler<VulkanSurfaceView, Swap
 
     private void OnSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        var scale = GetScaleFactor();
-        var width = e.NewSize.Width * scale;
-        var height = e.NewSize.Height * scale;
+        var width = e.NewSize.Width;
+        var height = e.NewSize.Height;
 
         if (width > 0 && height > 0)
         {
-            // Don't call _d3d11Host.Resize() here - let GraphicsHost handle the resize
-            // through HandleDirectCompositionResize -> IDirectCompositionPresenter.Resize
-            // to avoid race conditions with double resize calls
+            // Use logical (DIP) dimensions - SwapChainPanel handles DPI scaling
             VirtualView?.OnSurfaceSizeChanged(width, height);
         }
     }
@@ -92,9 +89,9 @@ public partial class SwapChainPanelHandler : ViewHandler<VulkanSurfaceView, Swap
     {
         if (_swapChainSet) return;
 
-        var scale = GetScaleFactor();
-        var width = (uint)(PlatformView.ActualWidth * scale);
-        var height = (uint)(PlatformView.ActualHeight * scale);
+        // Use logical (DIP) dimensions - SwapChainPanel handles DPI scaling
+        var width = (uint)PlatformView.ActualWidth;
+        var height = (uint)PlatformView.ActualHeight;
 
         if (width == 0 || height == 0) return;
 
