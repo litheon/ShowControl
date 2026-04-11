@@ -20,7 +20,6 @@ namespace ShowControl.Devices.Output
             return new IDmxOutputDevice[] {
                 // new DdpDevice(new byte[] { 192, 168, 3, 216 }, 1440),
 
-<<<<<<< HEAD
                 // new ArtNetDevice(_artNetController,0, new byte[] { 192, 168, 3, 224 }, 510),
                 // new ArtNetDevice(_artNetController,1, new byte[] { 192, 168, 3, 224 }, 510),
                 // new ArtNetDevice(_artNetController,2, new byte[] { 192, 168, 3, 224 }, 510),
@@ -56,43 +55,6 @@ namespace ShowControl.Devices.Output
                 new ArtNetDevice(_artNetController,6, new byte[] { 192, 168, 3, 196 }, 510),
                 new ArtNetDevice(_artNetController,7, new byte[] { 192, 168, 3, 196 }, 510),
                 new ArtNetDevice(_artNetController,8, new byte[] { 192, 168, 3, 196 }, 30),
-=======
-                // new ArtNetDevice(0, new byte[] { 192, 168, 3, 224 }, 510),
-                // new ArtNetDevice(1, new byte[] { 192, 168, 3, 224 }, 510),
-                // new ArtNetDevice(2, new byte[] { 192, 168, 3, 224 }, 510),
-                // new ArtNetDevice(3, new byte[] { 192, 168, 3, 224 }, 270),
-
-                // new ArtNetDevice(0, new byte[] { 192, 168, 3, 209 }, 510),
-                // new ArtNetDevice(1, new byte[] { 192, 168, 3, 209 }, 510),
-                // new ArtNetDevice(2, new byte[] { 192, 168, 3, 209 }, 60),
-
-                // new ArtNetDevice(16, new byte[] { 192, 168, 3, 209 }, 510),
-                // new ArtNetDevice(17, new byte[] { 192, 168, 3, 209 }, 510),
-                // new ArtNetDevice(18, new byte[] { 192, 168, 3, 209 }, 60),
-                
-                new ArtNetDevice(0, new byte[] { 192, 168, 3, 93 }, 510),
-                new ArtNetDevice(1, new byte[] { 192, 168, 3, 93 }, 510),
-                new ArtNetDevice(2, new byte[] { 192, 168, 3, 93 }, 510),
-                new ArtNetDevice(3, new byte[] { 192, 168, 3, 93 }, 510),
-                new ArtNetDevice(4, new byte[] { 192, 168, 3, 93 }, 510),
-                new ArtNetDevice(5, new byte[] { 192, 168, 3, 93 }, 510),
-                new ArtNetDevice(6, new byte[] { 192, 168, 3, 93 }, 510),
-                new ArtNetDevice(7, new byte[] { 192, 168, 3, 93 }, 510),
-                new ArtNetDevice(8, new byte[] { 192, 168, 3, 93 }, 510),
-                new ArtNetDevice(9, new byte[] { 192, 168, 3, 93 }, 510),
-                new ArtNetDevice(10, new byte[] { 192, 168, 3, 93 }, 510),
-                new ArtNetDevice(11, new byte[] { 192, 168, 3, 93 }, 150),
-
-                new ArtNetDevice(0, new byte[] { 192, 168, 3, 196 }, 510),
-                new ArtNetDevice(1, new byte[] { 192, 168, 3, 196 }, 510),
-                new ArtNetDevice(2, new byte[] { 192, 168, 3, 196 }, 510),
-                new ArtNetDevice(3, new byte[] { 192, 168, 3, 196 }, 510),
-                new ArtNetDevice(4, new byte[] { 192, 168, 3, 196 }, 510),
-                new ArtNetDevice(5, new byte[] { 192, 168, 3, 196 }, 510),
-                new ArtNetDevice(6, new byte[] { 192, 168, 3, 196 }, 510),
-                new ArtNetDevice(7, new byte[] { 192, 168, 3, 196 }, 510),
-                new ArtNetDevice(8, new byte[] { 192, 168, 3, 196 }, 30),
->>>>>>> f4efadc (Commit the build craziness to its own branch)
             };
 
             return _enttecDmxUsbDeviceEnumerator.GetDmxOutputDevices(token);

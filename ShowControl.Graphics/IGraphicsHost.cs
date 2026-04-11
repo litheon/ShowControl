@@ -16,13 +16,6 @@ namespace ShowControl.Graphics
     public enum Shader
     {
         Kaleidoscope, Geometry
-    };
-
-    public static class Shaders
-    {
-        public const string Kaleidoscope = nameof(Kaleidoscope);
-        public const string Geometry = nameof(Geometry);
-        public const string Clown = nameof(Clown);
     }
 
     /// <summary>

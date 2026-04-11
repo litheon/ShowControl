@@ -2508,14 +2508,19 @@ namespace ShowControl.Rendering
             byte[] targetVector = new byte[22460];
             try
             {
-            // Pre-warm MatchIP routing caches by sending sequentially before the main loop.
-            // ArtNetSharp.NetworkClientBag.MatchIP caches routing results in non-thread-safe
-            // List<IPAddress> fields. If the first frame fires all sends in parallel and
-            // GetLocalIP fails during a race, the destination IP gets permanently blacklisted
-            // for the lifetime of the NetworkClientBag. Sequential sends here populate the
-            // cache once without contention.
-            foreach (IDmxOutputDevice outputDevice in _outputDevices)
-                outputDevice.Write(new byte[outputDevice.MaxChannels]).GetAwaiter().GetResult();
+                // Pre-warm MatchIP routing caches by sending sequentially before the main loop.
+                // ArtNetSharp.NetworkClientBag.MatchIP caches routing results in non-thread-safe
+                // List<IPAddress> fields. If the first frame fires all sends in parallel and
+                // GetLocalIP fails during a race, the destination IP gets permanently blacklisted
+                // for the lifetime of the NetworkClientBag. Sequential sends here populate the
+                // cache once without contention.
+                foreach (IDmxOutputDevice outputDevice in _outputDevices)
+                {
+                    outputDevice.Write(new byte[outputDevice.MaxChannels]).GetAwaiter().GetResult();
+                }
+            }
+            catch
+            { }
 
             ControllerInstance controllerInstance = new ControllerInstance(ArtNet.Instance);
             try

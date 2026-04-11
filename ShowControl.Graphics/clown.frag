@@ -177,8 +177,7 @@ void main() {
     // Each dot drifts hue at its own rate (more chaotic, more clown)
     float dotDriftRate = 0.025 + 0.035 * hash21(dotCell + vec2(5.5, 2.3));
     float dotHue  = hash21(dotCell) + time * dotDriftRate;
-    float dotR    = 0.29 + 0.07 * sin(time * 1.9 + dotPhase);  // breathing radius
-    float dotR    = pc.u_param4 + 0.07 * sin(time * 1.9 + dotPhase);  // breathing radiu
+    float dotR    = pc.u_param4 + 0.07 * sin(time * 1.9 + dotPhase);  // breathing radius
 
     // Solid dot center with dark outline ring (face-paint outline look)
     float outerMask = 1.0 - smoothstep(dotR - 0.015, dotR + 0.015, dotDist);
