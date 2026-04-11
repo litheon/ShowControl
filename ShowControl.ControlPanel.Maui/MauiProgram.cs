@@ -14,6 +14,17 @@ namespace ShowControl.ControlPanel.Maui
     {
         public static MauiApp CreateMauiApp()
         {
+            int x = 10;
+            while (x > 0)
+            {
+                Thread.Sleep(1000);
+                x--;
+                if (x <= 5 && System.Diagnostics.Debugger.IsAttached)
+                {
+                    break;
+                }
+            }
+
             AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
             {
                 var message = $"Unhandled exception (IsTerminating={e.IsTerminating}): {e.ExceptionObject}";
@@ -44,7 +55,7 @@ namespace ShowControl.ControlPanel.Maui
                     // Use SwapChainPanelHandler for DirectComposition (enables XAML overlays on Vulkan content)
                     handlers.AddHandler<VulkanSurfaceView, SwapChainPanelHandler>();
                     // Alternatively, use Win32SurfaceHandler for direct Vulkan presentation (no XAML overlay support):
-                    // handlers.AddHandler<VulkanSurfaceView, Win32SurfaceHandler>();
+                    //handlers.AddHandler<VulkanSurfaceView, Win32SurfaceHandler>();
 #endif
                 });
 

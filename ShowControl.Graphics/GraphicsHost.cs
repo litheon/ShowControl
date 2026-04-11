@@ -2176,8 +2176,8 @@ namespace ShowControl.Graphics
                     1, &dcompBlit, Filter.Linear
                 );
 
-                // Transition shared image to shader read for D3D11 to access
-                _vulkanExternalMemory.TransitionImageLayout(cmd, ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal);
+                // Transition shared image to General for D3D11 cross-API access
+                _vulkanExternalMemory.TransitionImageLayout(cmd, ImageLayout.TransferDstOptimal, ImageLayout.General);
             }
 #endif
 

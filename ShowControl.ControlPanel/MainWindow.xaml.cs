@@ -38,11 +38,6 @@ namespace ShowControl.ControlPanel
         public MainWindow()
         {
             InitializeComponent();
-            while(!System.Diagnostics.Debugger.IsAttached && x > 0)
-            {
-                Thread.Sleep(1000);
-                x--;
-            }
             _hostTask = Host.Host.Main(new string[] { }, OnAudioFrameProcessed, HandleDevices);
             Initialize();
         }

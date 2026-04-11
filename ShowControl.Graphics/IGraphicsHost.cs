@@ -18,6 +18,13 @@ namespace ShowControl.Graphics
         Kaleidoscope, Geometry
     };
 
+    public static class Shaders
+    {
+        public const string Kaleidoscope = nameof(Kaleidoscope);
+        public const string Geometry = nameof(Geometry);
+        public const string Clown = nameof(Clown);
+    }
+
     /// <summary>
     /// Callback interface for DirectComposition presentation.
     /// D3D11 creates and owns the shared texture, Vulkan imports it.

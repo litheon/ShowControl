@@ -20,14 +20,12 @@ public unsafe class VulkanExternalMemory : IDisposable
 
     private VkImage _sharedImage;
     private DeviceMemory _sharedMemory;
-    private ImageView _sharedImageView;
     private nint _importedHandle;
     private uint _width;
     private uint _height;
     private bool _disposed;
 
     public VkImage SharedImage => _sharedImage;
-    public ImageView SharedImageView => _sharedImageView;
     public uint Width => _width;
     public uint Height => _height;
 
@@ -57,15 +55,14 @@ public unsafe class VulkanExternalMemory : IDisposable
         _height = height;
         _importedHandle = d3d11Handle;
 
-        // Create image with external memory import capability for D3D11 textures
-        // D3D11TextureKmtBit is for global handles from GetSharedHandle (D3D11_RESOURCE_MISC_SHARED)
+        // Use D3D11TextureBit (NT handles) - the modern, well-supported path
         var externalMemoryInfo = new ExternalMemoryImageCreateInfo
         {
             SType = StructureType.ExternalMemoryImageCreateInfo,
-            HandleTypes = ExternalMemoryHandleTypeFlags.D3D11TextureKmtBit
+            HandleTypes = ExternalMemoryHandleTypeFlags.D3D11TextureBit
         };
 
-        System.Diagnostics.Debug.WriteLine($"[VulkanExternalMemory] Creating image for D3D11 KMT import: {width}x{height}");
+        System.Diagnostics.Debug.WriteLine($"[VulkanExternalMemory] Creating image for D3D11 NT handle import: {width}x{height}");
 
         var imageInfo = new ImageCreateInfo
         {
@@ -98,19 +95,35 @@ public unsafe class VulkanExternalMemory : IDisposable
             _vk.GetImageMemoryRequirements(_device, _sharedImage, out var memReqs);
             System.Diagnostics.Debug.WriteLine($"[VulkanExternalMemory] Memory requirements: size={memReqs.Size}, alignment={memReqs.Alignment}, typeBits=0x{memReqs.MemoryTypeBits:X}");
 
-            // Find suitable memory type for external import
-            var memTypeIndex = FindMemoryType(memReqs.MemoryTypeBits, MemoryPropertyFlags.DeviceLocalBit);
+            // Query compatible memory types for the D3D11 NT handle
+            var handleProps = new MemoryWin32HandlePropertiesKHR
+            {
+                SType = StructureType.MemoryWin32HandlePropertiesKhr
+            };
+            _externalMemoryWin32.GetMemoryWin32HandleProperties(
+                _device,
+                ExternalMemoryHandleTypeFlags.D3D11TextureBit,
+                d3d11Handle,
+                &handleProps);
+            System.Diagnostics.Debug.WriteLine($"[VulkanExternalMemory] NT handle compatible memoryTypeBits: 0x{handleProps.MemoryTypeBits:X}");
+
+            // Intersect image memory requirements with handle-compatible types
+            var compatibleTypeBits = memReqs.MemoryTypeBits & handleProps.MemoryTypeBits;
+            if (compatibleTypeBits == 0)
+                throw new InvalidOperationException($"No compatible memory type: image requires 0x{memReqs.MemoryTypeBits:X}, handle supports 0x{handleProps.MemoryTypeBits:X}");
+
+            var memTypeIndex = FindMemoryType(compatibleTypeBits, MemoryPropertyFlags.DeviceLocalBit);
             System.Diagnostics.Debug.WriteLine($"[VulkanExternalMemory] Using memory type index: {memTypeIndex}");
 
-            System.Diagnostics.Debug.WriteLine($"[VulkanExternalMemory] Importing D3D11 KMT handle: 0x{d3d11Handle:X}");
+            System.Diagnostics.Debug.WriteLine($"[VulkanExternalMemory] Importing D3D11 NT handle: 0x{d3d11Handle:X}");
 
-            // Import memory from D3D11 handle (KMT handle from GetSharedHandle)
+            // Import memory from D3D11 NT handle
             var importMemoryInfo = new ImportMemoryWin32HandleInfoKHR
             {
                 SType = StructureType.ImportMemoryWin32HandleInfoKhr,
-                HandleType = ExternalMemoryHandleTypeFlags.D3D11TextureKmtBit,
+                HandleType = ExternalMemoryHandleTypeFlags.D3D11TextureBit,
                 Handle = d3d11Handle,
-                Name = 0  // No name (KMT handles don't use names)
+                Name = 0
             };
 
             // For D3D11 textures, we need dedicated allocation
@@ -145,28 +158,6 @@ public unsafe class VulkanExternalMemory : IDisposable
         {
             System.Diagnostics.Debug.WriteLine($"[VulkanExternalMemory] FAILED to import D3D11 texture: {ex.Message}");
             throw;
-        }
-
-        // Create image view
-        var viewInfo = new ImageViewCreateInfo
-        {
-            SType = StructureType.ImageViewCreateInfo,
-            Image = _sharedImage,
-            ViewType = ImageViewType.Type2D,
-            Format = Format.B8G8R8A8Unorm,
-            SubresourceRange = new ImageSubresourceRange
-            {
-                AspectMask = ImageAspectFlags.ColorBit,
-                BaseMipLevel = 0,
-                LevelCount = 1,
-                BaseArrayLayer = 0,
-                LayerCount = 1
-            }
-        };
-
-        fixed (ImageView* pView = &_sharedImageView)
-        {
-            _vk.CreateImageView(_device, &viewInfo, null, pView).ThrowOnError();
         }
 
         System.Diagnostics.Debug.WriteLine($"[VulkanExternalMemory] Imported D3D11 shared texture {width}x{height}, handle=0x{d3d11Handle:X}");
@@ -248,12 +239,6 @@ public unsafe class VulkanExternalMemory : IDisposable
 
     private void DestroySharedImage()
     {
-        if (_sharedImageView.Handle != 0)
-        {
-            _vk.DestroyImageView(_device, _sharedImageView, null);
-            _sharedImageView = default;
-        }
-
         if (_sharedImage.Handle != 0)
         {
             _vk.DestroyImage(_device, _sharedImage, null);
@@ -266,7 +251,6 @@ public unsafe class VulkanExternalMemory : IDisposable
             _sharedMemory = default;
         }
 
-        // Note: Don't close the handle - it's owned by D3D11
         _importedHandle = 0;
     }
 

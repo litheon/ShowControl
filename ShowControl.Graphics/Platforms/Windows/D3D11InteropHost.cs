@@ -175,15 +175,18 @@ public unsafe class D3D11InteropHost : IDirectCompositionPresenter, IDisposable
     public nint CreateSharedTexture(uint width, uint height)
     {
         // Clean up existing shared texture
-        // Note: KMT handles from GetSharedHandle are NOT closed with CloseHandle
-        // They are kernel-mode transport handles managed by D3D11
         if (_sharedTexture.Handle != null)
         {
-            _sharedTextureHandle = 0;  // Just clear reference, don't close
+            // NT handles must be closed with CloseHandle
+            if (_sharedTextureHandle != 0)
+            {
+                CloseHandle(_sharedTextureHandle);
+                _sharedTextureHandle = 0;
+            }
             _sharedTexture.Dispose();
         }
 
-        // Create texture with shared flag for cross-API sharing
+        // Create texture with NT handle sharing for Vulkan interop
         var texDesc = new Texture2DDesc
         {
             Width = width,
@@ -195,26 +198,31 @@ public unsafe class D3D11InteropHost : IDirectCompositionPresenter, IDisposable
             Usage = Usage.Default,
             BindFlags = (uint)(BindFlag.ShaderResource | BindFlag.RenderTarget),
             CPUAccessFlags = 0,
-            MiscFlags = (uint)ResourceMiscFlag.Shared  // Basic sharing (uses GetSharedHandle)
+            MiscFlags = (uint)(ResourceMiscFlag.SharedNthandle | ResourceMiscFlag.SharedKeyedmutex)
         };
 
-        System.Diagnostics.Debug.WriteLine($"[D3D11InteropHost] Creating shared texture {width}x{height}");
+        System.Diagnostics.Debug.WriteLine($"[D3D11InteropHost] Creating shared texture {width}x{height} (NT handle)");
 
         ID3D11Texture2D* pTexture;
         SilkMarshal.ThrowHResult(_device.CreateTexture2D(&texDesc, (SubresourceData*)null, &pTexture));
         _sharedTexture = new ComPtr<ID3D11Texture2D>(pTexture);
 
-        // Get the shared handle via IDXGIResource (GetSharedHandle for D3D11_RESOURCE_MISC_SHARED)
-        var resourceIid = IDXGIResource.Guid;
-        void* resourcePtr;
-        SilkMarshal.ThrowHResult(_sharedTexture.QueryInterface(&resourceIid, &resourcePtr));
-        var dxgiResource = new ComPtr<IDXGIResource>((IDXGIResource*)resourcePtr);
+        // Get NT handle via IDXGIResource1::CreateSharedHandle
+        var resource1Iid = IDXGIResource1.Guid;
+        void* resource1Ptr;
+        SilkMarshal.ThrowHResult(_sharedTexture.QueryInterface(&resource1Iid, &resource1Ptr));
+        var dxgiResource1 = new ComPtr<IDXGIResource1>((IDXGIResource1*)resource1Ptr);
 
         void* handle;
-        SilkMarshal.ThrowHResult(dxgiResource.GetSharedHandle(&handle));
+        // GENERIC_ALL access for cross-API sharing
+        SilkMarshal.ThrowHResult(dxgiResource1.CreateSharedHandle(
+            (SecurityAttributes*)null,  // default security
+            0x10000000u,  // GENERIC_ALL
+            (char*)null,  // unnamed
+            &handle));
         _sharedTextureHandle = (nint)handle;
 
-        dxgiResource.Dispose();
+        dxgiResource1.Dispose();
 
         System.Diagnostics.Debug.WriteLine($"[D3D11InteropHost] Created shared texture {width}x{height}, handle=0x{_sharedTextureHandle:X}");
 
@@ -233,28 +241,45 @@ public unsafe class D3D11InteropHost : IDirectCompositionPresenter, IDisposable
 
         lock (_presentLock)
         {
+            // Acquire keyed mutex before accessing the shared texture
+            var mutexIid = IDXGIKeyedMutex.Guid;
+            void* mutexPtr;
+            var hr = _sharedTexture.QueryInterface(&mutexIid, &mutexPtr);
+            if (hr < 0)
+            {
+                System.Diagnostics.Debug.WriteLine($"[D3D11InteropHost] Failed to get keyed mutex: 0x{hr:X}");
+                return;
+            }
+            var keyedMutex = new ComPtr<IDXGIKeyedMutex>((IDXGIKeyedMutex*)mutexPtr);
+
+            hr = keyedMutex.AcquireSync(acquireKey, 1000);
+            if (hr < 0)
+            {
+                System.Diagnostics.Debug.WriteLine($"[D3D11InteropHost] AcquireSync failed: 0x{hr:X}");
+                keyedMutex.Dispose();
+                return;
+            }
+
             // Get dimensions of both textures to ensure they match
             Texture2DDesc srcDesc, dstDesc;
             _sharedTexture.GetDesc(&srcDesc);
             _backBuffer.GetDesc(&dstDesc);
 
-            // Debug: log dimensions periodically
-            if (DateTime.Now.Second % 5 == 0 && DateTime.Now.Millisecond < 20)
-            {
-                System.Diagnostics.Debug.WriteLine($"[D3D11InteropHost] CopyAndPresent: sharedTexture={srcDesc.Width}x{srcDesc.Height}, backBuffer={dstDesc.Width}x{dstDesc.Height}");
-            }
-
             if (srcDesc.Width != dstDesc.Width || srcDesc.Height != dstDesc.Height)
             {
-                // Dimensions don't match - skip this frame (resize in progress)
-                // Just present what we have
                 System.Diagnostics.Debug.WriteLine($"[D3D11InteropHost] Dimension mismatch! shared={srcDesc.Width}x{srcDesc.Height}, back={dstDesc.Width}x{dstDesc.Height}");
+                keyedMutex.ReleaseSync(releaseKey);
+                keyedMutex.Dispose();
                 _swapChain.Present(1, 0);
                 return;
             }
 
             // Copy shared texture to back buffer (Vulkan has already finished via fence wait)
             _context.CopyResource((ID3D11Resource*)_backBuffer.Handle, (ID3D11Resource*)_sharedTexture.Handle);
+
+            // Release keyed mutex
+            keyedMutex.ReleaseSync(releaseKey);
+            keyedMutex.Dispose();
 
             // Present
             var presentHr = _swapChain.Present(1, 0);
@@ -417,8 +442,12 @@ public unsafe class D3D11InteropHost : IDirectCompositionPresenter, IDisposable
     {
         if (!_disposed)
         {
-            // Note: Don't close KMT handles - they're managed by D3D11
-            _sharedTextureHandle = 0;
+            // Close NT handle
+            if (_sharedTextureHandle != 0)
+            {
+                CloseHandle(_sharedTextureHandle);
+                _sharedTextureHandle = 0;
+            }
             _sharedTexture.Dispose();
             _backBuffer.Dispose();
             _swapChain.Dispose();
