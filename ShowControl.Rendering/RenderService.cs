@@ -491,7 +491,7 @@ namespace ShowControl.Rendering
             int address = 1;
             for (int j = 0; j < _devices.Length; j++)
             {
-                System.Diagnostics.Debug.WriteLine("Address {0} for {1}: {2}", j + 1, _devices[j].GetType().ToString(), address);
+                //System.Diagnostics.Debug.WriteLine("Address {0} for {1}: {2}", j + 1, _devices[j].GetType().ToString(), address);
                 Console.WriteLine("Address {0} for {1}: {2}", j + 1, _devices[j].GetType().ToString(), address);
                 address += _devices[j].ChannelCount;
             }
@@ -2581,12 +2581,12 @@ namespace ShowControl.Rendering
                 Task.WhenAll(writeTasks).GetAwaiter().GetResult();
                 _artNetController.SendSync().GetAwaiter().GetResult();
 
-                Thread.Yield();
-                var frameEnd = _frameRateStopWatch.Elapsed;
-                var sendTime = TimeSpan.FromMilliseconds(25) - (frameEnd - frameStart);
-                if (sendTime.TotalMilliseconds > 0)
+                // Busy-wait for precise frame timing (SpinWait.SpinUntil uses
+                // Environment.TickCount which has ~15.6ms resolution on Windows)
+                var targetEnd = frameStart + TimeSpan.FromMilliseconds(25);
+                while (_frameRateStopWatch.Elapsed < targetEnd)
                 {
-                    SpinWait.SpinUntil(() => false, sendTime);
+                    Thread.SpinWait(100);
                 }
             }
             } // try

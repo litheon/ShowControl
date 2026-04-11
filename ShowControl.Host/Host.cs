@@ -19,7 +19,7 @@ namespace ShowControl.Host
     public class Host
     {
         [STAThread]
-        public static Task Main(string[] args)
+        public static async Task Main(string[] args)
         {
             RegisterGlobalExceptionHandlers();
 
@@ -28,8 +28,10 @@ namespace ShowControl.Host
             .WriteTo.Debug()
             .CreateLogger();
 
+
+            //System.Threading.Thread.Sleep(10000);
             var builder = CreateHostBuilder(args);
-            return builder.RunConsoleAsync();
+            await builder.RunConsoleAsync();
         }
 
         [STAThread]

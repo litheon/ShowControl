@@ -26,6 +26,7 @@ namespace ShowControl.ControlPanel.Maui
         {
             if (_instance != null)
             {
+                Console.WriteLine("Instance was not null");
                 return;
             }
 
@@ -52,11 +53,11 @@ namespace ShowControl.ControlPanel.Maui
             });
         }
 
-        private async void Initialize()
+        private void Initialize()
         {
-            var result = await _hostTask;
+            var result =  _hostTask.GetAwaiter().GetResult();
             Console.WriteLine("Do platform initialization");
-            //result.Services.GetRequiredService<IInputService>().DoPlatformInitalization();
+            result.Services.GetRequiredService<IInputService>().DoPlatformInitalization();
 
 #if MACCATALYST || WINDOWS
             // Subscribe to the preview window requested event

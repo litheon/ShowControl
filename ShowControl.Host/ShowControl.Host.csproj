@@ -4,6 +4,7 @@
     <TargetFrameworks Condition="'$(OS)' != 'Windows_NT'">net9.0;net9.0-maccatalyst</TargetFrameworks>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
     <Platforms>AnyCPU;x64;x86;ARM64</Platforms>
+    <OutputType>Exe</OutputType>
   </PropertyGroup>
 
   <!-- Define WINDOWS when targeting net8.0-windows -->
@@ -15,6 +16,38 @@
   <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">
     <DefineConstants>$(DefineConstants);MACCATALYST</DefineConstants>
   </PropertyGroup>
+  <ItemGroup>
+    <None Remove="clown.frag.spv" />
+    <None Remove="geometry.frag.spv" />
+    <None Remove="kaleidoscope.frag.spv" />
+    <None Remove="portaudio.dll" />
+    <None Remove="rtmidi.dll" />
+    <None Remove="simple.frag.spv" />
+    <None Remove="simple.vert.spv" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="clown.frag.spv">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="geometry.frag.spv">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="kaleidoscope.frag.spv">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="portaudio.dll">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="rtmidi.dll">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="simple.frag.spv">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="simple.vert.spv">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="9.0.0" />

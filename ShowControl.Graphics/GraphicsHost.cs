@@ -35,6 +35,18 @@ namespace ShowControl.Graphics
 {
     public class GraphicsHost : IGraphicsHost
     {
+        private static Stream OpenShaderFile(string filename)
+        {
+            try
+            {
+                return FileSystem.OpenAppPackageFileAsync(filename).Result;
+            }
+            catch
+            {
+                return File.OpenRead(filename);
+            }
+        }
+
         private string _shader = Shaders.Kaleidoscope;
         private Thread _backgroundThread;
         public GraphicsHost()
@@ -177,6 +189,7 @@ namespace ShowControl.Graphics
         private uint _dcompHeight;
         private ulong _dcompMutexAcquireKey = 0;
         private ulong _dcompMutexReleaseKey = 1;
+        private volatile bool _presentInProgress = false;
 #endif
 
         private volatile bool _running;
@@ -768,14 +781,14 @@ namespace ShowControl.Graphics
             Task.Run(async () =>
             {
                 // Wait up to 5 seconds for a handler to be subscribed
-                for (int i = 0; i < 50 && PreviewWindowRequested == null; i++)
+                for (int i = 0; i < 100 && PreviewWindowRequested == null; i++)
                 {
                     await Task.Delay(100);
                 }
 
                 if (PreviewWindowRequested == null)
                 {
-                    System.Diagnostics.Debug.WriteLine("[GraphicsHost] No handler subscribed to PreviewWindowRequested after 5 seconds");
+                    System.Diagnostics.Debug.WriteLine("[GraphicsHost] No handler subscribed to PreviewWindowRequested after 10 seconds");
                     _previewWindowOpen = false;
                     return;
                 }
@@ -1529,11 +1542,11 @@ namespace ShowControl.Graphics
             _stagingRing = new StagingRing(_vk, _device, _memProps, _graphicsQueueIndex, _imageSize);
 
             // --- Shaders, pipeline layout, pipeline (use _offscreenRenderPass) ---
-            using var stream = FileSystem.OpenAppPackageFileAsync("simple.vert.spv").Result;
+            using var stream = OpenShaderFile("simple.vert.spv");
             using var streamReader = new BinaryReader(stream);
             var vertBytes = streamReader.ReadBytes(Int32.MaxValue / 2);
 
-            using var fragStream = FileSystem.OpenAppPackageFileAsync($"{_shader}.frag.spv").Result;
+            using var fragStream = OpenShaderFile($"{_shader}.frag.spv");
             using var fragStreamReader = new BinaryReader(fragStream);
             var fragBytes = fragStreamReader.ReadBytes(Int32.MaxValue / 2);
 
@@ -1611,6 +1624,32 @@ namespace ShowControl.Graphics
 
         private ExtDebugUtils _debugUtils;
         private DebugUtilsMessengerEXT _debugMessenger;
+
+        private unsafe void DCompPresentAsync(IDirectCompositionPresenter presenter, ulong gpuValue)
+        {
+            ThreadPool.UnsafeQueueUserWorkItem(state =>
+            {
+                var (p, val) = ((IDirectCompositionPresenter, ulong))state!;
+                try
+                {
+                    var sem = _gpuDoneTL;
+                    var v = val;
+                    SemaphoreWaitInfo wi = new()
+                    {
+                        SType = StructureType.SemaphoreWaitInfo,
+                        SemaphoreCount = 1,
+                        PSemaphores = &sem,
+                        PValues = &v
+                    };
+                    _vk.WaitSemaphores(_device, &wi, ulong.MaxValue);
+                    p.CopyAndPresent(0, 0);
+                }
+                finally
+                {
+                    _presentInProgress = false;
+                }
+            }, (presenter, gpuValue));
+        }
 
         private unsafe void SetupDebugMessenger()
         {
@@ -2190,7 +2229,7 @@ namespace ShowControl.Graphics
 
             // DirectComposition mode: blit to shared image for D3D11 presentation
 #if WINDOWS
-            bool presentDcomp = PRESENT_DCOMP && !_resizePending && _vulkanExternalMemory != null;
+            bool presentDcomp = PRESENT_DCOMP && !_resizePending && !_presentInProgress && _vulkanExternalMemory != null;
             if (presentDcomp)
             {
                 // Use actual Vulkan shared image dimensions for the blit destination
@@ -2451,14 +2490,13 @@ namespace ShowControl.Graphics
 
 #if WINDOWS
                 // DirectComposition: after Vulkan submit completes, trigger D3D11 presentation
+                // Run async so the vsync-locked Present doesn't block the render loop
+                // Use timeline semaphore (not the submit fence) to avoid racing with the render loop
                 if (presentDcomp && _dcompPresenter != null)
                 {
-                    // Wait for Vulkan to finish before D3D11 accesses the shared texture
-                    _vk.WaitForFences(_device, 1, in _submitFence, true, ulong.MaxValue);
-
-                    // D3D11 copies shared texture to swapchain and presents
-                    // Using dummy mutex keys since we're using CPU synchronization
-                    _dcompPresenter.CopyAndPresent(0, 0);
+                    _presentInProgress = true;
+                    var presenter = _dcompPresenter;
+                    DCompPresentAsync(presenter, producedValue);
                 }
 #endif
             }
@@ -2593,7 +2631,7 @@ namespace ShowControl.Graphics
             }
 
             {
-                using var stream = FileSystem.OpenAppPackageFileAsync($"{_shader}.frag.spv").Result;
+                using var stream = OpenShaderFile($"{_shader}.frag.spv");
                 using var streamReader = new BinaryReader(stream);
                 var bytes = streamReader.ReadBytes(Int32.MaxValue / 2);
                 _fragShaderModule = CreateShaderModule(bytes);
