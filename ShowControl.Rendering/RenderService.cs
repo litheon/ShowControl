@@ -2578,8 +2578,10 @@ namespace ShowControl.Rendering
                     writeTasks.Add(outputDevice.Write(output));
                     skip += t;
                 }
-                Task.WhenAll(writeTasks).GetAwaiter().GetResult();
-                _artNetController.SendSync().GetAwaiter().GetResult();
+                try { Task.WhenAll(writeTasks).GetAwaiter().GetResult(); }
+                catch (Exception ex) { _logger.LogWarning(ex, "One or more output device writes failed."); }
+                try { _artNetController.SendSync().GetAwaiter().GetResult(); }
+                catch (Exception ex) { _logger.LogWarning(ex, "ArtNet sync failed."); }
 
                 // Busy-wait for precise frame timing (SpinWait.SpinUntil uses
                 // Environment.TickCount which has ~15.6ms resolution on Windows)

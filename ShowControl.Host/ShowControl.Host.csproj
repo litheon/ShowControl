@@ -4,7 +4,12 @@
     <TargetFrameworks Condition="'$(OS)' != 'Windows_NT'">net9.0;net9.0-maccatalyst</TargetFrameworks>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
     <Platforms>AnyCPU;x64;x86;ARM64</Platforms>
-    <OutputType>Exe</OutputType>
+    <OutputType>Library</OutputType>
+  </PropertyGroup>
+
+  <!-- Define MACCATALYST when targeting net8.0-maccatalyst -->
+  <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">
+    <DefineConstants>$(DefineConstants);MACCATALYST</DefineConstants>
   </PropertyGroup>
 
   <!-- Define WINDOWS when targeting net8.0-windows -->
@@ -12,10 +17,6 @@
     <DefineConstants>$(DefineConstants);WINDOWS</DefineConstants>
   </PropertyGroup>
 
-  <!-- Define MACCATALYST when targeting net8.0-maccatalyst -->
-  <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">
-    <DefineConstants>$(DefineConstants);MACCATALYST</DefineConstants>
-  </PropertyGroup>
   <ItemGroup>
     <None Remove="clown.frag.spv" />
     <None Remove="geometry.frag.spv" />

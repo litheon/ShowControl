@@ -1247,7 +1247,7 @@ namespace ShowControl.Graphics
 
                     // This is the key call: does this family support presenting to the Win32 desktop?
                     // No VkSurfaceKHR or window handle is required.
-#if WINDOWS
+#if WINDOWS1649
                     if (pIdx == uint.MaxValue && _khrWin32Surface.GetPhysicalDeviceWin32PresentationSupport(pd, i))
                         pIdx = i;
 #else
@@ -1646,7 +1646,9 @@ namespace ShowControl.Graphics
                 }
                 finally
                 {
+                    #if WINDOWS
                     _presentInProgress = false;
+                    #endif
                 }
             }, (presenter, gpuValue));
         }

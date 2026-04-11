@@ -27,7 +27,7 @@ namespace ShowControl.Devices.Output
         public async Task Write(byte[] dmxData)
         {
             await _controller.SendArtDMX(_ipAddress, _universe, 0, dmxData, _sequence);
-            _sequence = (byte)((_sequence + 1) % 254);
+            _sequence = (byte)(((_sequence) % 254) + 1);
         }
     }
 }
