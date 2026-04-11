@@ -2583,12 +2583,21 @@ namespace ShowControl.Rendering
                 try { _artNetController.SendSync().GetAwaiter().GetResult(); }
                 catch (Exception ex) { _logger.LogWarning(ex, "ArtNet sync failed."); }
 
-                // Busy-wait for precise frame timing (SpinWait.SpinUntil uses
-                // Environment.TickCount which has ~15.6ms resolution on Windows)
-                var targetEnd = frameStart + TimeSpan.FromMilliseconds(25);
-                while (_frameRateStopWatch.Elapsed < targetEnd)
+                var frameEnd = _frameRateStopWatch.Elapsed;
+                var sendTime = TimeSpan.FromMilliseconds(25) - (frameEnd - frameStart);
+                if (sendTime.TotalMilliseconds > 0)
                 {
-                    Thread.SpinWait(100);
+#if WINDOWS
+                    // Busy-wait on Windows — SpinWait.SpinUntil uses Environment.TickCount
+                    // which has ~15.6ms resolution, causing frame time overshoot
+                    var targetEnd = frameStart + TimeSpan.FromMilliseconds(25);
+                    while (_frameRateStopWatch.Elapsed < targetEnd)
+                    {
+                        Thread.SpinWait(100);
+                    }
+#else
+                    SpinWait.SpinUntil(() => false, sendTime);
+#endif
                 }
             }
             } // try
