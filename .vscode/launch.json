@@ -10,16 +10,7 @@
             "request": "launch",
             "preLaunchTask": "maui: Build",
             "configuration": "Debug",
-            "targetFramework": "net8.0-maccatalyst"
-        },
-        {
-            "name": "C#",
-            "type": "coreclr",
-            //"preLaunchTask": "dotnet: build",
-            "request": "launch",
-            "program": "${workspaceFolder}/bin/Debug/net8.0/ShowControl.dll",
-            "justMyCode": false,
-            "enableStepFiltering": false
+            "targetFramework": "net9.0-maccatalyst"
         }
     ]
 }
