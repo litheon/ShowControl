@@ -58,14 +58,14 @@ namespace ShowControl.ControlPanel.Maui
             Console.WriteLine("Do platform initialization");
             //result.Services.GetRequiredService<IInputService>().DoPlatformInitalization();
 
-#if MACCATALYST
+#if MACCATALYST || WINDOWS
             // Subscribe to the preview window requested event
             var graphicsHost = result.Services.GetRequiredService<IGraphicsHost>();
             graphicsHost.PreviewWindowRequested += OnPreviewWindowRequested;
 #endif
         }
 
-#if MACCATALYST
+#if MACCATALYST || WINDOWS
         private void OnPreviewWindowRequested(object? sender, ShowControl.Graphics.PreviewWindowRequestedEventArgs e)
         {
             try
@@ -87,8 +87,6 @@ namespace ShowControl.ControlPanel.Maui
                 var window = new Window(previewPage)
                 {
                     Title = "Graphics Preview",
-                    Width = e.Width,
-                    Height = e.Height
                 };
 
                 // Delay to allow main window to fully initialize (timing issue)

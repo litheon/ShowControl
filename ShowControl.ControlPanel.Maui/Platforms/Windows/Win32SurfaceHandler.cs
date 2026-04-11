@@ -211,22 +211,15 @@ namespace ShowControl.ControlPanel.Maui.Platforms.Windows
 
         private Microsoft.UI.Xaml.Window? GetParentWindow()
         {
-            if (XamlRoot?.Content is FrameworkElement fe)
+            // In WinUI3 Desktop / MAUI, get window through MAUI application's windows collection
+            var mauiApp = Microsoft.Maui.Controls.Application.Current;
+            if (mauiApp?.Windows?.Count > 0)
             {
-                // Walk up to find the Window
-                var current = fe;
-                while (current != null)
+                var mauiWindow = mauiApp.Windows[0];
+                if (mauiWindow?.Handler?.PlatformView is Microsoft.UI.Xaml.Window xamlWindow)
                 {
-                    if (current is Microsoft.UI.Xaml.Window window)
-                        return window;
-                    current = current.Parent as FrameworkElement;
+                    return xamlWindow;
                 }
-            }
-
-            // Fallback: try to get the main window
-            if (Application.Current is Microsoft.Maui.MauiWinUIApplication app)
-            {
-                return app.MainWindow;
             }
 
             return null;

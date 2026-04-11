@@ -3,11 +3,13 @@ using System.Collections.Generic;
 using System.Text;
 using System.Runtime.InteropServices;
 using System.Linq;
+#if MACCATALYST
 using ObjCRuntime;
+#endif
 
 namespace ShowControl.Devices.Input
 {
-    #if MACCATALYST
+#if MACCATALYST
     public partial class InputService
     {
         IntPtr midiClient;
@@ -121,5 +123,5 @@ namespace ShowControl.Devices.Input
             }
         }
     }
-    #endif
+#endif
 }

@@ -26,13 +26,10 @@ using CoreGraphics;
 using CoreAnimation;
 using Foundation;
 using ObjCRuntime;
+#elif WINDOWS
+using ShowControl.Graphics.Platforms.Windows;
 #endif
 
-#if WINDOWS
-using Silk.NET.Maths;
-using IWindow = Silk.NET.Windowing.IWindow;
-using Silk.NET.Windowing;
-#endif
 
 namespace ShowControl.Graphics
 {
@@ -61,10 +58,6 @@ namespace ShowControl.Graphics
             public float   Param4;             //  4  = 40 bytes total
         }
 
-#if WINDOWS
-        private Silk.NET.Windowing.IWindow _window;
-        private Silk.NET.Windowing.IWindow _presentWindow;
-#endif
         private Vk _vk;
         private Instance _instance;
         private SurfaceKHR _surface;
@@ -172,8 +165,19 @@ namespace ShowControl.Graphics
         public float ShaderParam4 { get; set; }
 
         private bool PRESENT = false; // set false to run headless (no window present)
+        private bool PRESENT_DCOMP = false; // DirectComposition mode (Vulkan/D3D11 interop)
         private Extent2D _offscreenExtent;
         private CommandBuffer[] _cmds;
+
+#if WINDOWS
+        // DirectComposition interop fields
+        private VulkanExternalMemory? _vulkanExternalMemory;
+        private IDirectCompositionPresenter? _dcompPresenter;
+        private uint _dcompWidth;
+        private uint _dcompHeight;
+        private ulong _dcompMutexAcquireKey = 0;
+        private ulong _dcompMutexReleaseKey = 1;
+#endif
 
         private volatile bool _running;
         private Thread _renderThread;
@@ -185,6 +189,8 @@ namespace ShowControl.Graphics
         private volatile bool _tearingDownWSI = false;
         private volatile bool _resizePending = false;
         private bool _previewWindowOpen = false;
+        private bool _loggedPresentStart = false;
+        private bool _loggedFirstPresent = false;
         private CancellationTokenSource? _resizeDebounceToken;
         private uint _pendingResizeWidth;
         private uint _pendingResizeHeight;
@@ -198,14 +204,10 @@ namespace ShowControl.Graphics
                 System.Diagnostics.Debug.WriteLine("[GraphicsHost] Calling RunHeadless()");
                 RunHeadless();
                 System.Diagnostics.Debug.WriteLine("[GraphicsHost] RunHeadless() completed");
-#if MACCATALYST
-                // Auto-open preview window on Mac Catalyst
+                // Auto-open preview window
                 System.Diagnostics.Debug.WriteLine("[GraphicsHost] Calling ShowPreviewWindow()");
                 ShowPreviewWindow();
                 System.Diagnostics.Debug.WriteLine("[GraphicsHost] ShowPreviewWindow() dispatched");
-#elif WINDOWS
-                ShowHeadlessInWindow();
-#endif
             }
             catch (Exception e)
             {
@@ -245,127 +247,6 @@ namespace ShowControl.Graphics
             _renderThread?.Join();
 
         }
-
-#if WINDOWS
-        public unsafe void ShowHeadlessInWindow(int width = 800, int height = 600, string title = "Viewer")
-        {
-            // We assume instance/device already have WSI + swapchain enabled.
-            // We also assume your off-screen renderer is already running (RunHeadless or similar).
-
-            var opts = WindowOptions.DefaultVulkan;
-            opts.Size = new Vector2D<int>(width, height);
-            opts.Title = title;
-
-            var window = Silk.NET.Windowing.Window.Create(opts);
-            window.Load += () =>
-            {
-                // Match the off-screen format you used
-                var offFormat = Format.R8G8B8A8Srgb;
-                var offColorCS = ColorSpaceKHR.ColorspaceSrgbNonlinearKhr;
-                var extent = new Extent2D((uint)width, (uint)height);
-
-                EnablePresentation(window, extent, offFormat, offColorCS);
-
-                _graphicsQueueIndex = CreateOrRecreateSwapchainPinned(window);
-
-                // Tell OnRender to execute the present path (Acquire->Blit->Present)
-                PRESENT = true;
-
-                // Optional: drive your render from the window loop instead of a background thread:
-                // _running = false; // stop your headless loop if you prefer single-driver
-            };
-
-            window.Closing += () =>
-            {
-                _isClosing = true;
-                PRESENT = false;
-                _imageAcquired = false;
-                _tearingDownWSI = true;
-                // Quiesce GPU before destroying swapchain or semaphores
-                _vk.QueueWaitIdle(_graphicsQueue);
-
-                // 3) Destroy WSI resources ONLY (keep device/offscreen alive)
-                DestroyPerImageSyncObjects(); // destroys _renderFinishedByImage[]
-                if (_swapchain.Handle != 0)
-                {
-                    _swapchainExtension.DestroySwapchain(_device, _swapchain, null);
-                    _swapchain = default;
-                }
-                if (_surface.Handle != 0)
-                {
-                    _khrSurface.DestroySurface(_instance, _surface, null);
-                    _surface = default;
-                }
-
-                // 4) Clear swapchain-dependent arrays so OnRender can’t touch them
-                _swapchainImages = null;
-                _acquiredImageIndex = 0;
-
-                _tearingDownWSI = false;
-                _isClosing = false; // allow future re-open if you want
-            };
-
-            // Use the window's Render event to call your OnRender (single driving loop),
-            // or keep your background loop and just let OnRender see PRESENT=true.
-            //window.Render += OnRender;
-
-            window.Run();
-        }
-        private unsafe void EnablePresentation(IWindow window, Extent2D size, Format format, ColorSpaceKHR colorSpace)
-        {
-            _presentWindow = window;
-            _khrSurface = new KhrSurface(_vk.Context);
-
-            // 1) Surface from existing instance
-            _surface = _presentWindow.VkSurface!.Create<AllocationCallbacks>(_instance.ToHandle(), null).ToSurface();
-
-            // 2) Swapchain loader
-            _swapchainExtension = new KhrSwapchain(_vk.Context);
-
-            // 3) Create swapchain (we blit into it, so TRANSFER_DST is enough)
-            var swapchainInfo = new SwapchainCreateInfoKHR(
-                surface: _surface,
-                minImageCount: 2,
-                imageFormat: format,          // must match your off-screen format if you want a straight blit
-                imageColorSpace: colorSpace,
-                imageExtent: size,
-                imageArrayLayers: 1,
-                imageUsage: ImageUsageFlags.ImageUsageTransferDstBit,
-                imageSharingMode: SharingMode.Exclusive,
-                preTransform: SurfaceTransformFlagsKHR.SurfaceTransformIdentityBitKhr,
-                compositeAlpha: CompositeAlphaFlagsKHR.CompositeAlphaOpaqueBitKhr,
-                presentMode: PresentModeKHR.PresentModeFifoKhr,
-                clipped: true
-            );
-            unsafe
-            {
-                uint extCount = 0;
-                _vk.EnumerateDeviceExtensionProperties(_physicalDevice, (byte*)null, ref extCount, null);
-                var extProps = new ExtensionProperties[extCount];
-                fixed (ExtensionProperties* p = extProps)
-                    _vk.EnumerateDeviceExtensionProperties(_physicalDevice, (byte*)null, ref extCount, p);
-
-                bool hasSwapchain = false;
-                foreach (var e in extProps)
-                    if (SilkMarshal.PtrToString((nint)e.ExtensionName) == "VK_KHR_swapchain")
-                    { hasSwapchain = true; break; }
-
-                if (!hasSwapchain) throw new Exception("VK_KHR_swapchain not supported on this device.");
-            }
-            if (_surface.Handle == 0) throw new Exception("SurfaceKHR is null/invalid.");
-            _swapchainExtension.CreateSwapchain(_device, ref swapchainInfo, null, out _swapchain);
-
-            // 4) Fetch swapchain images
-            uint count = 0;
-            _swapchainExtension.GetSwapchainImages(_device, _swapchain, ref count, null);
-            _imageSerial = new ulong[count];
-            _swapchainImages = new Image[count];
-            fixed (Image* p = _swapchainImages)
-                _swapchainExtension.GetSwapchainImages(_device, _swapchain, &count, p);
-
-            CreatePerImageSyncObjects(count);
-        }
-#endif
 
         // Shared methods used by both ARM64 and non-ARM64 presentation code
         private unsafe uint FindPresentQueueFamily(PhysicalDevice pd, SurfaceKHR surface)
@@ -424,148 +305,6 @@ namespace ShowControl.Graphics
             // Last resort (shouldn't happen on a valid surface):
             return identity;
         }
-
-#if WINDOWS
-        private unsafe uint CreateOrRecreateSwapchainPinned(IWindow window)
-        {
-            _vk.QueueWaitIdle(_graphicsQueue);
-
-            if (_surface.Handle == 0) throw new Exception("Surface not created. Call EnablePresentation first.");
-
-
-            // --- Surface caps / formats / modes ---
-            _khrSurface.GetPhysicalDeviceSurfaceCapabilities(_physicalDevice, _surface, out var caps);
-            Extent2D extent;
-            if (caps.CurrentExtent.Width != uint.MaxValue)
-            {
-                extent = caps.CurrentExtent;
-            }
-            else
-            {
-                var w = (uint)window.Size.X;
-                var h = (uint)window.Size.Y;
-                if (w == 0 || h == 0) return uint.MaxValue;  // <-- don’t create a swapchain now
-                extent = new Extent2D(
-                    Math.Clamp(w, caps.MinImageExtent.Width, caps.MaxImageExtent.Width),
-                    Math.Clamp(h, caps.MinImageExtent.Height, caps.MaxImageExtent.Height)
-                );
-            }
-
-            uint fmtCount = 0;
-            if (_khrSurface.GetPhysicalDeviceSurfaceFormats(_physicalDevice, _surface, ref fmtCount, null) != Result.Success)
-            {
-                throw new Exception("Something failed");
-            }
-            var fmts = new SurfaceFormatKHR[fmtCount];
-            fixed (SurfaceFormatKHR* p = fmts)
-            {
-                if (_khrSurface.GetPhysicalDeviceSurfaceFormats(_physicalDevice, _surface, ref fmtCount, p) != Result.Success)
-                {
-                    throw new Exception("Something failed");
-                }
-            }
-            if (fmtCount == 0) throw new Exception("No surface formats.");
-
-            uint modeCount = 0; _khrSurface.GetPhysicalDeviceSurfacePresentModes(_physicalDevice, _surface, ref modeCount, null);
-            var modes = new PresentModeKHR[modeCount];
-            fixed (PresentModeKHR* p = modes) _khrSurface.GetPhysicalDeviceSurfacePresentModes(_physicalDevice, _surface, ref modeCount, p);
-            if (modeCount == 0) throw new Exception("No present modes.");
-
-            // Prefer B8G8R8A8_SRGB to match your off-screen format
-            var pickFmt = fmts[0];
-            foreach (var f in fmts)
-                if (f.Format == Format.R8G8B8A8Srgb && f.ColorSpace == ColorSpaceKHR.ColorspaceSrgbNonlinearKhr)
-                { pickFmt = f; break; }
-
-            var presentMode = PresentModeKHR.PresentModeFifoKhr; // always supported
-
-            // Image count
-            uint imageCount = Math.Max(2, caps.MinImageCount);
-            if (caps.MaxImageCount > 0 && imageCount > caps.MaxImageCount) imageCount = caps.MaxImageCount;
-
-            // Queue family setup
-            uint gfxQ = 0;                // your function
-            uint presentQ = FindPresentQueueFamily(_physicalDevice, _surface); // see helper below
-
-            var preTransform = PickPreTransform(caps);
-            var sci = new SwapchainCreateInfoKHR
-            {
-                SType = StructureType.SwapchainCreateInfoKhr,
-                Surface = _surface,
-                MinImageCount = imageCount,
-                ImageFormat = pickFmt.Format,
-                ImageColorSpace = pickFmt.ColorSpace,
-                ImageExtent = extent,
-                ImageArrayLayers = 1,
-                ImageUsage = ImageUsageFlags.ImageUsageTransferDstBit, // we blit into it
-                PreTransform = preTransform,
-                CompositeAlpha = CompositeAlphaFlagsKHR.CompositeAlphaOpaqueBitKhr,
-                PresentMode = presentMode,
-                Clipped = true,
-                OldSwapchain = _swapchain
-            };
-
-            Result res;
-
-            if (gfxQ == presentQ)
-            {
-                // Exclusive sharing, no indices pointer
-                sci.ImageSharingMode = SharingMode.Exclusive;
-                sci.QueueFamilyIndexCount = 0;
-                sci.PQueueFamilyIndices = null;
-
-                res = _swapchainExtension.CreateSwapchain(_device, ref sci, null, out var newSwap);
-                if (res != Result.Success) throw new Exception($"vkCreateSwapchainKHR failed: {res}");
-                if (_swapchain.Handle != 0)
-                {
-                    _vk.QueueWaitIdle(_graphicsQueue);
-                    DestroyPerImageSyncObjects();
-                    _swapchainExtension.DestroySwapchain(_device, _swapchain, null);
-                }
-                _swapchain = newSwap;
-            }
-            else
-            {
-                // Concurrent sharing: PIN the array across the call
-                uint[] indices = new uint[] { gfxQ, presentQ };
-                fixed (uint* pIdx = indices)
-                {
-                    sci.ImageSharingMode = SharingMode.Concurrent;
-                    sci.QueueFamilyIndexCount = 2;
-                    sci.PQueueFamilyIndices = pIdx;
-
-                    res = _swapchainExtension.CreateSwapchain(_device, ref sci, null, out var newSwap);
-                    if (res != Result.Success) throw new Exception($"vkCreateSwapchainKHR failed: {res}");
-                    if (_swapchain.Handle != 0)
-                    {
-                        DestroyPerImageSyncObjects();
-                        _swapchainExtension.DestroySwapchain(_device, _swapchain, null);
-                    }
-                    _swapchain = newSwap;
-                } // <- pointer stays valid until after the call returns
-            }
-
-            // Fetch images
-            uint count = 0;
-            _swapchainExtension.GetSwapchainImages(_device, _swapchain, ref count, null);
-            _swapchainImages = new Image[count];
-            fixed (Image* pImgs = _swapchainImages)
-                _swapchainExtension.GetSwapchainImages(_device, _swapchain, ref count, pImgs);
-
-            _imageAcquired = false;
-            _acquiredImageIndex = 0;
-
-            DestroyPerImageSyncObjects();
-            _renderFinishedByImage = new Semaphore[count];
-            var semInfo = new SemaphoreCreateInfo { SType = StructureType.SemaphoreCreateInfo };
-            for (int i = 0; i < _renderFinishedByImage.Length; i++)
-                _vk.CreateSemaphore(_device, semInfo, null, out _renderFinishedByImage[i]);
-
-            _swapExtent = extent; // keep for blit
-
-            return gfxQ;
-        }
-#endif
 
 #if MACCATALYST
         private nint _metalLayerPtr;
@@ -1001,6 +740,47 @@ namespace ShowControl.Graphics
         // Stub implementations for non-MACCATALYST builds
         public event EventHandler<PreviewWindowRequestedEventArgs>? PreviewWindowRequested;
 
+        /// <summary>
+        /// Requests the MAUI app to open a preview window.
+        /// The app should handle the PreviewWindowRequested event.
+        /// </summary>
+        public void ShowPreviewWindow()
+        {
+            if (_previewWindowOpen)
+            {
+                return;
+            }
+
+            System.Diagnostics.Debug.WriteLine("[GraphicsHost] Requesting preview window from MAUI app...");
+            _previewWindowOpen = true;
+
+            // Wait for event handler to be subscribed (race condition with MainPage.Initialize)
+            Task.Run(async () =>
+            {
+                // Wait up to 5 seconds for a handler to be subscribed
+                for (int i = 0; i < 50 && PreviewWindowRequested == null; i++)
+                {
+                    await Task.Delay(100);
+                }
+
+                if (PreviewWindowRequested == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("[GraphicsHost] No handler subscribed to PreviewWindowRequested after 5 seconds");
+                    _previewWindowOpen = false;
+                    return;
+                }
+
+                // Raise event on main thread
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    PreviewWindowRequested?.Invoke(this, new PreviewWindowRequestedEventArgs(
+                        _offscreenExtent.Width,
+                        _offscreenExtent.Height
+                    ));
+                });
+            });
+        }
+
         public void EnableMetalPresentation(nint metalLayerPtr, uint width, uint height)
         {
             // Not supported on this platform
@@ -1080,9 +860,12 @@ namespace ShowControl.Graphics
             _swapchainExtension = new KhrSwapchain(_vk.Context);
             CreateSwapchainForWin32Surface(width, height);
 
+            System.Diagnostics.Debug.WriteLine($"[GraphicsHost] Swapchain created: handle={_swapchain.Handle}, images={_swapchainImages?.Length ?? -1}, extent={_swapExtent.Width}x{_swapExtent.Height}");
+
             // Enable presentation
             PRESENT = true;
             _previewWindowOpen = true;
+            System.Diagnostics.Debug.WriteLine($"[GraphicsHost] Presentation enabled: PRESENT={PRESENT}");
         }
 
         private unsafe void CreateSwapchainForWin32Surface(uint width, uint height)
@@ -1159,6 +942,7 @@ namespace ShowControl.Graphics
         /// </summary>
         public void HandleWin32SurfaceResize(uint width, uint height)
         {
+            System.Diagnostics.Debug.WriteLine($"[GraphicsHost] HandleWin32SurfaceResize: {width}x{height}, surface={_surface.Handle}");
             if (width == 0 || height == 0) return;
             if (_surface.Handle == 0) return;
 
@@ -1167,6 +951,7 @@ namespace ShowControl.Graphics
             _pendingResizeWidth = width;
             _pendingResizeHeight = height;
             _resizePending = true;
+            System.Diagnostics.Debug.WriteLine($"[GraphicsHost] Set _resizePending = true");
 
             // Cancel any pending resize
             _resizeDebounceToken?.Cancel();
@@ -1181,8 +966,10 @@ namespace ShowControl.Graphics
                     await Task.Delay(100, token);
                     if (!token.IsCancellationRequested)
                     {
+                        System.Diagnostics.Debug.WriteLine($"[GraphicsHost] Debounce complete, recreating swapchain");
                         RecreateWin32Swapchain(_pendingResizeWidth, _pendingResizeHeight);
                         _resizePending = false;
+                        System.Diagnostics.Debug.WriteLine($"[GraphicsHost] Set _resizePending = false");
                     }
                 }
                 catch (TaskCanceledException) { }
@@ -1276,6 +1063,88 @@ namespace ShowControl.Graphics
                 _recreatingSwapchain = false;
             }
         }
+
+        /// <summary>
+        /// Enables DirectComposition presentation mode using Vulkan/D3D11 interop.
+        /// This allows XAML overlays on top of Vulkan content.
+        /// </summary>
+        public unsafe void EnableDirectCompositionPresentation(IDirectCompositionPresenter presenter, uint width, uint height)
+        {
+            if (PRESENT_DCOMP) return;
+
+            System.Diagnostics.Debug.WriteLine($"[GraphicsHost] EnableDirectCompositionPresentation: requested {width}x{height}");
+
+            _dcompPresenter = presenter;
+
+            // D3D11 creates the shared texture first
+            var sharedHandle = presenter.CreateSharedTexture(width, height);
+
+            // Get actual dimensions from D3D11 (in case they differ)
+            _dcompWidth = presenter.Width;
+            _dcompHeight = presenter.Height;
+
+            System.Diagnostics.Debug.WriteLine($"[GraphicsHost] EnableDirectCompositionPresentation: actual D3D11 size {_dcompWidth}x{_dcompHeight}, handle=0x{sharedHandle:X}");
+
+            // Vulkan imports the D3D11 shared texture at actual size
+            _vulkanExternalMemory = new VulkanExternalMemory(_vk, _instance, _device, _physicalDevice);
+            _vulkanExternalMemory.ImportSharedTexture(sharedHandle, _dcompWidth, _dcompHeight, _graphicsQueueIndex);
+
+            // Enable DirectComposition presentation
+            PRESENT_DCOMP = true;
+            _previewWindowOpen = true;
+            System.Diagnostics.Debug.WriteLine($"[GraphicsHost] DirectComposition presentation enabled at {_dcompWidth}x{_dcompHeight}");
+        }
+
+        /// <summary>
+        /// Handles resize of the DirectComposition surface.
+        /// </summary>
+        public void HandleDirectCompositionResize(uint width, uint height)
+        {
+            if (width == 0 || height == 0) return;
+            if (!PRESENT_DCOMP) return;
+
+            // Don't resize the D3D11 swap chain or shared texture.
+            // SwapChainPanel's Scaling.Stretch will handle scaling the content to fit the window.
+            // This avoids complex D3D11/Vulkan interop issues during resize.
+            System.Diagnostics.Debug.WriteLine($"[GraphicsHost] HandleDirectCompositionResize: {width}x{height} (letting SwapChainPanel scale)");
+        }
+
+        private unsafe void RecreateDirectCompositionSharedImage(uint width, uint height)
+        {
+            _recreatingSwapchain = true;
+            _vk.QueueWaitIdle(_graphicsQueue);
+
+            try
+            {
+                if (_vulkanExternalMemory != null && _dcompPresenter != null)
+                {
+                    // D3D11 resizes and recreates the shared texture
+                    var newHandle = _dcompPresenter.Resize(width, height);
+
+                    if (newHandle == 0)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[GraphicsHost] RecreateDirectCompositionSharedImage: D3D11 returned invalid handle, skipping Vulkan import");
+                        return;
+                    }
+
+                    // Get actual dimensions from D3D11 (may differ from requested if resize failed)
+                    var actualWidth = _dcompPresenter.Width;
+                    var actualHeight = _dcompPresenter.Height;
+                    _dcompWidth = actualWidth;
+                    _dcompHeight = actualHeight;
+
+                    // Vulkan re-imports the new D3D11 texture at actual size
+                    System.Diagnostics.Debug.WriteLine($"[GraphicsHost] RecreateDirectCompositionSharedImage: Importing handle 0x{newHandle:X} at {actualWidth}x{actualHeight}");
+                    _vulkanExternalMemory.ImportSharedTexture(newHandle, actualWidth, actualHeight, _graphicsQueueIndex);
+                }
+
+                System.Diagnostics.Debug.WriteLine($"[GraphicsHost] Recreated DirectComposition shared image: {_dcompWidth}x{_dcompHeight}");
+            }
+            finally
+            {
+                _recreatingSwapchain = false;
+            }
+        }
 #else
         // Stubs for non-Windows platforms (e.g., plain net8.0)
         public void OnPreviewWindowClosed()
@@ -1290,6 +1159,16 @@ namespace ShowControl.Graphics
         }
 
         public void HandleWin32SurfaceResize(uint width, uint height)
+        {
+            // Not supported on this platform
+        }
+
+        public void EnableDirectCompositionPresentation(IDirectCompositionPresenter presenter, uint width, uint height)
+        {
+            // Not supported on this platform
+        }
+
+        public void HandleDirectCompositionResize(uint width, uint height)
         {
             // Not supported on this platform
         }
@@ -1385,6 +1264,8 @@ namespace ShowControl.Graphics
             instExts.Add("VK_EXT_metal_surface");  // Standard extension for Metal interop
 #else
             instExts.Add("VK_KHR_win32_surface");
+            instExts.Add("VK_KHR_external_memory_capabilities");
+            instExts.Add("VK_KHR_external_semaphore_capabilities");
 #endif
             instExts.Add("VK_KHR_surface");
             instExts.Add("VK_EXT_debug_utils");
@@ -1441,6 +1322,14 @@ namespace ShowControl.Graphics
 #if MACCATALYST
             // MoltenVK requires this device extension
             devExts.Add("VK_KHR_portability_subset");
+#else
+            // External memory extensions for DirectX interop
+            devExts.Add("VK_KHR_external_memory");
+            devExts.Add("VK_KHR_external_memory_win32");
+            devExts.Add("VK_KHR_external_semaphore");
+            devExts.Add("VK_KHR_external_semaphore_win32");
+            devExts.Add("VK_KHR_dedicated_allocation");  // Required for D3D11 texture import
+            devExts.Add("VK_KHR_get_memory_requirements2");  // Required for dedicated allocation
 #endif
             var devExtPtr = SilkMarshal.StringArrayToPtr(devExts.ToArray());
 
@@ -1926,6 +1815,15 @@ namespace ShowControl.Graphics
             }
             // Skip presentation if resize is pending (swapchain size doesn't match window)
             var present = PRESENT && !_resizePending;
+            if (PRESENT && !_loggedPresentStart)
+            {
+                _loggedPresentStart = true;
+                System.Diagnostics.Debug.WriteLine($"[GraphicsHost] OnRender: PRESENT mode active, _resizePending={_resizePending}, present={present}");
+            }
+            if (PRESENT && _resizePending)
+            {
+                System.Diagnostics.Debug.WriteLine("[GraphicsHost] OnRender: Skipping presentation due to _resizePending");
+            }
             try
             {
             // Decide ring slot we're writing this frame:
@@ -1960,7 +1858,10 @@ namespace ShowControl.Graphics
             {
                 // Bail if swapchain not ready
                 if (_swapchain.Handle == 0 || _swapchainImages == null || _swapchainImages.Length == 0)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[GraphicsHost] OnRender: Swapchain not ready - handle={_swapchain.Handle}, images={_swapchainImages?.Length ?? -1}");
                     return;
+                }
 
                 // If we don’t already own an image, try to acquire one with finite timeout
                 if (!_imageAcquired)
@@ -1982,7 +1883,7 @@ namespace ShowControl.Graphics
                         // Trigger your swapchain recreate path here
                         BeginSwapchainRecreate();
 #if WINDOWS
-                        _graphicsQueueIndex = CreateOrRecreateSwapchainPinned(_presentWindow);
+                        RecreateWin32Swapchain(_win32SurfaceWidth, _win32SurfaceHeight);
 #endif
                         EndSwapchainRecreate();
                         return;
@@ -2234,12 +2135,60 @@ namespace ShowControl.Graphics
                 _vk.CmdCopyImageToBuffer(cmd, _offscreenImage, ImageLayout.TransferSrcOptimal, dst, 1, &region);
             }
 
+            // DirectComposition mode: blit to shared image for D3D11 presentation
+#if WINDOWS
+            bool presentDcomp = PRESENT_DCOMP && !_resizePending && _vulkanExternalMemory != null;
+            if (presentDcomp)
+            {
+                // Use actual Vulkan shared image dimensions for the blit destination
+                var dstWidth = _vulkanExternalMemory!.Width;
+                var dstHeight = _vulkanExternalMemory.Height;
+
+                // Debug: log dimensions being used
+                if (_currentFrame == 0)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[GraphicsHost] DComp blit: offscreen={_offscreenExtent.Width}x{_offscreenExtent.Height} -> sharedImage={dstWidth}x{dstHeight}");
+                }
+
+                // Blit offscreen image to shared image for D3D11
+                _vulkanExternalMemory.TransitionImageLayout(cmd, ImageLayout.Undefined, ImageLayout.TransferDstOptimal);
+
+                ImageBlit dcompBlit = new()
+                {
+                    SrcSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
+                    SrcOffsets = new ImageBlit.SrcOffsetsBuffer
+                    {
+                        Element0 = new(0, 0, 0),
+                        Element1 = new((int)_offscreenExtent.Width, (int)_offscreenExtent.Height, 1)
+                    },
+                    DstSubresource = new ImageSubresourceLayers(ImageAspectFlags.ColorBit, 0, 0, 1),
+                    DstOffsets = new ImageBlit.DstOffsetsBuffer
+                    {
+                        Element0 = new(0, 0, 0),
+                        Element1 = new((int)dstWidth, (int)dstHeight, 1)
+                    }
+                };
+
+                _vk.CmdBlitImage(
+                    cmd,
+                    _offscreenImage, ImageLayout.TransferSrcOptimal,
+                    _vulkanExternalMemory.SharedImage, ImageLayout.TransferDstOptimal,
+                    1, &dcompBlit, Filter.Linear
+                );
+
+                // Transition shared image to shader read for D3D11 to access
+                _vulkanExternalMemory.TransitionImageLayout(cmd, ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal);
+            }
+#endif
+
             // If we're presenting, blit the off-screen image into the swapchain image
             if (present)
             {
+                System.Diagnostics.Debug.WriteLine($"[GraphicsHost] Blitting to swapchain, extent={_swapExtent.Width}x{_swapExtent.Height}, imageIndex={imageIndex}");
                 if (_swapExtent.Width == 0 || _swapExtent.Height == 0)
                 {
                     // Skip frame will resizing
+                    System.Diagnostics.Debug.WriteLine("[GraphicsHost] Skipping blit - extent is 0");
                     return;
                 }
 
@@ -2420,11 +2369,16 @@ namespace ShowControl.Graphics
                             pImageIndices: &imageIndex
                         );
                         var pres = _swapchainExtension.QueuePresent(_graphicsQueue, presentInfo);
+                        if (!_loggedFirstPresent)
+                        {
+                            _loggedFirstPresent = true;
+                            System.Diagnostics.Debug.WriteLine($"[GraphicsHost] First QueuePresent result: {pres}");
+                        }
                         _imageAcquired = false;
                         if ((pres == Result.ErrorOutOfDateKhr || pres == Result.SuboptimalKhr) && !_isClosing)
                         {
 #if WINDOWS
-                            _graphicsQueueIndex = CreateOrRecreateSwapchainPinned(_presentWindow);
+                            RecreateWin32Swapchain(_win32SurfaceWidth, _win32SurfaceHeight);
 #endif
                             return;
                         }
@@ -2434,15 +2388,26 @@ namespace ShowControl.Graphics
             }
             else
             {
-
-
-                // No presentation path: just submit the off-screen work
+                // No swapchain presentation path: just submit the off-screen work
                 var res = _vk.QueueSubmit(_graphicsQueue, 1, ref submitInfo, _submitFence);
                 if (res != Result.Success)
                 {
                     System.Diagnostics.Debug.Print($"QueueSubmit failed: {res}");
                     throw new Exception($"QueueSubmit failed: {res}");
                 }
+
+#if WINDOWS
+                // DirectComposition: after Vulkan submit completes, trigger D3D11 presentation
+                if (presentDcomp && _dcompPresenter != null)
+                {
+                    // Wait for Vulkan to finish before D3D11 accesses the shared texture
+                    _vk.WaitForFences(_device, 1, in _submitFence, true, ulong.MaxValue);
+
+                    // D3D11 copies shared texture to swapchain and presents
+                    // Using dummy mutex keys since we're using CPU synchronization
+                    _dcompPresenter.CopyAndPresent(0, 0);
+                }
+#endif
             }
 
             // Only update slot tracking if we actually used a staging slot

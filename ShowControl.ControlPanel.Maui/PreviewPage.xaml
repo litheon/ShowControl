@@ -4,6 +4,15 @@
              xmlns:graphics="clr-namespace:ShowControl.Graphics;assembly=ShowControl.Graphics"
              x:Class="ShowControl.ControlPanel.Maui.PreviewPage"
              Title="Graphics Preview"
-             BackgroundColor="Black">
-    <graphics:VulkanSurfaceView x:Name="vulkanSurface" />
+             >
+
+    <Grid BackgroundColor="Transparent">
+        <graphics:VulkanSurfaceView x:Name="vulkanSurface" />
+        <Polyline
+        Stroke="Red"
+        StrokeThickness="2"
+        Points="0,50 50,0 100,50">
+        </Polyline>
+    </Grid>
+    
 </ContentPage>

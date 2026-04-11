@@ -41,7 +41,10 @@ namespace ShowControl.ControlPanel.Maui
                     handlers.AddHandler<MetalSurfaceView, MetalSurfaceHandler>();
                     handlers.AddHandler<VulkanSurfaceView, VulkanSurfaceHandler>();
 #elif WINDOWS
-                    handlers.AddHandler<VulkanSurfaceView, Win32SurfaceHandler>();
+                    // Use SwapChainPanelHandler for DirectComposition (enables XAML overlays on Vulkan content)
+                    handlers.AddHandler<VulkanSurfaceView, SwapChainPanelHandler>();
+                    // Alternatively, use Win32SurfaceHandler for direct Vulkan presentation (no XAML overlay support):
+                    // handlers.AddHandler<VulkanSurfaceView, Win32SurfaceHandler>();
 #endif
                 });
 

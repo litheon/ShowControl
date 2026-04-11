@@ -28,8 +28,12 @@
     <PackageReference Include="Silk.NET.Vulkan.Extensions.KHR" Version="2.22.0" />
     <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
   </ItemGroup>
-  <ItemGroup Condition="'$(OS)' == 'Windows_NT'">
-    <PackageReference Include="Silk.NET.Windowing" Version="2.22.0" />
+
+  <!-- Windows-only DirectX packages for Vulkan/D3D11 interop -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('windows'))">
+    <PackageReference Include="Silk.NET.Direct3D11" Version="2.22.0" />
+    <PackageReference Include="Silk.NET.DXGI" Version="2.22.0" />
+    <PackageReference Include="Silk.NET.DirectComposition" Version="2.22.0" />
   </ItemGroup>
 
   <!-- Shader files -->
