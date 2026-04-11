@@ -159,10 +159,10 @@ namespace ShowControl.Graphics
         public int Height { get; private set; }
         public System.Drawing.Color[] Colors { get; set; } = Array.Empty<System.Drawing.Color>();
         public float DistortionStrength { get; set; } = 0.12f;
-        public float ShaderParam1 { get; set; }
-        public float ShaderParam2 { get; set; }
-        public float ShaderParam3 { get; set; }
-        public float ShaderParam4 { get; set; }
+        public float ShaderParam1 { get; set; } = 10.0f;  // sectors (N) for kaleidoscope / blade count for clown
+        public float ShaderParam2 { get; set; } = 0.6f;   // animation speed
+        public float ShaderParam3 { get; set; } = 3.0f;   // radial color ring density (k base)
+        public float ShaderParam4 { get; set; } = 10.0f;  // flow pattern frequency
 
         private bool PRESENT = false; // set false to run headless (no window present)
         private bool PRESENT_DCOMP = false; // DirectComposition mode (Vulkan/D3D11 interop)
@@ -671,6 +671,16 @@ namespace ShowControl.Graphics
         }
 
         public void HandleWin32SurfaceResize(uint width, uint height)
+        {
+            // Not supported on this platform
+        }
+
+        public void EnableDirectCompositionPresentation(IDirectCompositionPresenter presenter, uint width, uint height)
+        {
+            // Not supported on this platform
+        }
+
+        public void HandleDirectCompositionResize(uint width, uint height)
         {
             // Not supported on this platform
         }
@@ -1268,7 +1278,9 @@ namespace ShowControl.Graphics
             instExts.Add("VK_KHR_external_semaphore_capabilities");
 #endif
             instExts.Add("VK_KHR_surface");
+#if !MACCATALYST
             instExts.Add("VK_EXT_debug_utils");
+#endif
             var instExtPtr = SilkMarshal.StringArrayToPtr(instExts.ToArray());
             var instFlags = InstanceCreateFlags.None;
 
@@ -1276,7 +1288,10 @@ namespace ShowControl.Graphics
 #if MACCATALYST
             instFlags |= (InstanceCreateFlags)InstanceCreateFlags.InstanceCreateEnumeratePortabilityBitKhr;
 #else
-            layers.Add("VK_LAYER_KHRONOS_validation");
+            if (IsInstanceLayerAvailable("VK_LAYER_KHRONOS_validation"))
+                layers.Add("VK_LAYER_KHRONOS_validation");
+            else
+                Console.WriteLine("[Vulkan] VK_LAYER_KHRONOS_validation not available — skipping validation layer");
 #endif
 
             
@@ -1298,6 +1313,10 @@ namespace ShowControl.Graphics
                 Console.WriteLine(result.ToString());
                 throw new Exception("Failed");
             }
+
+#if !MACCATALYST
+            SetupDebugMessenger();
+#endif
 
             _khrSurface = new KhrSurface(_vk.Context);
 #if WINDOWS
@@ -1541,6 +1560,21 @@ namespace ShowControl.Graphics
                 layout: _pipelineLayout, renderPass: _offscreenRenderPass, subpass: 0
             );
             _vk.CreateGraphicsPipelines(_device, default, 1, gpCI, null, out _pipeline);
+        }
+
+        private unsafe bool IsInstanceLayerAvailable(string layerName)
+        {
+            uint count = 0;
+            _vk.EnumerateInstanceLayerProperties(ref count, null);
+            var props = new LayerProperties[count];
+            fixed (LayerProperties* p = props)
+                _vk.EnumerateInstanceLayerProperties(ref count, p);
+            foreach (var prop in props)
+            {
+                if (SilkMarshal.PtrToString((nint)prop.LayerName) == layerName)
+                    return true;
+            }
+            return false;
         }
 
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
