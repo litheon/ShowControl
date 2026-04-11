@@ -180,8 +180,6 @@ namespace ShowControl.Graphics
         private bool PRESENT_DCOMP = false; // DirectComposition mode (Vulkan/D3D11 interop)
         private Extent2D _offscreenExtent;
         private CommandBuffer[] _cmds;
-        private volatile bool _presentInProgress = false;
-        private readonly object _queueLock = new object();
 
 #if WINDOWS
         // DirectComposition interop fields
@@ -191,6 +189,7 @@ namespace ShowControl.Graphics
         private uint _dcompHeight;
         private ulong _dcompMutexAcquireKey = 0;
         private ulong _dcompMutexReleaseKey = 1;
+        private volatile bool _presentInProgress = false;
 #endif
 
         private volatile bool _running;
@@ -1626,35 +1625,6 @@ namespace ShowControl.Graphics
         private ExtDebugUtils _debugUtils;
         private DebugUtilsMessengerEXT _debugMessenger;
 
-        private unsafe void SwapchainPresentAsync(SwapchainKHR swapchain, Semaphore renderFinished, uint imageIndex)
-        {
-            ThreadPool.UnsafeQueueUserWorkItem(state =>
-            {
-                var (sc, sig, idx) = ((SwapchainKHR, Semaphore, uint))state!;
-                try
-                {
-                    lock (_queueLock)
-                    {
-                        var pi = new PresentInfoKHR(
-                            waitSemaphoreCount: 1, pWaitSemaphores: &sig,
-                            swapchainCount: 1, pSwapchains: &sc,
-                            pImageIndices: &idx
-                        );
-                        var pres = _swapchainExtension.QueuePresent(_graphicsQueue, pi);
-                        _imageAcquired = false;
-                        if ((pres == Result.ErrorOutOfDateKhr || pres == Result.SuboptimalKhr) && !_isClosing)
-                        {
-                            _resizePending = true;
-                        }
-                    }
-                }
-                finally
-                {
-                    _presentInProgress = false;
-                }
-            }, (swapchain, renderFinished, imageIndex));
-        }
-
         private unsafe void DCompPresentAsync(IDirectCompositionPresenter presenter, ulong gpuValue)
         {
             ThreadPool.UnsafeQueueUserWorkItem(state =>
@@ -1938,7 +1908,7 @@ namespace ShowControl.Graphics
                 return;
             }
             // Skip presentation if resize is pending (swapchain size doesn't match window)
-            var present = PRESENT && !_resizePending && !_presentInProgress;
+            var present = PRESENT && !_resizePending;
             if (PRESENT && !_loggedPresentStart)
             {
                 _loggedPresentStart = true;
@@ -2477,31 +2447,43 @@ namespace ShowControl.Graphics
 
                     CommandBuffer* pCmd = &cmd;
                     ulong val;
-                    lock (_queueLock)
+                    var res = _vk.QueueSubmit(_graphicsQueue, 1, ref submitInfo, _submitFence);
+                    if (res != Result.Success)
                     {
-                        var res = _vk.QueueSubmit(_graphicsQueue, 1, ref submitInfo, _submitFence);
-                        if (res != Result.Success)
-                        {
-                            System.Diagnostics.Debug.Print($"QueueSubmit failed: {res}");
-                            throw new Exception($"QueueSubmit failed: {res}");
-                        }
+                        System.Diagnostics.Debug.Print($"QueueSubmit failed: {res}");
+                        throw new Exception($"QueueSubmit failed: {res}");
                     }
 
-                    // Present async — QueuePresent with FIFO blocks on vsync,
-                    // so run it on a background thread to keep the render loop free
-                    _presentInProgress = true;
+                    // Present waits on renderFinished
+                    fixed (SwapchainKHR* pSwap = &_swapchain)
+                    {
+                        var presentInfo = new PresentInfoKHR(
+                            waitSemaphoreCount: 1, pWaitSemaphores: pSignal,
+                            swapchainCount: 1, pSwapchains: pSwap,
+                            pImageIndices: &imageIndex
+                        );
+                        var pres = _swapchainExtension.QueuePresent(_graphicsQueue, presentInfo);
+                        if (!_loggedFirstPresent)
+                        {
+                            _loggedFirstPresent = true;
+                            System.Diagnostics.Debug.WriteLine($"[GraphicsHost] First QueuePresent result: {pres}");
+                        }
+                        _imageAcquired = false;
+                        if ((pres == Result.ErrorOutOfDateKhr || pres == Result.SuboptimalKhr) && !_isClosing)
+                        {
+#if WINDOWS
+                            RecreateWin32Swapchain(_win32SurfaceWidth, _win32SurfaceHeight);
+#endif
+                            return;
+                        }
+                    }
                     _imageSerial[imageIndex] = producedValue;
-                    SwapchainPresentAsync(_swapchain, renderFinishedForThisImage, imageIndex);
                 }
             }
             else
             {
                 // No swapchain presentation path: just submit the off-screen work
-                Result res;
-                lock (_queueLock)
-                {
-                    res = _vk.QueueSubmit(_graphicsQueue, 1, ref submitInfo, _submitFence);
-                }
+                var res = _vk.QueueSubmit(_graphicsQueue, 1, ref submitInfo, _submitFence);
                 if (res != Result.Success)
                 {
                     System.Diagnostics.Debug.Print($"QueueSubmit failed: {res}");
