@@ -67,6 +67,7 @@ namespace ShowControl.Host
                         .AddSingleton<IInputService, InputService>()
                         .AddSingleton<IAudioService, AudioService>()
                         .AddSingleton<IGraphicsHost, GraphicsHost>()
+                        .AddSingleton<IArtNetController, ArtNetController>()
                         .AddLogging()
                         .AddHostedService<RenderService>());
 
@@ -79,6 +80,7 @@ namespace ShowControl.Host
                         .AddSingleton<IInputService, InputService>()
                         .AddSingleton<IAudioService, AudioService>((sp) => new AudioService(sp.GetRequiredService<ILogger<AudioService>>(), audioFrameProcessedEventHandler))
                         .AddSingleton<IGraphicsHost, GraphicsHost>()
+                        .AddSingleton<IArtNetController, ArtNetController>()
                         .AddSingleton((_) => devices)
                         .AddLogging()
                         .AddHostedService<RenderService>());

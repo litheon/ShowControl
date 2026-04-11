@@ -63,6 +63,7 @@ namespace ShowControl.Rendering
         private static int _blinkIndex = 0;
 
         private readonly ILogger<RenderService> _logger;
+        private readonly IArtNetController _artNetController;
         private Stopwatch _frameRateStopWatch = new Stopwatch();
 
         private static void Blink(object state)
@@ -153,10 +154,12 @@ namespace ShowControl.Rendering
             IInputService inputService,
             IGraphicsHost graphicsHost,
             IAudioService audioService,
-            ILogger<RenderService> logger
+            ILogger<RenderService> logger,
+            IArtNetController artNetController
             )
         {
             _logger = logger;
+            _artNetController = artNetController;
             _deviceEnumerator = deviceEnumerator;
             _inputService = inputService;
             _audioService = audioService;
@@ -208,8 +211,9 @@ namespace ShowControl.Rendering
             IAudioService audioService,
             IGraphicsHost graphicsHost,
             Action<IDmxDevice[]> dmxDeviceAction,
-            ILogger<RenderService> logger
-            ) : this(deviceEnumerator, inputService, graphicsHost, audioService, logger)
+            ILogger<RenderService> logger,
+            IArtNetController artNetController
+            ) : this(deviceEnumerator, inputService, graphicsHost, audioService, logger, artNetController)
         {
             dmxDeviceAction(_devices);
         }
@@ -2502,9 +2506,17 @@ namespace ShowControl.Rendering
         private void RenderThreadLoop()
         {
             byte[] targetVector = new byte[22460];
-            ControllerInstance controllerInstance = new ControllerInstance(ArtNet.Instance);
             try
             {
+            // Pre-warm MatchIP routing caches by sending sequentially before the main loop.
+            // ArtNetSharp.NetworkClientBag.MatchIP caches routing results in non-thread-safe
+            // List<IPAddress> fields. If the first frame fires all sends in parallel and
+            // GetLocalIP fails during a race, the destination IP gets permanently blacklisted
+            // for the lifetime of the NetworkClientBag. Sequential sends here populate the
+            // cache once without contention.
+            foreach (IDmxOutputDevice outputDevice in _outputDevices)
+                outputDevice.Write(new byte[outputDevice.MaxChannels]).GetAwaiter().GetResult();
+
             while (!_cts.Token.IsCancellationRequested)
             {
                 _frameRateStopWatch.Start();
@@ -2549,15 +2561,17 @@ namespace ShowControl.Rendering
 
                 int take = 512;
                 int skip = 0;
+                var writeTasks = new System.Collections.Generic.List<Task>(_outputDevices.Length);
                 foreach (IDmxOutputDevice outputDevice in _outputDevices)
                 {
                     //var t = Math.Min(take, outputDevice.MaxChannels);
                     var t = outputDevice.MaxChannels;
                     var output = targetVector.Skip(skip).Take(t).ToArray();
-                    outputDevice.Write(output);
+                    writeTasks.Add(outputDevice.Write(output));
                     skip += t;
                 }
-                ArtNetDevice.SendSync();
+                Task.WhenAll(writeTasks).GetAwaiter().GetResult();
+                _artNetController.SendSync().GetAwaiter().GetResult();
 
                 Thread.Yield();
                 var frameEnd = _frameRateStopWatch.Elapsed;

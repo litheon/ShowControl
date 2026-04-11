@@ -6,6 +6,6 @@
     <Platforms>AnyCPU;x64;x86;ARM64</Platforms>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="ArtNetSharp" Version="0.0.38" />
+    <ProjectReference Include="..\external\ArtNetSharp\ArtNetSharp\ArtNetSharp.csproj" />
   </ItemGroup>
 </Project>
