@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -51,7 +52,7 @@ namespace ShowControl.Devices.Output
             _ipAddress = ipAddress;
         }
 
-        public void Write(byte[] dmxData)
+        public async Task Write(byte[] dmxData)
         {
             // if (dmxData.Length < 510)
             // {
@@ -62,9 +63,9 @@ namespace ShowControl.Devices.Output
             //     // }
             //     // dmxData[1] = 0;
             //     // dmxData[0] = 0;
-            // }
-            controllerInstance.sendArtDMX(new IPv4Address(_ipAddress), new org.dmxc.wkdt.Light.ArtNet.PortAddress(_universe), 0, dmxData, (byte)(_sequence)).Wait();
-            //_sequence = (byte)((_sequence + 1) % 254);
+            ;            // }
+            await controllerInstance.sendArtDMX(new IPv4Address(_ipAddress), new org.dmxc.wkdt.Light.ArtNet.PortAddress(_universe), 0, dmxData, (byte)(_sequence));
+            _sequence = (byte)((_sequence + 1) % 254);
         }
     }
 }

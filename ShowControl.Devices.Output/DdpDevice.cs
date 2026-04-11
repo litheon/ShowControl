@@ -1,6 +1,7 @@
 using System;
 using System.Net;
 using System.Net.Sockets;
+using System.Threading.Tasks;
 
 namespace ShowControl.Devices.Output
 {
@@ -86,7 +87,7 @@ namespace ShowControl.Devices.Output
         {
         }
 
-        public void Write(byte[] dmxData)
+        public Task Write(byte[] dmxData)
         {
             if (_disposed)
                 throw new ObjectDisposedException(nameof(DdpDevice));
@@ -111,6 +112,7 @@ namespace ShowControl.Devices.Output
 
             // Increment sequence for next frame (1-15, wrap to 1)
             _sequence = (byte)((_sequence % 15) + 1);
+            return Task.CompletedTask;
         }
 
         private byte[] BuildPacket(byte[] data, int sourceOffset, int length, int deviceOffset, bool push)

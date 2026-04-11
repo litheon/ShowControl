@@ -1,8 +1,10 @@
 ﻿using System;
+using System.Diagnostics;
 using System.Threading.Tasks;
 using ShowControl.Devices.Output;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using System.Threading;
 using ShowControl.Rendering;
 using ShowControl.Devices.Input;
@@ -19,11 +21,13 @@ namespace ShowControl.Host
         [STAThread]
         public static Task Main(string[] args)
         {
+            RegisterGlobalExceptionHandlers();
+
             Log.Logger = new LoggerConfiguration()
             .MinimumLevel.Debug() // Set the minimum level to Debug
             .WriteTo.Debug()
             .CreateLogger();
-            
+
             var builder = CreateHostBuilder(args);
             return builder.RunConsoleAsync();
         }
@@ -34,6 +38,24 @@ namespace ShowControl.Host
 
             var builder = CreateHostBuilder(args, audioFrameProcessedEventHandler, devices);
             return builder.StartAsync();
+        }
+
+        private static void RegisterGlobalExceptionHandlers()
+        {
+            AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
+            {
+                var message = $"Unhandled exception (IsTerminating={e.IsTerminating}): {e.ExceptionObject}";
+                Debug.WriteLine(message);
+                Console.Error.WriteLine(message);
+            };
+
+            TaskScheduler.UnobservedTaskException += (sender, e) =>
+            {
+                var message = $"Unobserved task exception: {e.Exception}";
+                Debug.WriteLine(message);
+                Console.Error.WriteLine(message);
+                e.SetObserved();
+            };
         }
 
         static IHostBuilder CreateHostBuilder(string[] args) =>
@@ -55,7 +77,7 @@ namespace ShowControl.Host
                         .AddSingleton<IEnttecDmxUsbDeviceEnumerator, EnttecDmxUsbDeviceEnumerator>()
                         .AddSingleton<IDmxDeviceEnumerator, DmxDeviceEnumerator>()
                         .AddSingleton<IInputService, InputService>()
-                        .AddSingleton<IAudioService, AudioService>((_) => new AudioService(audioFrameProcessedEventHandler))
+                        .AddSingleton<IAudioService, AudioService>((sp) => new AudioService(sp.GetRequiredService<ILogger<AudioService>>(), audioFrameProcessedEventHandler))
                         .AddSingleton<IGraphicsHost, GraphicsHost>()
                         .AddSingleton((_) => devices)
                         .AddLogging()

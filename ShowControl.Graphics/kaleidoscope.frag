@@ -10,7 +10,11 @@ layout(push_constant) uniform Push {
     float u_time;                //  4
     float u_distortionStrength;  //  4
     float u_hueTolerance;        //  4
-    float u_falloff;             //  4  = 24 bytes total
+    float u_falloff;             //  4
+    float u_param1;              //  4  sectors (N)
+    float u_param2;              //  4  animation speed
+    float u_param3;              //  4  radial color ring density (k base)
+    float u_param4;              //  4  flow pattern frequency  = 40 bytes total
 } pc;
 
 // ───────────────────────────────────────────────────────────
@@ -44,8 +48,7 @@ const float HIGHLIGHT_GAIN = 2.0;
 const float PULSE_GAIN     = 2.5;
 const float PULSE_SPEED    = 6.2831; // ~1 Hz
 
-// Regional bias strength
-const float REGION_GRADE_STRENGTH = 0.55;  // 0..1 direct color blend toward assigned color
+// Regional bias strength — driven by u_param4 (default 0.55)
 
 // Region layout
 const int   REGION_RINGS   = 6;     // number of radial rings
@@ -135,17 +138,17 @@ void main(){
     float rWorld = length(p);            // world radius (0..~1+)
 
     // Kaleidoscope sectorization (visual structure)
-    const float N = 10.0;
+    float N = pc.u_param1;
     float a = mod(aWorld, TAU / N) - PI / N;
     vec2 dir = vec2(cos(a), sin(a));
     float r = rWorld;
     p = dir * r;
 
     // ── Pass 1: compute base hue from original pattern
-    float t  = time * 0.6;
-    float k  = 3.0 + 2.0 * sin(t * 0.7);
+    float t  = time * pc.u_param2;
+    float k  = pc.u_param3 + 2.0 * sin(t * 0.7);
     float bands = 0.5 + 0.5 * sin(20.0 * r + 6.0 * a + t * 2.0);
-    float flow  = 0.5 + 0.5 * sin(10.0 * r - 3.0 * t + 2.0 * sin(8.0 * a + t));
+    float flow  = 0.5 + 0.5 * sin(pc.u_param4 * r - 3.0 * t + 2.0 * sin(8.0 * a + t));
     float hueBase = fract(r * k - 0.1 * t + 0.25 * bands);
 
     // Distortion weight from hue match
@@ -165,7 +168,7 @@ void main(){
 
     // ── Pass 2: recompute hue/color with distorted coords
     float bands2 = 0.5 + 0.5 * sin(20.0 * r2 + 6.0 * a2 + t * 2.0);
-    float flow2  = 0.5 + 0.5 * sin(10.0 * r2 - 3.0 * t + 2.0 * sin(8.0 * a2 + t));
+    float flow2  = 0.5 + 0.5 * sin(pc.u_param4 * r2 - 3.0 * t + 2.0 * sin(8.0 * a2 + t));
     float hue2   = fract(r2 * k - 0.1 * t + 0.25 * bands2);
 
     vec3 col = palette(hue2);
@@ -245,7 +248,7 @@ void main(){
         }
 
         // Direct color blend — no HSV roundtrip, no threshold, purely continuous
-        col = mix(col, mix(col, targetRGB, 0.65), REGION_GRADE_STRENGTH * mRegion * colorFade);
+        col = mix(col, mix(col, targetRGB, 0.65), 0.55 * mRegion * colorFade);
     }
 
     outColor = vec4(col, 1.0);

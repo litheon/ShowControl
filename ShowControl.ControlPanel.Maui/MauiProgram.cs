@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.Logging;
 using ShowControl.Graphics;
+using System.Diagnostics;
 
 #if MACCATALYST
 using ShowControl.ControlPanel.Maui.Platforms.MacCatalyst;
@@ -13,6 +14,19 @@ namespace ShowControl.ControlPanel.Maui
     {
         public static MauiApp CreateMauiApp()
         {
+            AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
+            {
+                var message = $"Unhandled exception (IsTerminating={e.IsTerminating}): {e.ExceptionObject}";
+                Debug.WriteLine(message);
+            };
+
+            TaskScheduler.UnobservedTaskException += (sender, e) =>
+            {
+                var message = $"Unobserved task exception: {e.Exception}";
+                Debug.WriteLine(message);
+                e.SetObserved();
+            };
+
             var builder = MauiApp.CreateBuilder();
             builder
                 .UseMauiApp<App>()
@@ -31,8 +45,9 @@ namespace ShowControl.ControlPanel.Maui
 #endif
                 });
 
-#if DEBUG
-    		builder.Logging.AddDebug();
+            builder.Logging.AddDebug();
+#if !DEBUG
+            builder.Logging.SetMinimumLevel(LogLevel.Warning);
 #endif
 
             return builder.Build();

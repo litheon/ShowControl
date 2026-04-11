@@ -285,7 +285,7 @@ namespace ShowControl.Devices.Output
             _waitHandle.Set();
         }
 
-        public void Write(byte[] dmxData)
+        public Task Write(byte[] dmxData)
         {
             if (dmxData.Length > BufferSize - 1)
             {
@@ -311,6 +311,7 @@ namespace ShowControl.Devices.Output
                 }
             }
             _dmxBufferPool.Return(lastBuffer);
+            return Task.CompletedTask;
         }
     }
 }

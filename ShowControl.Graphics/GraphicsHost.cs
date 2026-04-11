@@ -54,7 +54,11 @@ namespace ShowControl.Graphics
             public float   Time;               //  4
             public float   DistortionStrength; //  4
             public float   HueTolerance;       //  4
-            public float   Falloff;            //  4  = 24 bytes total
+            public float   Falloff;            //  4
+            public float   Param1;             //  4
+            public float   Param2;             //  4
+            public float   Param3;             //  4
+            public float   Param4;             //  4  = 40 bytes total
         }
 
 #if WINDOWS
@@ -161,6 +165,11 @@ namespace ShowControl.Graphics
         public int Width { get; private set; }
         public int Height { get; private set; }
         public System.Drawing.Color[] Colors { get; set; } = Array.Empty<System.Drawing.Color>();
+        public float DistortionStrength { get; set; } = 0.12f;
+        public float ShaderParam1 { get; set; }
+        public float ShaderParam2 { get; set; }
+        public float ShaderParam3 { get; set; }
+        public float ShaderParam4 { get; set; }
 
         private bool PRESENT = false; // set false to run headless (no window present)
         private Extent2D _offscreenExtent;
@@ -2046,31 +2055,31 @@ namespace ShowControl.Graphics
                 }
             }
 
-            // Remove fully faded-out slots.
-            // If a cross-fade transition is already in progress, don't restart it —
-            // the existing snapshot already holds the fading color at the right weight
-            // and will carry it smoothly to zero. Only take a new snapshot when idle.
+            // Remove fully faded-out slots — but only once any cross-fade transition
+            // is also idle.  Removing a color changes currentCount, which changes the
+            // regionId % currentCount mapping in the shader and causes a visible snap
+            // if a transition is still in flight.  Leaving the entry in the list while
+            // its w=0.0 is harmless (it contributes no color) and keeps the mapping
+            // stable until the cross-fade completes.
             bool anyRemoved = false;
             for (int i = _effectiveColors.Count - 1; i >= 0; i--)
             {
                 var e = _effectiveColors[i];
                 if (e.RemovedTime > double.NegativeInfinity && (elapsed - e.RemovedTime) >= COLOR_FADE_DURATION_SECS)
                 {
+                    float currentTransitionT = (float)Math.Clamp(
+                        (elapsed - _transitionStart) / COLOR_FADE_DURATION_SECS, 0.0, 0.999);
+                    bool transitionIdle = currentTransitionT >= 0.999f || _snapshotColors.Count == 0;
+
+                    if (!transitionIdle)
+                        continue; // cross-fade still running — defer removal to avoid region snap
+
                     if (!anyRemoved)
                     {
-                        float currentTransitionT = (float)Math.Clamp(
-                            (elapsed - _transitionStart) / COLOR_FADE_DURATION_SECS, 0.0, 0.999);
-                        bool transitionIdle = currentTransitionT >= 0.999f || _snapshotColors.Count == 0;
-                        if (transitionIdle)
-                        {
-                            _snapshotColors = BuildCurrentColorVectors(elapsed);
-                            _transitionStart = elapsed;
-                        }
-                        // If a transition is already in progress we intentionally keep the
-                        // existing snapshot and transitionStart so the existing cross-fade
-                        // continues fading the snapshot entries to zero naturally.
-                        anyRemoved = true;
+                        _snapshotColors = BuildCurrentColorVectors(elapsed);
+                        _transitionStart = elapsed;
                     }
+                    anyRemoved = true;
                     _effectiveColors.RemoveAt(i);
                 }
             }
@@ -2112,9 +2121,45 @@ namespace ShowControl.Graphics
                     {
                         if (!anyAdded && !anyRemoved)
                         {
-                            // Snapshot current state before first addition this frame
-                            _snapshotColors = BuildCurrentColorVectors(elapsed);
-                            _transitionStart = elapsed;
+                            float T = (float)Math.Clamp(
+                                (elapsed - _transitionStart) / COLOR_FADE_DURATION_SECS, 0.0, 1.0);
+
+                            // If the last snapshot was taken very recently (T < 15% ≈ 300ms),
+                            // skip resetting the snapshot and let this color join the existing
+                            // cross-fade. This batches rapid simultaneous additions (e.g. four
+                            // pad presses at once) into one smooth transition instead of causing
+                            // four cascading sector reshuffles.
+                            bool shouldSnapshot = _snapshotColors.Count == 0 || T >= 0.15f;
+                            if (shouldSnapshot)
+                            {
+                                // Snapshot the visually-blended state rather than raw weights.
+                                // If a cross-fade is in progress, the shader shows:
+                                //   mix(snapshot[R % prevCount], current[R % currCount], T)
+                                // Taking a raw snapshot and resetting T=0 would snap each region
+                                // to its raw weight, diverging from the blended display.
+                                // Evaluate the blend per-slot so T=0 is visually continuous.
+                                var raw = BuildCurrentColorVectors(elapsed);
+                                if (_snapshotColors.Count > 0 && T < 0.999f)
+                                {
+                                    var blendedSnap = new List<Vector4>(raw.Count);
+                                    for (int s = 0; s < raw.Count; s++)
+                                    {
+                                        var prev = _snapshotColors[s % _snapshotColors.Count];
+                                        var cur  = raw[s];
+                                        blendedSnap.Add(new Vector4(
+                                            prev.X + (cur.X - prev.X) * T,
+                                            prev.Y + (cur.Y - prev.Y) * T,
+                                            prev.Z + (cur.Z - prev.Z) * T,
+                                            prev.W + (cur.W - prev.W) * T));
+                                    }
+                                    _snapshotColors = blendedSnap;
+                                }
+                                else
+                                {
+                                    _snapshotColors = raw;
+                                }
+                                _transitionStart = elapsed;
+                            }
                         }
                         anyAdded = true;
                         _effectiveColors.Add(new EffectiveColor { Color = c, AddedTime = elapsed, RemovedTime = double.NegativeInfinity });
@@ -2140,9 +2185,13 @@ namespace ShowControl.Graphics
             {
                 Resolution = new System.Numerics.Vector2(_offscreenExtent.Width, _offscreenExtent.Height),
                 Time = (float)elapsed * 0.25f,
-                DistortionStrength = 0.12f,
+                DistortionStrength = DistortionStrength,
                 HueTolerance = 0.35f,
                 Falloff = 0.6f,
+                Param1 = ShaderParam1,
+                Param2 = ShaderParam2,
+                Param3 = ShaderParam3,
+                Param4 = ShaderParam4,
             };
             _vk.CmdPushConstants(cmd, _pipelineLayout, ShaderStageFlags.FragmentBit,
                 0, (uint)Unsafe.SizeOf<PushData>(), &pc);

@@ -7,6 +7,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using NAudio.Dsp;
 using PortAudioSharp;
 using ShowControl.Utilities;
@@ -43,6 +44,7 @@ namespace ShowControl.Devices.Audio
         private readonly Complex[] _fftBuffer = new Complex[FftLength];
 
         private readonly IBpmDetect _bpmDetect;
+        private readonly ILogger<AudioService> _logger;
 
         private record AudioProcessSignal(float[] sharedArray, int frameCount);
         private readonly object _disposalLock = new object();
@@ -55,8 +57,9 @@ namespace ShowControl.Devices.Audio
         private ManualResetEvent _audioQueueChangeEvent = new ManualResetEvent(false);
         ConcurrentQueue<AudioFrameProcessedEventArgs> _audioFrameEventArgsQueue;
         private CancellationTokenSource _cancellationTokenSource;
-        public AudioService()
+        public AudioService(ILogger<AudioService> logger)
         {
+            _logger = logger;
             _cancellationTokenSource = new CancellationTokenSource();
             _bpmDetect = new RealTimeBpmDetect(ChannelCount, SampleRate);
             _bassAverageLevel = new SampleAverageLevelCalculator(0);
@@ -108,12 +111,12 @@ namespace ShowControl.Devices.Audio
 
         private void StreamFinishedCallback(IntPtr userData)
         {
-            //TODO: Logging
+            _logger.LogInformation("Audio stream finished, restarting.");
             _stream.Stop();
             _stream.Start();
         }
 
-        public AudioService(EventHandler<AudioFrameProcessedEventArgs> audioFrameProcessedEventHandler) : this()
+        public AudioService(ILogger<AudioService> logger, EventHandler<AudioFrameProcessedEventArgs> audioFrameProcessedEventHandler) : this(logger)
         {
             AudioFrameProcessed += audioFrameProcessedEventHandler;
         }
@@ -128,9 +131,9 @@ namespace ShowControl.Devices.Audio
                 _signalQueueChangeEvent.Set();
                 return StreamCallbackResult.Continue;
             }
-            catch
+            catch (Exception ex)
             {
-                //TODO: Logging
+                _logger.LogError(ex, "Exception in audio callback, aborting stream.");
                 return StreamCallbackResult.Abort;
             }
         }

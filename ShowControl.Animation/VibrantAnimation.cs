@@ -291,7 +291,28 @@ namespace ShowControl.Animation
             }
             AssignPadStates(padStates);
             _graphicsHost.SetShader(_shader);
+            ResetShaderParams();
             return new DeviceState(padStates, new ButtonLightState[0]);
+        }
+
+        private void ResetShaderParams()
+        {
+            _graphicsHost.DistortionStrength = 0.12f;
+
+            if (_shader == ShowControl.Graphics.Shaders.Kaleidoscope)
+            {
+                _graphicsHost.ShaderParam1 = 10.0f;  // sectors (N)
+                _graphicsHost.ShaderParam2 = 0.6f;   // animation speed
+                _graphicsHost.ShaderParam3 = 3.0f;   // radial color ring density (k base)
+                _graphicsHost.ShaderParam4 = 10.0f;  // flow pattern frequency
+            }
+            else if (_shader == ShowControl.Graphics.Shaders.Clown)
+            {
+                _graphicsHost.ShaderParam1 = 16.0f;  // blade count
+                _graphicsHost.ShaderParam2 = 0.0f;   // spin angle offset
+                _graphicsHost.ShaderParam3 = 0.0f;   // blade hue offset
+                _graphicsHost.ShaderParam4 = 0.29f;  // dot radius
+            }
         }
 
         public override void Stop()
@@ -301,18 +322,59 @@ namespace ShowControl.Animation
 
         public override void RotaryTurned(RotaryDirection direction, byte rotaryNumber, byte? value)
         {
-            if (rotaryNumber == 1)
+            if (rotaryNumber >= 1 && rotaryNumber <= 4)
             {
-                if (direction == RotaryDirection.Up)
+                AdjustShaderParam(rotaryNumber - 1, direction == RotaryDirection.Up);
+            }
+        }
+
+        private void AdjustShaderParam(int paramIndex, bool increase)
+        {
+            float step, min, max;
+            if (_shader == ShowControl.Graphics.Shaders.Kaleidoscope)
+            {
+                (step, min, max) = paramIndex switch
                 {
-                    var threshold = _frameCountAnimationThreshold.InterlockedIncrement(-100, 100);
-                    _currentFrameCountAnimationThreshold = threshold;
-                }
-                else if (direction == RotaryDirection.Down)
+                    0 => (0.014f, 3.0f,  24.0f),  // sectors          (÷2)
+                    1 => (0.00025f, 0.05f, 3.0f), // speed            (÷4)
+                    2 => (0.04f,  0.5f,  12.0f),  // k base (ring density)
+                    3 => (0.1f,   2.0f,  30.0f),  // flow frequency
+                    _ => (0f, 0f, 0f)
+                };
+            }
+            else if (_shader == ShowControl.Graphics.Shaders.Clown)
+            {
+                (step, min, max) = paramIndex switch
                 {
-                    var threshold = _frameCountAnimationThreshold.InterlockedDecrement(-100, 100);
-                    _currentFrameCountAnimationThreshold = threshold;
-                }
+                    0 => (0.017f, 16.0f, 30.0f),   // blade count
+                    1 => (0.0125f, -500.0f, 500.0f), // spin angle offset
+                    2 => (0.008f, -500.0f, 500.0f), // blade hue offset
+                    3 => (0.003f, 0.05f, 0.45f),  // dot radius
+                    _ => (0f, 0f, 0f)
+                };
+            }
+            else
+            {
+                return;
+            }
+
+            float current = paramIndex switch
+            {
+                0 => _graphicsHost.ShaderParam1,
+                1 => _graphicsHost.ShaderParam2,
+                2 => _graphicsHost.ShaderParam3,
+                3 => _graphicsHost.ShaderParam4,
+                _ => 0f
+            };
+
+            float next = Math.Clamp(current + (increase ? step : -step), min, max);
+
+            switch (paramIndex)
+            {
+                case 0: _graphicsHost.ShaderParam1 = next; break;
+                case 1: _graphicsHost.ShaderParam2 = next; break;
+                case 2: _graphicsHost.ShaderParam3 = next; break;
+                case 3: _graphicsHost.ShaderParam4 = next; break;
             }
         }
 

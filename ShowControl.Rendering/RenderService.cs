@@ -16,6 +16,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Diagnostics;
+using Microsoft.Extensions.Logging;
 
 namespace ShowControl.Rendering
 {
@@ -61,6 +62,7 @@ namespace ShowControl.Rendering
         };
         private static int _blinkIndex = 0;
 
+        private readonly ILogger<RenderService> _logger;
         private Stopwatch _frameRateStopWatch = new Stopwatch();
 
         private static void Blink(object state)
@@ -150,9 +152,11 @@ namespace ShowControl.Rendering
             IDmxDeviceEnumerator deviceEnumerator,
             IInputService inputService,
             IGraphicsHost graphicsHost,
-            IAudioService audioService
+            IAudioService audioService,
+            ILogger<RenderService> logger
             )
         {
+            _logger = logger;
             _deviceEnumerator = deviceEnumerator;
             _inputService = inputService;
             _audioService = audioService;
@@ -203,8 +207,9 @@ namespace ShowControl.Rendering
             IInputService inputService,
             IAudioService audioService,
             IGraphicsHost graphicsHost,
-            Action<IDmxDevice[]> dmxDeviceAction
-            ) : this(deviceEnumerator, inputService, graphicsHost, audioService)
+            Action<IDmxDevice[]> dmxDeviceAction,
+            ILogger<RenderService> logger
+            ) : this(deviceEnumerator, inputService, graphicsHost, audioService, logger)
         {
             dmxDeviceAction(_devices);
         }
@@ -404,7 +409,7 @@ namespace ShowControl.Rendering
         }
 
         private void ProcessPadPressed(ButtonDirection direction, byte padNumber)
-        {
+        {   
             if (direction == ButtonDirection.Press)
             {
                 if (padNumber < _padTransitionStartIndex)
@@ -2498,6 +2503,8 @@ namespace ShowControl.Rendering
         {
             byte[] targetVector = new byte[22460];
             ControllerInstance controllerInstance = new ControllerInstance(ArtNet.Instance);
+            try
+            {
             while (!_cts.Token.IsCancellationRequested)
             {
                 _frameRateStopWatch.Start();
@@ -2559,6 +2566,13 @@ namespace ShowControl.Rendering
                 {
                     SpinWait.SpinUntil(() => false, sendTime);
                 }
+            }
+            } // try
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unhandled exception in render thread.");
+                _tcs.TrySetException(ex);
+                return;
             }
             _tcs.SetResult(true);
         }

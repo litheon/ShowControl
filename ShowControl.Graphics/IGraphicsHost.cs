@@ -21,6 +21,15 @@ namespace ShowControl.Graphics
         public System.Drawing.Color[] Colors { get; set; }
         public void SetShader(string fragmentShaderResource);
 
+        /// <summary>Global distortion strength driven by rotary 1.</summary>
+        public float DistortionStrength { get; set; }
+
+        /// <summary>Shader-specific knob parameters driven by rotary encoders 2–5.</summary>
+        public float ShaderParam1 { get; set; }
+        public float ShaderParam2 { get; set; }
+        public float ShaderParam3 { get; set; }
+        public float ShaderParam4 { get; set; }
+
         /// <summary>
         /// Event raised when the graphics host wants a preview window to be opened.
         /// The MAUI app should handle this event and create the window.

@@ -9,6 +9,10 @@ layout(push_constant) uniform Push {
     float u_distortionStrength;
     float u_hueTolerance;
     float u_falloff;
+    float u_param1;   // blade count
+    float u_param2;   // spin angle offset
+    float u_param3;   // blade hue offset
+    float u_param4;   // dot radius
 } pc;
 
 // ── SSBO color state: identical contract to kaleidoscope.frag ────────────────
@@ -116,12 +120,12 @@ void main() {
     vec2  p2 = vec2(cos(a2), sin(a2)) * r2;
 
     // ── Layer 1: Spinning fan blades ─────────────────────────────────────────
-    // 14 rotating wedges like a circus top/pinwheel, each a different vivid color.
-    const float N_BLADES    = 14.0;
-    const float BLADE_WIDTH = TAU / N_BLADES;
-    const float GAP_FRAC    = 0.07;   // fraction at each edge that is dark
+    // Rotating wedges like a circus top/pinwheel, each a different vivid color.
+    float N_BLADES    = pc.u_param1;
+    float BLADE_WIDTH = TAU / N_BLADES;
+    const float GAP_FRAC = 0.07;      // fraction at each edge that is dark
 
-    float spinAngle  = a2 + time * 0.32;
+    float spinAngle  = a2 + time * 0.32 + pc.u_param2;
     float normAngle  = mod(spinAngle + PI, TAU);
     float bladeID    = floor(normAngle / BLADE_WIDTH);
     float bladePhase = fract(normAngle / BLADE_WIDTH);  // [0, 1) within blade
@@ -131,7 +135,7 @@ void main() {
                     smoothstep(1.0, 1.0 - GAP_FRAC, bladePhase);
 
     // Each blade holds a stable hue from the circus palette, drifting slowly
-    float bladeHue = hash11(bladeID) + time * 0.016;
+    float bladeHue = hash11(bladeID) + time * 0.016 + pc.u_param3;
     vec3  fanColor = circusColor(bladeHue) * gapMask;
 
     // Radial fade: black stub at center, fade out past screen edges
@@ -172,7 +176,7 @@ void main() {
     // Each dot drifts hue at its own rate (more chaotic, more clown)
     float dotDriftRate = 0.025 + 0.035 * hash21(dotCell + vec2(5.5, 2.3));
     float dotHue  = hash21(dotCell) + time * dotDriftRate;
-    float dotR    = 0.29 + 0.07 * sin(time * 1.9 + dotPhase);  // breathing radius
+    float dotR    = pc.u_param4 + 0.07 * sin(time * 1.9 + dotPhase);  // breathing radius
 
     // Solid dot center with dark outline ring (face-paint outline look)
     float outerMask = 1.0 - smoothstep(dotR - 0.015, dotR + 0.015, dotDist);

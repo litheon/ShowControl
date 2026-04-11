@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Diagnostics;
 using System.Threading;
 using ShowControl.Devices.Audio;
 using ShowControl.Devices.DMX;
@@ -11,6 +12,20 @@ namespace ShowControl
         [STAThread]
         public static void Main(string[] args)
         {
+            AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
+            {
+                var message = $"Unhandled exception (IsTerminating={e.IsTerminating}): {e.ExceptionObject}";
+                Debug.WriteLine(message);
+                Console.Error.WriteLine(message);
+            };
+
+            TaskScheduler.UnobservedTaskException += (sender, e) =>
+            {
+                var message = $"Unobserved task exception: {e.Exception}";
+                Debug.WriteLine(message);
+                Console.Error.WriteLine(message);
+                e.SetObserved();
+            };
 
             Host.Host.Main(new string[] { }, OnAudioFrameProcessed, HandleDevices).Wait();
         }
