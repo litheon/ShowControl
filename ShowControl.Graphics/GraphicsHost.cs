@@ -229,7 +229,7 @@ namespace ShowControl.Graphics
             }
         }
 
-        public void RunHeadless(int width = 800, int height = 600)
+        public void RunHeadless(int width = 1080, int height = 960)
         {
             PRESENT = false; // make sure your OnRender uses the no-present path
             _offscreenExtent = new Extent2D((uint)width, (uint)height);

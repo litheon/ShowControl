@@ -240,7 +240,7 @@ namespace ShowControl.Animation
                     var g = initial + pixelStride + rowOffset + 1;
                     var b = initial + pixelStride + rowOffset + 2;
                     _nextFrame[i].Color = Color.FromArgb(0, span[r], span[g], span[b]);
-                    if (i == 479 || i == 959 || i == 1439 || i == 1919 || i == 2519 || i == 2519)
+                    if (i == 479 || i == 959 || i == 1439)
                     {
                         offset += 10;
                         pixelStride = 0;
