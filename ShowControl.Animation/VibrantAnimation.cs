@@ -39,6 +39,8 @@ namespace ShowControl.Animation
         private AnimationMode _lastMode;
         private AnimationMode _mode;
         private string _shader;
+        private float _defaultDistortionStrength;
+        private float _defaultParam1, _defaultParam2, _defaultParam3, _defaultParam4;
         private readonly List<int> _pressedPads;
 #pragma warning disable IDE0052 // Remove unread private members
         private readonly Timer _navigationColorTimer;
@@ -227,7 +229,7 @@ namespace ShowControl.Animation
 
                 var width = _graphicsHost.Width;
                 var height = _graphicsHost.Height;
-                var initial = (height / 2) * width * 4 - width * 120 * 4;
+                var initial = (height / 2) * width * 4 - width * 80 * 4;
                 int offset = 0;
                 int pixelStride = 0;
                 for (int i = 0; i < _pixelCount; i++)
@@ -240,7 +242,9 @@ namespace ShowControl.Animation
                     var g = initial + pixelStride + rowOffset + 1;
                     var b = initial + pixelStride + rowOffset + 2;
                     _nextFrame[i].Color = Color.FromArgb(0, span[r], span[g], span[b]);
-                    if (i == 479 || i == 959 || i == 1439)
+                    if (i == 719 || i == 1439 || i == 2159 || i == 2879 || i == 3599 || i == 4319 || i == 5039 ||
+                        i == 5759 || i == 6479 || i == 7199 || i == 7919 || i == 8639 || i == 9359 || i == 10079 ||
+                        i == 10799)
                     {
                         offset += 10;
                         pixelStride = 0;
@@ -295,24 +299,60 @@ namespace ShowControl.Animation
             return new DeviceState(padStates, new ButtonLightState[0]);
         }
 
-        private void ResetShaderParams()
+        /// <summary>
+        /// Moves each shader parameter a fraction toward its default value.
+        /// Called periodically by the render operator timer.
+        /// </summary>
+        public void NudgeParamsTowardDefaults()
         {
-            _graphicsHost.DistortionStrength = 0.12f;
-
+            float s1, s2, s3, s4;
             if (_shader == ShowControl.Graphics.Shaders.Kaleidoscope)
             {
-                _graphicsHost.ShaderParam1 = 10.0f;  // sectors (N)
-                _graphicsHost.ShaderParam2 = 0.6f;   // animation speed
-                _graphicsHost.ShaderParam3 = 3.0f;   // radial color ring density (k base)
-                _graphicsHost.ShaderParam4 = 10.0f;  // flow pattern frequency
+                s1 = 0.002f; s2 = 0.001f; s3 = 0.004f; s4 = 0.01f;
             }
             else if (_shader == ShowControl.Graphics.Shaders.Clown)
             {
-                _graphicsHost.ShaderParam1 = 16.0f;  // blade count
-                _graphicsHost.ShaderParam2 = 0.0f;   // spin angle offset
-                _graphicsHost.ShaderParam3 = 0.0f;   // blade hue offset
-                _graphicsHost.ShaderParam4 = 0.29f;  // dot radius
+                s1 = 0.0017f; s2 = 0.00125f; s3 = 0.0008f; s4 = 0.0003f;
             }
+            else return;
+
+            _graphicsHost.ShaderParam1 = StepToward(_graphicsHost.ShaderParam1, _defaultParam1, s1);
+            _graphicsHost.ShaderParam2 = StepToward(_graphicsHost.ShaderParam2, _defaultParam2, s2);
+            _graphicsHost.ShaderParam3 = StepToward(_graphicsHost.ShaderParam3, _defaultParam3, s3);
+            _graphicsHost.ShaderParam4 = StepToward(_graphicsHost.ShaderParam4, _defaultParam4, s4);
+        }
+
+        private static float StepToward(float current, float target, float step)
+        {
+            float diff = target - current;
+            if (Math.Abs(diff) <= step) return target;
+            return current + Math.Sign(diff) * step;
+        }
+
+        private void ResetShaderParams()
+        {
+            _defaultDistortionStrength = 0.12f;
+
+            if (_shader == ShowControl.Graphics.Shaders.Kaleidoscope)
+            {
+                _defaultParam1 = 2.5f;   // spiral twist
+                _defaultParam2 = 0.0f;   // animation time offset
+                _defaultParam3 = 3.0f;   // radial color ring density (k base)
+                _defaultParam4 = 10.0f;  // flow pattern frequency
+            }
+            else if (_shader == ShowControl.Graphics.Shaders.Clown)
+            {
+                _defaultParam1 = 16.0f;  // blade count
+                _defaultParam2 = 0.0f;   // spin angle offset
+                _defaultParam3 = 0.0f;   // blade hue offset
+                _defaultParam4 = 0.29f;  // dot radius
+            }
+
+            _graphicsHost.DistortionStrength = _defaultDistortionStrength;
+            _graphicsHost.ShaderParam1 = _defaultParam1;
+            _graphicsHost.ShaderParam2 = _defaultParam2;
+            _graphicsHost.ShaderParam3 = _defaultParam3;
+            _graphicsHost.ShaderParam4 = _defaultParam4;
         }
 
         public override void Stop()
@@ -335,8 +375,8 @@ namespace ShowControl.Animation
             {
                 (step, min, max) = paramIndex switch
                 {
-                    0 => (0.014f, 3.0f,  24.0f),  // sectors          (÷2)
-                    1 => (0.00025f, 0.05f, 3.0f), // speed            (÷4)
+                    0 => (0.02f, 0.5f, 8.0f),       // spiral twist
+                    1 => (0.01f, -500.0f, 500.0f),     // animation time offset
                     2 => (0.04f,  0.5f,  12.0f),  // k base (ring density)
                     3 => (0.1f,   2.0f,  30.0f),  // flow frequency
                     _ => (0f, 0f, 0f)

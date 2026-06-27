@@ -8,6 +8,7 @@ namespace ShowControl.ControlPanel.Maui
     public partial class PreviewPage : ContentPage
     {
         private readonly IGraphicsHost _graphicsHost;
+        private IDispatcherTimer? _paramTimer;
 #if WINDOWS
         private bool _useDirectComposition = true; // Enable DirectComposition by default for XAML overlay support
 #endif
@@ -21,6 +22,46 @@ namespace ShowControl.ControlPanel.Maui
             vulkanSurface.SurfaceReady += OnSurfaceReady;
             vulkanSurface.SurfaceSizeChanged += OnSurfaceSizeChanged;
             vulkanSurface.SurfaceDestroying += OnSurfaceDestroying;
+
+            _paramTimer = Dispatcher.CreateTimer();
+            _paramTimer.Interval = TimeSpan.FromMilliseconds(250);
+            _paramTimer.Tick += (s, e) => UpdateShaderParamsLabel();
+            _paramTimer.Start();
+        }
+
+        private void UpdateShaderParamsLabel()
+        {
+            var shader = _graphicsHost.CurrentShader;
+            string p1Label, p2Label, p3Label, p4Label;
+
+            if (shader == Shaders.Kaleidoscope)
+            {
+                p1Label = "Spiral Twist";
+                p2Label = "Time Offset";
+                p3Label = "Ring Density";
+                p4Label = "Flow Freq";
+            }
+            else if (shader == Shaders.Clown)
+            {
+                p1Label = "Blades";
+                p2Label = "Spin Offset";
+                p3Label = "Hue Offset";
+                p4Label = "Dot Radius";
+            }
+            else
+            {
+                p1Label = "Param1";
+                p2Label = "Param2";
+                p3Label = "Param3";
+                p4Label = "Param4";
+            }
+
+            ShaderParamsLabel.Text = $"Shader: {shader}\n" +
+                $"Distortion: {_graphicsHost.DistortionStrength:F3}\n" +
+                $"{p1Label}: {_graphicsHost.ShaderParam1:F3}\n" +
+                $"{p2Label}: {_graphicsHost.ShaderParam2:F3}\n" +
+                $"{p3Label}: {_graphicsHost.ShaderParam3:F3}\n" +
+                $"{p4Label}: {_graphicsHost.ShaderParam4:F3}";
         }
 
         private void OnSurfaceReady(object? sender, nint surfaceHandle)
@@ -81,6 +122,7 @@ namespace ShowControl.ControlPanel.Maui
         protected override void OnDisappearing()
         {
             base.OnDisappearing();
+            _paramTimer?.Stop();
             System.Diagnostics.Debug.WriteLine("[PreviewPage] Disappearing");
             _graphicsHost.OnPreviewWindowClosed();
         }

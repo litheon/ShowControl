@@ -48,12 +48,12 @@ namespace ShowControl.Rendering
         private PadState[] _padStates;
         private int _padTransitionStartIndex;
 
-        private int _masterFader = 15;
+        private int _masterFader = 255;
         private int _auxilaryMasterFader = 251;
 
         private Timer NavButtonBlinkTimer;
         private Timer RenderOperatatorTimer;
-        private readonly TimeSpan RenderDelayTime = TimeSpan.FromMinutes(10);
+        private readonly TimeSpan RenderDelayTime = TimeSpan.FromSeconds(1);
         private double _lastAverageLevel;
 
         private static Button[] _blinkButtons = new Button[]
@@ -79,6 +79,17 @@ namespace ShowControl.Rendering
             }
             _blinkIndex = (_blinkIndex + 1) % _blinkButtons.Length;
             service._inputDevice.SetButtonIlluminations(buttonStates.ToArray());
+        }
+
+        private void NudgeShaderParams(object state)
+        {
+            lock (_navigationLock)
+            {
+                if (_activeKeyAnimation > -1 && _keyAnimations[_activeKeyAnimation] is VibrantAnimation vibrant)
+                {
+                    vibrant.NudgeParamsTowardDefaults();
+                }
+            }
         }
 
         private void ChangeAnimation(object state)
@@ -171,7 +182,7 @@ namespace ShowControl.Rendering
 
             _pixelChannels = RenderSurface.Create(
                     new RenderSettings(255),
-                    Enumerable.Repeat(WS2812B.Instance, 3720).ToArray()
+                    Enumerable.Repeat(WS2812B.Instance, 11520).ToArray()
             );
             _parChannels = RenderSurface.Create(
                     new RenderSettings(255),
@@ -233,10 +244,15 @@ namespace ShowControl.Rendering
             Console.WriteLine("_deviceEnumerator null: " + (_deviceEnumerator == null ? "True" : "False"));
             Console.WriteLine("_cts null: " + (_cts == null ? "True" : "False"));
             _outputDevices = _deviceEnumerator.GetDmxDevices(_cts.Token);
-            _renderThread.Start();
             Initialize();
-            NavButtonBlinkTimer = new Timer(Blink, this, 500, 500);
+            // Auto-activate animation 0 before starting the render thread
+            // to avoid racing SetShader() with the render loop
+            SetActiveKeyAnimation(0);
+            SetNavigationLevel(NavigationLevel.KeyAnimation);
+            _renderThread.Start();
+            //NavButtonBlinkTimer = new Timer(Blink, this, 500, 500);
             //RenderOperatatorTimer = new Timer(ChangeAnimation, this, RenderDelayTime, RenderDelayTime);
+            RenderOperatatorTimer = new Timer(NudgeShaderParams, this, Timeout.Infinite, Timeout.Infinite);
             return Task.CompletedTask;
         }
 
@@ -364,14 +380,14 @@ namespace ShowControl.Rendering
                 else if (e.EventType == DeviceInputEventType.RotaryEncoder && e.RotaryNumber == 1)
                 {
                     var direction = e.RotaryDirection;
-                    if (direction == RotaryDirection.Up)
-                    {
-                        _masterFader.InterlockedDecrement(0, byte.MaxValue);
-                    }
-                    else if (direction == RotaryDirection.Down)
-                    {
-                        _masterFader.InterlockedIncrement(0, byte.MaxValue);
-                    }
+                    // if (direction == RotaryDirection.Up)
+                    // {
+                    //     _masterFader.InterlockedDecrement(0, byte.MaxValue);
+                    // }
+                    // else if (direction == RotaryDirection.Down)
+                    // {
+                    //     _masterFader.InterlockedIncrement(0, byte.MaxValue);
+                    // }
                 }
                 else if (e.EventType == DeviceInputEventType.RotaryEncoder && e.RotaryNumber == 2)
                 {
@@ -409,7 +425,7 @@ namespace ShowControl.Rendering
                 var midiAwareTransformAnimation = activeTransformAnimation as MidiAwareAnimation;
                 midiAwareTransformAnimation?.MidiAware_OnMessageReceived(sender, e);
             }
-            //RenderOperatatorTimer.Change(RenderDelayTime, RenderDelayTime);
+            RenderOperatatorTimer.Change(RenderDelayTime, RenderDelayTime);
         }
 
         private void ProcessPadPressed(ButtonDirection direction, byte padNumber)
@@ -442,14 +458,17 @@ namespace ShowControl.Rendering
 
         private void ProcessNavigationButtonPressed(ButtonDirection direction, NavigationButton navigationButton)
         {
-            if (direction == ButtonDirection.Press && navigationButton == NavigationButton.Up)
-            {
-                _inputDevice.ClearInterface();
-                lock (_navigationLock)
-                {
-                    SetNavigationLevel(_navigationLevel == NavigationLevel.Root ? NavigationLevel.KeyAnimation : NavigationLevel.Root);
-                }
-            }
+            // Up button navigation toggle disabled — SetShader pipeline rebuild
+            // during runtime can cause GPU hangs on MoltenVK.
+            // Animation is auto-started at index 0 on startup.
+            // if (direction == ButtonDirection.Press && navigationButton == NavigationButton.Up)
+            // {
+            //     _inputDevice.ClearInterface();
+            //     lock (_navigationLock)
+            //     {
+            //         SetNavigationLevel(_navigationLevel == NavigationLevel.Root ? NavigationLevel.KeyAnimation : NavigationLevel.Root);
+            //     }
+            // }
         }
 
         public Task StopAsync(CancellationToken cancellationToken)
@@ -631,6 +650,12 @@ namespace ShowControl.Rendering
 
                 Color.FromArgb(0x95, 0xFF, 0x00, 0xFF),
                 Color.FromArgb(0xD8, Color.Purple),
+
+                Color.FromArgb(0xC0, 0xB4, 0xFF, 0x00), // lime
+                Color.FromArgb(0xE0, 0xFF, 0x14, 0x93), // hot pink
+                Color.FromArgb(0xB0, 0x4B, 0x00, 0x82), // indigo
+                Color.FromArgb(0xD0, 0xFF, 0xB4, 0x78), // peach
+                Color.FromArgb(0xD8, 0xFF, 0x46, 0x64), // sunset rose
             };
 
             var warm = new Color[]
@@ -2407,60 +2432,52 @@ namespace ShowControl.Rendering
             {
                 //new RainbowAnimation(_pixelChannels.TotalPixelCount, plc, _audioService, _cts.Token, fastAnimate: true),
                 //new RainbowAnimation(_pixelChannels.TotalPixelCount, nochesCincoDeMayo1Long, _audioService, _cts.Token, fastAnimate: true),
-                new RainbowAnimation(_pixelChannels.TotalPixelCount, dragChurch, _audioService, _cts.Token, fastAnimate: true),
-                new RainbowAnimation(_pixelChannels.TotalPixelCount, warmLucidas, _audioService, _cts.Token, fastAnimate: true),
-                new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg9, _audioService, _cts.Token, fastAnimate: true),
-                new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg2Lucidas, _audioService, _cts.Token, fastAnimate: true),
-                new VibrantAnimation(_pixelChannels.TotalPixelCount, _audioService, _graphicsHost, Shaders.Geometry, new Color[]
-                {
-                    Color.Red,
-                    Color.FromArgb(255, 0, 137),
-                    Color.FromArgb(255, 0, 35),
-                    Color.FromArgb(67, 112, 0),
-                    Color.FromArgb(255, 74, 0),
-                    Color.FromArgb(9, 254, 182)
-                }, _cts.Token),
-                new VibrantAnimation(_pixelChannels.TotalPixelCount, _audioService, _graphicsHost, Shaders.Kaleidoscope, new Color[]
-                {
-                    Color.Red,
-                    Color.FromArgb(255, 0, 137),
-                    Color.FromArgb(255, 0, 35),
-                    Color.FromArgb(67, 112, 0),
-                    Color.FromArgb(255, 74, 0),
-                    Color.FromArgb(9, 254, 182)
-                }, _cts.Token),
-                new VibrantAnimation(_pixelChannels.TotalPixelCount, _audioService, _graphicsHost, Shaders.Clown, new Color[]
-                {
-                    Color.FromArgb(220,  20,  20), // red
-                    Color.FromArgb(255, 200,   0), // yellow
-                    Color.FromArgb(  0, 200, 220), // cyan
-                    Color.FromArgb(230,   0, 180), // hot pink
-                    Color.FromArgb(255, 100,   0), // orange
-                    Color.FromArgb(  0, 200,  30), // lime green
-                    Color.FromArgb(150,   0, 220), // purple
-                    Color.FromArgb(  0,  60, 230), // electric blue
-                    Color.FromArgb(220,  50,  50), // tomato
-                    Color.FromArgb(160, 220,   0), // chartreuse
-                    Color.FromArgb(  0, 180, 160), // teal
-                    Color.FromArgb(220,   0, 100), // deep rose
-                    Color.FromArgb(255, 140,   0), // amber
-                    Color.FromArgb(120,   0, 200), // violet
-                    Color.FromArgb(  0, 220, 120), // seafoam
-                    Color.FromArgb(200,   0,  40), // crimson
-                }, _cts.Token)
+                //new RainbowAnimation(_pixelChannels.TotalPixelCount, dragChurch, _audioService, _cts.Token, fastAnimate: true),
+                //new RainbowAnimation(_pixelChannels.TotalPixelCount, warmLucidas, _audioService, _cts.Token, fastAnimate: true),
+                //new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg9, _audioService, _cts.Token, fastAnimate: true),
+                //new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg2Lucidas, _audioService, _cts.Token, fastAnimate: true),
+                // new VibrantAnimation(_pixelChannels.TotalPixelCount, _audioService, _graphicsHost, Shaders.Geometry, new Color[]
+                // {
+                //     Color.Red,
+                //     Color.FromArgb(255, 0, 137),
+                //     Color.FromArgb(255, 0, 35),
+                //     Color.FromArgb(67, 112, 0),
+                //     Color.FromArgb(255, 74, 0),
+                //     Color.FromArgb(9, 254, 182)
+                // }, _cts.Token),
+                new VibrantAnimation(_pixelChannels.TotalPixelCount, _audioService, _graphicsHost, Shaders.Kaleidoscope, frequentWarmColdRoygviv, _cts.Token),
+                // new VibrantAnimation(_pixelChannels.TotalPixelCount, _audioService, _graphicsHost, Shaders.Clown, new Color[]
+                // {
+                //     Color.FromArgb(220,  20,  20), // red
+                //     Color.FromArgb(255, 200,   0), // yellow
+                //     Color.FromArgb(  0, 200, 220), // cyan
+                //     Color.FromArgb(230,   0, 180), // hot pink
+                //     Color.FromArgb(255, 100,   0), // orange
+                //     Color.FromArgb(  0, 200,  30), // lime green
+                //     Color.FromArgb(150,   0, 220), // purple
+                //     Color.FromArgb(  0,  60, 230), // electric blue
+                //     Color.FromArgb(220,  50,  50), // tomato
+                //     Color.FromArgb(160, 220,   0), // chartreuse
+                //     Color.FromArgb(  0, 180, 160), // teal
+                //     Color.FromArgb(220,   0, 100), // deep rose
+                //     Color.FromArgb(255, 140,   0), // amber
+                //     Color.FromArgb(120,   0, 200), // violet
+                //     Color.FromArgb(  0, 220, 120), // seafoam
+                //     Color.FromArgb(200,   0,  40), // crimson
+                // }, _cts.Token)
                 //new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg8, _audioService, _cts.Token, fastAnimate: true),
             };
             _auxilaryKeyAnimations = new IKeyAnimation[]
             {
                 //new RainbowAnimation(_parChannels.TotalPixelCount, plc, _audioService, _cts.Token),
                 //new RainbowAnimation(_parChannels.TotalPixelCount, nochesCincoDeMayo1Long, _audioService, _cts.Token),
-                new RainbowAnimation(_parChannels.TotalPixelCount, dragChurch, _audioService, _cts.Token),
-                new RainbowAnimation(_parChannels.TotalPixelCount, warmLucidas, _audioService, _cts.Token),
+                //new RainbowAnimation(_parChannels.TotalPixelCount, dragChurch, _audioService, _cts.Token),
+                // new RainbowAnimation(_parChannels.TotalPixelCount, warmLucidas, _audioService, _cts.Token),
                 new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg9, _audioService, _cts.Token),
-                new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg2Lucidas, _audioService, _cts.Token),
-                new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg6, _audioService, _cts.Token),
-                new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg6, _audioService, _cts.Token),
-                new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg6, _audioService, _cts.Token),
+                //new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg2Lucidas, _audioService, _cts.Token),
+                // new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg6, _audioService, _cts.Token),
+                //new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg6, _audioService, _cts.Token),
+                //new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg6, _audioService, _cts.Token),
                 //commented so we don't have multiple calls to graphics host
                 //new VibrantAnimation(_parChannels.TotalPixelCount, _audioService, _graphicsHost, _cts.Token)
                 //new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg8, _audioService, _cts.Token),
@@ -2487,6 +2504,51 @@ namespace ShowControl.Rendering
             }
         }
 
+        // Time-of-day master fader schedule. Waypoints are (hour as decimal, fader value).
+        // Linearly interpolates between adjacent waypoints. Wraps around midnight.
+        private static readonly (double hour, int value)[] _faderSchedule = new[]
+        {
+            (20.0,   255),  // 8:00 PM — start dimming
+            (21.0,   220),  // 9:00 PM
+            (21.75,  180),  // 9:45 PM
+            (22.75,  127),  // 10:45 PM — dimmest
+            (28.333, 180),  // 4:20 AM  (next day, represented as 24+4.333)
+            (29.15,  220),  // 5:09 AM
+            (29.5,   255),  // 5:30 AM — back to full
+        };
+
+        private void UpdateMasterFaderFromSchedule()
+        {
+            var now = DateTime.Now;
+            // Use hours past noon so the evening-to-morning span doesn't cross midnight boundary
+            double hour = now.Hour + now.Minute / 60.0 + now.Second / 3600.0;
+            if (hour < 12.0) hour += 24.0; // e.g. 4 AM → 28.0
+
+            // Before first waypoint or after last — use nearest endpoint
+            if (hour <= _faderSchedule[0].hour)
+            {
+                _masterFader = _faderSchedule[0].value;
+                return;
+            }
+            if (hour >= _faderSchedule[_faderSchedule.Length - 1].hour)
+            {
+                _masterFader = _faderSchedule[_faderSchedule.Length - 1].value;
+                return;
+            }
+
+            for (int i = 0; i < _faderSchedule.Length - 1; i++)
+            {
+                var (h0, v0) = _faderSchedule[i];
+                var (h1, v1) = _faderSchedule[i + 1];
+                if (hour >= h0 && hour < h1)
+                {
+                    double t = (hour - h0) / (h1 - h0);
+                    _masterFader = (int)Math.Round(v0 + (v1 - v0) * t);
+                    return;
+                }
+            }
+        }
+
         private void InitializePads()
         {
             _padStates = new PadState[_inputDevice.PadCount];
@@ -2505,7 +2567,7 @@ namespace ShowControl.Rendering
 
         private void RenderThreadLoop()
         {
-            byte[] targetVector = new byte[22460];
+            byte[] targetVector = new byte[44920];
             try
             {
                 // Pre-warm MatchIP routing caches by sending sequentially before the main loop.
@@ -2538,6 +2600,7 @@ namespace ShowControl.Rendering
                     auxilaryAnimation = _activeKeyAnimation > -1 ? _auxilaryKeyAnimations[_activeKeyAnimation] : null;
                     transformAnimation = _activeTransformAnimation > -1 ? _transformAnimations[_activeTransformAnimation] : null;
                 }
+                UpdateMasterFaderFromSchedule();
                 int pixelOffset = 0;
                 int channelOffset = 0;
                 if (keyAnimation != null)
@@ -2570,13 +2633,20 @@ namespace ShowControl.Rendering
                 int take = 512;
                 int skip = 0;
                 var writeTasks = new System.Collections.Generic.List<Task>(_outputDevices.Length);
-                foreach (IDmxOutputDevice outputDevice in _outputDevices)
+                try
                 {
-                    //var t = Math.Min(take, outputDevice.MaxChannels);
-                    var t = outputDevice.MaxChannels;
-                    var output = targetVector.Skip(skip).Take(t).ToArray();
-                    writeTasks.Add(outputDevice.Write(output));
-                    skip += t;
+                    foreach (IDmxOutputDevice outputDevice in _outputDevices)
+                    {
+                        //var t = Math.Min(take, outputDevice.MaxChannels);
+                        var t = outputDevice.MaxChannels;
+                        var output = targetVector.Skip(skip).Take(t).ToArray();
+                        writeTasks.Add(outputDevice.Write(output));
+                        skip += t;
+                    }
+                }
+                catch (System.Net.Sockets.SocketException ex)
+                {
+                    _logger.LogWarning(ex, "SocketException while queuing output device writes.");
                 }
                 try { Task.WhenAll(writeTasks).GetAwaiter().GetResult(); }
                 catch (Exception ex) { _logger.LogWarning(ex, "One or more output device writes failed."); }
@@ -2584,7 +2654,7 @@ namespace ShowControl.Rendering
                 catch (Exception ex) { _logger.LogWarning(ex, "ArtNet sync failed."); }
 
                 var frameEnd = _frameRateStopWatch.Elapsed;
-                var sendTime = TimeSpan.FromMilliseconds(25) - (frameEnd - frameStart);
+                var sendTime = TimeSpan.FromMicroseconds(21739) - (frameEnd - frameStart);
                 if (sendTime.TotalMilliseconds > 0)
                 {
 #if WINDOWS

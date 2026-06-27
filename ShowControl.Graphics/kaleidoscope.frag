@@ -12,7 +12,7 @@ layout(push_constant) uniform Push {
     float u_hueTolerance;        //  4
     float u_falloff;             //  4
     float u_param1;              //  4  sectors (N)
-    float u_param2;              //  4  animation speed
+    float u_param2;              //  4  animation speed offset
     float u_param3;              //  4  radial color ring density (k base)
     float u_param4;              //  4  flow pattern frequency  = 40 bytes total
 } pc;
@@ -53,10 +53,12 @@ const float REGION_GRADE_STRENGTH = 0.55;  // 0..1 direct color blend toward ass
 
 // Region layout
 const int   REGION_RINGS   = 6;     // number of radial rings
+const int   REGION_SECTORS = 10;    // fixed sector count for regional color bias
 const float RING_SMOOTH    = 0.015; // soften ring edges (in normalized radius)
 const float SECTOR_SMOOTH  = 0.015; // soften sector edges (in radians)
 const float RING_SPAN            = 1.5;  // >1.0 makes rings extend past screen radius
 const float RING_THICKNESS_MULT  = 1.8;   // >1.0 thickens rings; can cover whole viewport if large
+// SPIRAL_TWIST is now driven by u_param1 (default 2.5)
 
 // ───────────────────────────────────────────────────────────
 // Helpers
@@ -131,22 +133,25 @@ float hueLerp01(float h, float th, float s) {
 // ───────────────────────────────────────────────────────────
 void main(){
     vec2 res  = pc.u_resolution;
-    float time = pc.u_time;
+    // Wrap time to prevent float precision loss after long runs.
+    // 6000 is ~10 LCM periods of the various frequency multipliers,
+    // large enough that no visual discontinuity is perceptible.
+    float time = mod(pc.u_time, 6000.0);
 
     // Base coords
     vec2 p = (2.0 * gl_FragCoord.xy - res) / res.y;
     float aWorld = atan(p.y, p.x);       // world angle (no sectorization yet)
     float rWorld = length(p);            // world radius (0..~1+)
 
-    // Kaleidoscope sectorization (visual structure)
-    float N = pc.u_param1;
-    float a = mod(aWorld, TAU / N) - PI / N;
-    vec2 dir = vec2(cos(a), sin(a));
+    // Continuous spiral (no sector folding — seamless wrap)
+    float spiralTwist = pc.u_param1;
+    float a = aWorld + rWorld * spiralTwist;
     float r = rWorld;
+    vec2 dir = vec2(cos(a), sin(a));
     p = dir * r;
 
     // ── Pass 1: compute base hue from original pattern
-    float t  = time * pc.u_param2;
+    float t  = time + pc.u_param2;
     float k  = pc.u_param3 + 2.0 * sin(t * 0.7);
     float bands = 0.5 + 0.5 * sin(20.0 * r + 6.0 * a + t * 2.0);
     float flow  = 0.5 + 0.5 * sin(pc.u_param4 * r - 3.0 * t + 2.0 * sin(8.0 * a + t));
@@ -196,15 +201,14 @@ void main(){
     bool hasCurrent   = cs.currentCount > 0;
     bool hasTransition = cs.previousCount > 0 && cs.transitionT < 0.999;
     if (hasCurrent || hasTransition) {
-        // Sector index based on world angle
-        float sectorAngle = TAU / N;
+        // Sector index based on spiral-twisted angle (fixed sector count for color regions)
+        float sectorAngle = TAU / float(REGION_SECTORS);
 
-        // Map aWorld into [0, TAU)
-        float aNorm = aWorld;
+        float aNorm = aWorld + rWorld * spiralTwist;
         if (aNorm < 0.0) aNorm += TAU * ceil(-aNorm / TAU);
         aNorm = mod(aNorm, TAU);
 
-        int sectorIndex = int(floor(aNorm / sectorAngle));  // 0..N-1
+        int sectorIndex = int(floor(aNorm / sectorAngle));  // 0..REGION_SECTORS-1
 
         // Scale radius so rings can extend off-screen
         float rScaled = rWorld / RING_SPAN;
@@ -215,9 +219,9 @@ void main(){
 
         int regionId = sectorIndex + ringIndex;
 
-        // Sector softness
+        // Sector softness (use twisted angle for spiral-consistent edges)
         float sectorCenter = (float(sectorIndex) + 0.5) * sectorAngle;
-        float dSector = abs(atan(sin(aWorld - sectorCenter), cos(aWorld - sectorCenter)));
+        float dSector = abs(atan(sin(aNorm - sectorCenter), cos(aNorm - sectorCenter)));
         float mSector = 1.0 - smoothstep(sectorAngle * 0.5 - SECTOR_SMOOTH,
                                          sectorAngle * 0.5,
                                          dSector);

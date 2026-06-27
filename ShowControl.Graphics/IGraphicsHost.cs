@@ -87,6 +87,9 @@ namespace ShowControl.Graphics
         public float ShaderParam3 { get; set; }
         public float ShaderParam4 { get; set; }
 
+        /// <summary>Name of the currently active shader.</summary>
+        public string CurrentShader { get; }
+
         /// <summary>
         /// Event raised when the graphics host wants a preview window to be opened.
         /// The MAUI app should handle this event and create the window.

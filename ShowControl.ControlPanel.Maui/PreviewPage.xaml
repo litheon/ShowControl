@@ -13,6 +13,14 @@
         StrokeThickness="2"
         Points="0,50 50,0 100,50">
         </Polyline>
+        <Label x:Name="ShaderParamsLabel"
+               TextColor="Red"
+               FontFamily="Courier New"
+               FontSize="12"
+               VerticalOptions="Start"
+               HorizontalOptions="Start"
+               Margin="8"
+               Text="Shader Params" />
     </Grid>
     
 </ContentPage>

@@ -171,10 +171,11 @@ namespace ShowControl.Graphics
         public int Height { get; private set; }
         public System.Drawing.Color[] Colors { get; set; } = Array.Empty<System.Drawing.Color>();
         public float DistortionStrength { get; set; } = 0.12f;
-        public float ShaderParam1 { get; set; } = 10.0f;  // sectors (N) for kaleidoscope / blade count for clown
-        public float ShaderParam2 { get; set; } = 0.6f;   // animation speed
+        public float ShaderParam1 { get; set; } = 2.5f;   // spiral twist for kaleidoscope / blade count for clown
+        public float ShaderParam2 { get; set; } = 0.0f;   // animation time offset
         public float ShaderParam3 { get; set; } = 3.0f;   // radial color ring density (k base)
         public float ShaderParam4 { get; set; } = 10.0f;  // flow pattern frequency
+        public string CurrentShader => _shader;
 
         private bool PRESENT = false; // set false to run headless (no window present)
         private bool PRESENT_DCOMP = false; // DirectComposition mode (Vulkan/D3D11 interop)
@@ -2179,7 +2180,7 @@ namespace ShowControl.Graphics
             PushData pc = new()
             {
                 Resolution = new System.Numerics.Vector2(_offscreenExtent.Width, _offscreenExtent.Height),
-                Time = (float)elapsed * 0.25f,
+                Time = (float)elapsed * 0.15f,
                 DistortionStrength = DistortionStrength,
                 HueTolerance = 0.35f,
                 Falloff = 0.6f,
