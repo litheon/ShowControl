@@ -63,7 +63,14 @@ const float RING_THICKNESS_MULT  = 1.8;   // >1.0 thickens rings; can cover whol
 // ───────────────────────────────────────────────────────────
 // Helpers
 // ───────────────────────────────────────────────────────────
-vec3 palette(float t){ return 0.5 + 0.5 * cos(TAU * (vec3(0.0,0.33,0.67)+t)); }
+vec3 palette(float t){
+    vec3 c = 0.5 + 0.5 * cos(TAU * (vec3(0.0,0.33,0.67)+t));
+    // Warm bias: lift red, slightly lift green, reduce blue
+    c.r = min(c.r * 0.95, 1.0);
+    c.g = min(c.g * 1.10, 1.0);
+    c.b *= 0.60;
+    return c;
+}
 
 vec3 rgb2hsv(vec3 c) {
     float cMax = max(c.r, max(c.g, c.b));

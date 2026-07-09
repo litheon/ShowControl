@@ -1,0 +1,10 @@
+pushd /Users/litheon/source/repos/ShowControl
+dotnet build ShowControl.Graphics/ShowControl.Graphics.csproj --no-restore
+cp ShowControl.Graphics/*.spv ShowControl.Host/
+popd
+dotnet clean
+dotnet build --framework net9.0-maccatalyst --no-incremental
+dotnet publish -c Release --framework net9.0-maccatalyst -o ../publish
+pushd ../publish
+open .
+popd

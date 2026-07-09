@@ -241,7 +241,15 @@ namespace ShowControl.Animation
                     var r = initial + pixelStride + rowOffset;
                     var g = initial + pixelStride + rowOffset + 1;
                     var b = initial + pixelStride + rowOffset + 2;
-                    _nextFrame[i].Color = Color.FromArgb(0, span[r], span[g], span[b]);
+                    int posInStrip = i % 720;
+                    if (posInStrip >= 708) // last 12 pixels of each strip
+                    {
+                        _nextFrame[i].Color = Color.FromArgb(0, 0, 0, 0);
+                    }
+                    else
+                    {
+                        _nextFrame[i].Color = Color.FromArgb(0, span[r], span[g], span[b]);
+                    }
                     if (i == 719 || i == 1439 || i == 2159 || i == 2879 || i == 3599 || i == 4319 || i == 5039 ||
                         i == 5759 || i == 6479 || i == 7199 || i == 7919 || i == 8639 || i == 9359 || i == 10079 ||
                         i == 10799)
@@ -308,11 +316,11 @@ namespace ShowControl.Animation
             float s1, s2, s3, s4;
             if (_shader == ShowControl.Graphics.Shaders.Kaleidoscope)
             {
-                s1 = 0.002f; s2 = 0.001f; s3 = 0.004f; s4 = 0.01f;
+                s1 = 0.0002f; s2 = 0.0001f; s3 = 0.0004f; s4 = 0.001f;
             }
             else if (_shader == ShowControl.Graphics.Shaders.Clown)
             {
-                s1 = 0.0017f; s2 = 0.00125f; s3 = 0.0008f; s4 = 0.0003f;
+                s1 = 0.00017f; s2 = 0.000125f; s3 = 0.00008f; s4 = 0.00003f;
             }
             else return;
 
@@ -375,9 +383,9 @@ namespace ShowControl.Animation
             {
                 (step, min, max) = paramIndex switch
                 {
-                    0 => (0.02f, 0.5f, 8.0f),       // spiral twist
+                    0 => (0.013f, 0.5f, 8.0f),      // spiral twist
                     1 => (0.01f, -500.0f, 500.0f),     // animation time offset
-                    2 => (0.04f,  0.5f,  12.0f),  // k base (ring density)
+                    2 => (0.0094f, 0.5f,  12.0f), // k base (ring density)
                     3 => (0.1f,   2.0f,  30.0f),  // flow frequency
                     _ => (0f, 0f, 0f)
                 };

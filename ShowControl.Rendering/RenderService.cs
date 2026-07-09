@@ -53,7 +53,7 @@ namespace ShowControl.Rendering
 
         private Timer NavButtonBlinkTimer;
         private Timer RenderOperatatorTimer;
-        private readonly TimeSpan RenderDelayTime = TimeSpan.FromSeconds(1);
+        private readonly TimeSpan RenderDelayTime = TimeSpan.FromMilliseconds(100);
         private double _lastAverageLevel;
 
         private static Button[] _blinkButtons = new Button[]
@@ -425,7 +425,7 @@ namespace ShowControl.Rendering
                 var midiAwareTransformAnimation = activeTransformAnimation as MidiAwareAnimation;
                 midiAwareTransformAnimation?.MidiAware_OnMessageReceived(sender, e);
             }
-            RenderOperatatorTimer.Change(RenderDelayTime, RenderDelayTime);
+            RenderOperatatorTimer.Change(TimeSpan.FromSeconds(5), RenderDelayTime);
         }
 
         private void ProcessPadPressed(ButtonDirection direction, byte padNumber)
@@ -2508,12 +2508,21 @@ namespace ShowControl.Rendering
         // Linearly interpolates between adjacent waypoints. Wraps around midnight.
         private static readonly (double hour, int value)[] _faderSchedule = new[]
         {
+            // (20.0,   255),  // 8:00 PM — start dimming
+            // (21.0,   255),  // 9:00 PM
+            // (21.75,  248),  // 9:45 PM
+            // (22.75,  175),  // 10:45 PM — dimmest
+            // (27.5,   175),  // 3:30 AM — start undimming
+            // (28.333, 248),  // 4:20 AM  (next day, represented as 24+4.333)
+            // (29.15,  255),  // 5:09 AM
+            // (29.5,   255),  // 5:30 AM — back to full
             (20.0,   255),  // 8:00 PM — start dimming
-            (21.0,   220),  // 9:00 PM
-            (21.75,  180),  // 9:45 PM
-            (22.75,  127),  // 10:45 PM — dimmest
-            (28.333, 180),  // 4:20 AM  (next day, represented as 24+4.333)
-            (29.15,  220),  // 5:09 AM
+            (21.0,   255),  // 9:00 PM
+            (21.75,  255),  // 9:45 PM
+            (22.75,  255),  // 10:45 PM — dimmest
+            (27.5,   255),  // 3:30 AM — start undimming
+            (28.333, 255),  // 4:20 AM  (next day, represented as 24+4.333)
+            (29.15,  255),  // 5:09 AM
             (29.5,   255),  // 5:30 AM — back to full
         };
 
