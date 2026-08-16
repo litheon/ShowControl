@@ -345,5 +345,11 @@ native/
 # ASIO SDK since it needs to be downloaded
 external/ASIOSDK2/
 
-# Compiled SPV files
-ShowControl.ControlPanel.Maui/Resources/Raw/*.spv
+# Compiled SPV files (generated from tracked .frag/.vert sources at build time)
+*.spv
+
+# Build script output log
+build.log
+
+# Claude Code local settings
+.claude/

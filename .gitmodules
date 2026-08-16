@@ -10,6 +10,7 @@
 [submodule "external/RtMidi.Core"]
 	path = external/RtMidi.Core
 	url = https://github.com/litheon/RtMidi.Core.git
+	ignore = dirty
 [submodule "external/soundtouch.net"]
 	path = external/soundtouch.net
 	url = https://github.com/litheon/soundtouch.net.git
