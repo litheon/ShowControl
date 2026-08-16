@@ -10,6 +10,7 @@ using Point = ShowControl.Devices.Audio.Point;
 using GraphicsPoint = Microsoft.Maui.Graphics.Point;
 using ShowControl.Devices.Input;
 using ShowControl.Graphics;
+using ShowControl.PixelMapping;
 
 namespace ShowControl.ControlPanel.Maui
 {
@@ -21,6 +22,7 @@ namespace ShowControl.ControlPanel.Maui
         PointCollection points2;
         PointCollection activePoints;
         private readonly Task<IHost> _hostTask;
+        private IHost _host;
         int x = 10;
 
         // Log pane: polls the in-memory sink rather than being called back per event,
@@ -41,37 +43,24 @@ namespace ShowControl.ControlPanel.Maui
             }
 
             InitializeComponent();
-            _hostTask = Host.Host.Main(new string[] { }, OnAudioFrameProcessed, HandleDevices);
+            _hostTask = Host.Host.Main(new string[] { }, OnAudioFrameProcessed, HandlePixelMap);
             Initialize();
             _instance = this;
             //Thread.Sleep(20000);
             //Task.Run(() => new GraphicsHost().Run());
         }
 
-        // Summarizes the address map as one line per contiguous run of same-type
-        // fixtures. Listing every device produced ~11.5k lines (~450 KB) for the
-        // pixel surface, which is unreadable and slow to lay out in the label.
-        private void HandleDevices(IDmxDevice[] devices)
+        // One line per fixture from the pixel map. This used to summarize an IDmxDevice[] that
+        // held one device per pixel — ~11.5k lines, ~450 KB — because the pixel surface had no
+        // notion of a fixture to group by.
+        private void HandlePixelMap(PixelMapSummary summary)
         {
-            int address = 1;
             var addressOutput = new StringBuilder();
-            int runStartIndex = 0;
-            int runStartAddress = address;
-
-            for (int j = 0; j < devices.Length; j++)
+            addressOutput.AppendLine(string.Format("{0} pixels · {1} channels · {2} output device(s)",
+                summary.TotalPixelCount, summary.TotalChannelCount, summary.OutputCount));
+            foreach (var line in summary.Lines)
             {
-                address += devices[j].ChannelCount;
-
-                bool lastOfRun = j == devices.Length - 1
-                    || devices[j + 1].GetType() != devices[runStartIndex].GetType();
-
-                if (lastOfRun)
-                {
-                    addressOutput.AppendLine(string.Format("Addresses {0}-{1}: {2} x {3}",
-                        runStartAddress, address - 1, j - runStartIndex + 1, devices[runStartIndex].GetType().Name));
-                    runStartIndex = j + 1;
-                    runStartAddress = address;
-                }
+                addressOutput.AppendLine(line.ToString());
             }
             MainThread.BeginInvokeOnMainThread(() =>
             {
@@ -82,6 +71,10 @@ namespace ShowControl.ControlPanel.Maui
         private void Initialize()
         {
             var result =  _hostTask.GetAwaiter().GetResult();
+            // Held so the preview window can resolve the pixel map editor, and registered so window
+            // teardown and the platform lifecycle hooks have something to flush and stop.
+            _host = result;
+            AppLifetime.Register(result);
             Serilog.Log.Information("Doing platform initialization");
             result.Services.GetRequiredService<IInputService>().DoPlatformInitalization();
 
@@ -152,7 +145,9 @@ namespace ShowControl.ControlPanel.Maui
                 }
 
                 Serilog.Log.Debug("[MainPage] Creating PreviewPage...");
-                var previewPage = new PreviewPage(graphicsHost);
+                var previewPage = new PreviewPage(
+                    graphicsHost,
+                    _host.Services.GetRequiredService<IPixelMapEditor>());
 
                 Serilog.Log.Debug("[MainPage] Creating Window...");
                 var window = new Window(previewPage)
@@ -185,12 +180,9 @@ namespace ShowControl.ControlPanel.Maui
         }
 #endif
 
-        private async void MainWindow_Closing(object sender, EventArgs e)
-        {
-            var result = await _hostTask;
-            await result.StopAsync();
-            result.Dispose();
-        }
+        // Host shutdown now runs from App.CreateWindow's Destroying handler via AppLifetime, which
+        // is reached on a normal quit. The old MainWindow_Closing here was never subscribed to
+        // anything, so StopAsync never ran.
 
         private void OnAudioFrameProcessed(object sender, AudioFrameProcessedEventArgs e)
         {

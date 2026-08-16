@@ -14,5 +14,6 @@
     <ProjectReference Include="..\ShowControl.Devices.DMX\ShowControl.Devices.DMX.csproj" />
     <ProjectReference Include="..\ShowControl.Devices.Input\ShowControl.Devices.Input.csproj" />
     <ProjectReference Include="..\ShowControl.Devices.Output\ShowControl.Devices.Output.csproj" />
+    <ProjectReference Include="..\ShowControl.PixelMapping\ShowControl.PixelMapping.csproj" />
   </ItemGroup>
 </Project>

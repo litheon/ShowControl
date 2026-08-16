@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('osx'))">net9.0;net9.0-maccatalyst</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">net9.0</TargetFrameworks>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
+    <Platforms>AnyCPU;x64;x86;ARM64</Platforms>
+    <Nullable>enable</Nullable>
+    <!-- Source-generated JSON: MacCatalyst Release publishes trimmed, and reflection-based
+         System.Text.Json degrades silently there. -->
+    <IsTrimmable>true</IsTrimmable>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Abstractions only: this project stays free of project references so Animation and the
+         plain-net9.0 test project can both consume it. -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="DefaultPixelMap.json" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="ShowControl.Tests" />
+  </ItemGroup>
+</Project>

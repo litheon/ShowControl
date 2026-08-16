@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using ShowControl.Devices.Audio;
 using ShowControl.Devices.DMX;
 using ShowControl.Host;
+using ShowControl.PixelMapping;
 
 namespace ShowControl
 {
@@ -14,7 +15,7 @@ namespace ShowControl
         public static void Main(string[] args)
         {
             LoggingBootstrap.Initialize();
-            Host.Host.Main(new string[] { }, OnAudioFrameProcessed, HandleDevices).Wait();
+            Host.Host.Main(new string[] { }, OnAudioFrameProcessed, HandlePixelMap).Wait();
         }
 
         private static void OnAudioFrameProcessed(object sender, AudioFrameProcessedEventArgs e)
@@ -22,7 +23,7 @@ namespace ShowControl
             Serilog.Log.Verbose("BPM {Bpm}", e.Bpm);
         }
 
-        private static void HandleDevices(IDmxDevice[] devices) 
+        private static void HandlePixelMap(PixelMapSummary summary)
         {
 
         }

@@ -38,18 +38,16 @@ namespace ShowControl.ControlPanel
         public MainWindow()
         {
             InitializeComponent();
-            _hostTask = Host.Host.Main(new string[] { }, OnAudioFrameProcessed, HandleDevices);
+            _hostTask = Host.Host.Main(new string[] { }, OnAudioFrameProcessed, HandlePixelMap);
             Initialize();
         }
 
-        private void HandleDevices(IDmxDevice[] devices)
+        private void HandlePixelMap(ShowControl.PixelMapping.PixelMapSummary summary)
         {
-            int address = 1;
             var addressOutput = new StringBuilder();
-            for (int j = 0; j < devices.Length; j++)
+            foreach (var line in summary.Lines)
             {
-                addressOutput.AppendLine(string.Format("Address {0} for {1}: {2}", j + 1, devices[j].GetType().ToString(), address));
-                address += devices[j].ChannelCount;
+                addressOutput.AppendLine(line.ToString());
             }
             Dispatcher.Invoke(() =>
             {

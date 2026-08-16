@@ -7,6 +7,7 @@ using ShowControl.Devices.Input;
 using ShowControl.Devices.Input.Extensions;
 using ShowControl.Devices.Output;
 using ShowControl.Graphics;
+using ShowControl.PixelMapping;
 using ShowControl.Utilities;
 using static ShowControl.Rendering.Palettes;
 using System;
@@ -27,6 +28,8 @@ namespace ShowControl.Rendering
         private IDmxOutputDevice[] _outputDevices;
         private OutputDeviceHealth[] _outputDeviceHealth;
         private Task[] _writeTasks;
+        // Reused per frame so slicing the target vector per device costs no allocation.
+        private byte[][] _deviceBuffers;
         private readonly OutputDeviceHealth _artNetSyncHealth = new OutputDeviceHealth();
         private readonly Thread _renderThread;
         private readonly CancellationTokenSource _cts;
@@ -35,10 +38,18 @@ namespace ShowControl.Rendering
         private readonly IInputService _inputService;
         private readonly IAudioService _audioService;
         private readonly IGraphicsHost _graphicsHost;
-        private readonly IDmxDevice[] _devices;
 
-        private readonly IRenderSurface[] _renderSurfaces;
-        private readonly IRenderSurface _pixelChannels;
+        private readonly IPixelMapSource _pixelMapSource;
+        private readonly PixelTypeRegistry _pixelTypes = PixelTypeRegistry.Default;
+        // Written by the UI thread, consumed by the render thread at a frame boundary. The render
+        // thread is the only writer of everything it rebuilds, so this reference is the whole
+        // synchronization story for a structural change.
+        private PixelMapLayout _pendingLayout;
+        private PixelMapLayout _activeLayout;
+        private byte[] _targetVector;
+        private bool _loggedFrameSizeMismatch;
+
+        private IRenderSurface _pixelChannels;
         private readonly IRenderSurface _parChannels;
 
         private readonly object _navigationLock = new object();
@@ -169,6 +180,7 @@ namespace ShowControl.Rendering
             IInputService inputService,
             IGraphicsHost graphicsHost,
             IAudioService audioService,
+            IPixelMapSource pixelMapSource,
             ILogger<RenderService> logger,
             IArtNetController artNetController
             )
@@ -179,15 +191,21 @@ namespace ShowControl.Rendering
             _inputService = inputService;
             _audioService = audioService;
             _graphicsHost = graphicsHost;
+            _pixelMapSource = pixelMapSource;
             _audioService.AudioFrameProcessed += _audioService_AudioFrameProcessed;
             _renderThread = new Thread(RenderThreadLoop);
             _tcs = new TaskCompletionSource<bool>();
             _cts = new CancellationTokenSource();
 
-            _pixelChannels = RenderSurface.Create(
-                    new RenderSettings(255),
-                    Enumerable.Repeat(WS2812B.Instance, 11520).ToArray()
-            );
+            // The pixel surface is built from the saved map, not from a hardcoded pixel count.
+            _activeLayout = _pixelMapSource.CurrentLayout;
+            _pixelChannels = PixelMapSurfaceBuilder.Build(_activeLayout, _pixelTypes, new RenderSettings(255));
+
+            if (_pixelMapSource is IPixelMapEditor editor)
+            {
+                editor.Changed += PixelMap_Changed;
+            }
+
             _parChannels = RenderSurface.Create(
                     new RenderSettings(255),
                     Sheds.Instance
@@ -203,16 +221,7 @@ namespace ShowControl.Rendering
                     //Sheds.Instance,
                     //Sheds.Instance
             );
-            _renderSurfaces = new IRenderSurface[]
-            {
-                 RenderSurface.Create(
-                    new RenderSettings(255),
-                    _pixelChannels,
-                    _parChannels
-                ),
-            };
-
-            _devices = _renderSurfaces.SelectMany(r => r.GetDevices()).ToArray();
+            _targetVector = new byte[_pixelChannels.TotalChannelCount + _parChannels.TotalChannelCount];
         }
 
         private void _audioService_AudioFrameProcessed(object sender, AudioFrameProcessedEventArgs e)
@@ -225,12 +234,13 @@ namespace ShowControl.Rendering
             IInputService inputService,
             IAudioService audioService,
             IGraphicsHost graphicsHost,
-            Action<IDmxDevice[]> dmxDeviceAction,
+            IPixelMapSource pixelMapSource,
+            Action<PixelMapSummary> pixelMapSummaryAction,
             ILogger<RenderService> logger,
             IArtNetController artNetController
-            ) : this(deviceEnumerator, inputService, graphicsHost, audioService, logger, artNetController)
+            ) : this(deviceEnumerator, inputService, graphicsHost, audioService, pixelMapSource, logger, artNetController)
         {
-            dmxDeviceAction(_devices);
+            pixelMapSummaryAction(_pixelMapSource.CurrentSummary);
         }
 
         public Task StartAsync(CancellationToken cancellationToken)
@@ -241,17 +251,7 @@ namespace ShowControl.Rendering
             _inputDevice = _inputService.Devices.FirstOrDefault();
             _logger.LogInformation("Input device: {InputDevice}", _inputDevice?.ToString() ?? "(none)");
             _padTransitionStartIndex = _inputDevice.PadCount / 2;
-            _outputDevices = _deviceEnumerator.GetDmxDevices(_cts.Token);
-            _outputDeviceHealth = new OutputDeviceHealth[_outputDevices.Length];
-            for (int i = 0; i < _outputDeviceHealth.Length; i++)
-            {
-                _outputDeviceHealth[i] = new OutputDeviceHealth();
-            }
-            _writeTasks = new Task[_outputDevices.Length];
-            foreach (var outputDevice in _outputDevices)
-            {
-                _logger.LogInformation("Output device: {Device}", outputDevice);
-            }
+            RebuildOutputDevices(_activeLayout, previousLayout: null, previousDevices: null);
             Initialize();
             // Auto-activate animation 0 before starting the render thread
             // to avoid racing SetShader() with the render loop
@@ -563,42 +563,190 @@ namespace ShowControl.Rendering
         }
 
         /// <summary>
-        /// Logs the DMX address map as one entry per contiguous run of same-type
-        /// fixtures. The pixel surface is >11k single-pixel devices, so a line per
-        /// device stalled startup for as long as the sinks took to drain.
+        /// Logs the rig one line per fixture. Under the old arrangement every pixel was its own
+        /// IDmxDevice, so this had to run-length compress ~11.5k entries; the map gives it real
+        /// fixtures to name instead.
         /// </summary>
-        private void LogDeviceAddresses()
+        private void LogPixelMapSummary()
         {
-            if (_devices.Length == 0)
+            var summary = _pixelMapSource.CurrentSummary;
+            _logger.LogInformation(
+                "Pixel map: {Pixels} pixels, {Channels} channels, {Outputs} output device(s).",
+                summary.TotalPixelCount, summary.TotalChannelCount, summary.OutputCount);
+
+            foreach (var line in summary.Lines)
             {
+                _logger.LogInformation("  {Fixture}", line.ToString());
+            }
+        }
+
+        /// <summary>
+        /// Applies an edit made in the pixel map editor while the show is running.
+        /// <para>
+        /// A geometry change is only new sample offsets, so it is published straight to the shader
+        /// animation with a volatile write — the interactive drag path, which must stay smooth.
+        /// A structural change needs new buffers, surfaces and devices, so it is handed to the
+        /// render thread to perform itself at a frame boundary.
+        /// </para>
+        /// </summary>
+        private void PixelMap_Changed(object sender, PixelMapChangedEventArgs e)
+        {
+            if (e.Kind == PixelMapChangeKind.Geometry)
+            {
+                lock (_navigationLock)
+                {
+                    if (_keyAnimations != null)
+                    {
+                        foreach (var animation in _keyAnimations)
+                        {
+                            if (animation is ShaderAnimation shaderAnimation)
+                            {
+                                shaderAnimation.SetSampleMap(e.SampleMap);
+                            }
+                        }
+                    }
+                }
                 return;
             }
 
-            int address = 1;
-            int runStartIndex = 0;
-            int runStartAddress = address;
+            Volatile.Write(ref _pendingLayout, e.Layout);
+        }
 
-            for (int j = 0; j < _devices.Length; j++)
+        /// <summary>
+        /// Rebuilds everything sized by the map. Runs on the render thread between frames, so the
+        /// render thread stays the only writer of every field it reads and nothing here has to be
+        /// synchronized beyond the pending-layout reference.
+        /// <para>
+        /// Reverts wholesale on failure: a half-applied rebuild would trip the pixel-count check in
+        /// RenderSurface.Render, which throws out of the render loop and leaves the rig frozen.
+        /// </para>
+        /// </summary>
+        private void ApplyPendingLayout(PixelMapLayout layout)
+        {
+            var previousLayout = _activeLayout;
+            var previousSurface = _pixelChannels;
+            var previousTargetVector = _targetVector;
+            var previousDevices = _outputDevices;
+            var previousHealth = _outputDeviceHealth;
+            var previousWriteTasks = _writeTasks;
+            var previousBuffers = _deviceBuffers;
+
+            try
             {
-                address += _devices[j].ChannelCount;
+                _pixelChannels = PixelMapSurfaceBuilder.Build(layout, _pixelTypes, new RenderSettings(255));
+                _targetVector = new byte[_pixelChannels.TotalChannelCount + _parChannels.TotalChannelCount];
+                _activeLayout = layout;
+                RebuildOutputDevices(layout, previousLayout, previousDevices);
 
-                bool lastOfRun = j == _devices.Length - 1
-                    || _devices[j + 1].GetType() != _devices[runStartIndex].GetType();
-
-                if (lastOfRun)
+                lock (_navigationLock)
                 {
-                    _logger.LogDebug("Addresses {StartAddress}-{EndAddress}: {Count} x {DeviceType} (devices {StartDevice}-{EndDevice})",
-                        runStartAddress, address - 1, j - runStartIndex + 1,
-                        _devices[runStartIndex].GetType().Name, runStartIndex + 1, j + 1);
-                    runStartIndex = j + 1;
-                    runStartAddress = address;
+                    if (_keyAnimations != null)
+                    {
+                        foreach (var animation in _keyAnimations)
+                        {
+                            // Never reconstruct the animation: Start() calls SetShader, and a
+                            // pipeline rebuild at runtime can hang the GPU on MoltenVK.
+                            if (animation is ShaderAnimation shaderAnimation)
+                            {
+                                shaderAnimation.SetSampleMap(_pixelMapSource.CurrentSampleMap);
+                            }
+                        }
+                    }
+                }
+
+                _logger.LogInformation(
+                    "Pixel map applied: {Pixels} pixels, {Channels} channels, {Outputs} output device(s).",
+                    layout.TotalPixelCount, layout.TotalChannelCount, layout.Outputs.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not apply the edited pixel map; keeping the previous one.");
+                _activeLayout = previousLayout;
+                _pixelChannels = previousSurface;
+                _targetVector = previousTargetVector;
+                _outputDevices = previousDevices;
+                _outputDeviceHealth = previousHealth;
+                _writeTasks = previousWriteTasks;
+                _deviceBuffers = previousBuffers;
+            }
+        }
+
+        /// <summary>
+        /// Swaps in the device list for a new layout, keeping any device whose endpoint and channel
+        /// count are unchanged. Adding a fixture to one controller must not blank the others while
+        /// their sockets are torn down and reopened.
+        /// </summary>
+        private void RebuildOutputDevices(PixelMapLayout layout, PixelMapLayout previousLayout, IDmxOutputDevice[] previousDevices)
+        {
+            var rebuilt = _deviceEnumerator.GetDmxDevices(_cts.Token);
+            if (rebuilt.Length != layout.Outputs.Count)
+            {
+                throw new InvalidOperationException(
+                    $"Device enumerator returned {rebuilt.Length} devices for a layout with {layout.Outputs.Count} outputs.");
+            }
+
+            var devices = new IDmxOutputDevice[rebuilt.Length];
+            var health = new OutputDeviceHealth[rebuilt.Length];
+            var buffers = new byte[rebuilt.Length][];
+            var reused = new bool[previousDevices?.Length ?? 0];
+
+            for (int i = 0; i < rebuilt.Length; i++)
+            {
+                int carriedOver = -1;
+                if (previousDevices != null && previousLayout != null)
+                {
+                    for (int j = 0; j < previousLayout.Outputs.Count && j < previousDevices.Length; j++)
+                    {
+                        if (!reused[j] &&
+                            previousLayout.Outputs[j].Target.Equals(layout.Outputs[i].Target) &&
+                            previousLayout.Outputs[j].ChannelCount == layout.Outputs[i].ChannelCount)
+                        {
+                            carriedOver = j;
+                            break;
+                        }
+                    }
+                }
+
+                if (carriedOver >= 0)
+                {
+                    reused[carriedOver] = true;
+                    devices[i] = previousDevices[carriedOver];
+                    health[i] = _outputDeviceHealth != null && carriedOver < _outputDeviceHealth.Length
+                        ? _outputDeviceHealth[carriedOver]
+                        : new OutputDeviceHealth();
+                    (rebuilt[i] as IDisposable)?.Dispose();
+                }
+                else
+                {
+                    devices[i] = rebuilt[i];
+                    health[i] = new OutputDeviceHealth();
+                    _logger.LogInformation("Output device: {Device}", devices[i]);
+                }
+
+                buffers[i] = new byte[layout.Outputs[i].ChannelCount];
+            }
+
+            if (previousDevices != null)
+            {
+                for (int j = 0; j < previousDevices.Length; j++)
+                {
+                    if (!reused[j])
+                    {
+                        _logger.LogInformation("Output device removed: {Device}", previousDevices[j]);
+                        (previousDevices[j] as IDisposable)?.Dispose();
+                    }
                 }
             }
+
+            _outputDevices = devices;
+            _outputDeviceHealth = health;
+            _writeTasks = new Task[devices.Length];
+            _deviceBuffers = buffers;
         }
 
         private void Initialize()
         {
-            LogDeviceAddresses();
+            LogPixelMapSummary();
 
 
             _keyAnimations = new IKeyAnimation[]
@@ -609,7 +757,7 @@ namespace ShowControl.Rendering
                 //new RainbowAnimation(_pixelChannels.TotalPixelCount, warmLucidas, _audioService, _cts.Token, fastAnimate: true),
                 //new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg9, _audioService, _cts.Token, fastAnimate: true),
                 //new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg2Lucidas, _audioService, _cts.Token, fastAnimate: true),
-                // new ShaderAnimation(_pixelChannels.TotalPixelCount, _graphicsHost, Shaders.Geometry, new Color[]
+                // new ShaderAnimation(_pixelMapSource.CurrentSampleMap, _graphicsHost, Shaders.Geometry, new Color[]
                 // {
                 //     Color.Red,
                 //     Color.FromArgb(255, 0, 137),
@@ -618,8 +766,8 @@ namespace ShowControl.Rendering
                 //     Color.FromArgb(255, 74, 0),
                 //     Color.FromArgb(9, 254, 182)
                 // }),
-                new ShaderAnimation(_pixelChannels.TotalPixelCount, _graphicsHost, Shaders.Kaleidoscope, frequentWarmColdRoygviv),
-                // new ShaderAnimation(_pixelChannels.TotalPixelCount, _graphicsHost, Shaders.Clown, new Color[]
+                new ShaderAnimation(_pixelMapSource.CurrentSampleMap, _graphicsHost, Shaders.Kaleidoscope, frequentWarmColdRoygviv, _logger),
+                // new ShaderAnimation(_pixelMapSource.CurrentSampleMap, _graphicsHost, Shaders.Clown, new Color[]
                 // {
                 //     Color.FromArgb(220,  20,  20), // red
                 //     Color.FromArgb(255, 200,   0), // yellow
@@ -652,7 +800,7 @@ namespace ShowControl.Rendering
                 //new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg6, _audioService, _cts.Token),
                 //new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg6, _audioService, _cts.Token),
                 //commented so we don't have multiple calls to graphics host
-                //new ShaderAnimation(_parChannels.TotalPixelCount, _graphicsHost, Shaders.Kaleidoscope, dragonCyborg9)
+                //new ShaderAnimation(_pixelMapSource.CurrentSampleMap, _graphicsHost, Shaders.Kaleidoscope, dragonCyborg9)
                 //new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg8, _audioService, _cts.Token),
             };
 
@@ -722,7 +870,6 @@ namespace ShowControl.Rendering
 
         private void RenderThreadLoop()
         {
-            byte[] targetVector = new byte[44920];
             try
             {
                 // Pre-warm MatchIP routing caches by sending sequentially before the main loop.
@@ -744,6 +891,16 @@ namespace ShowControl.Rendering
             {
             while (!_cts.Token.IsCancellationRequested)
             {
+                // Structural pixel-map edits are applied here, before anything reads the buffers
+                // they resize. Costs one frame; structural edits are rare and a single dark frame
+                // at ~46fps is invisible.
+                var pendingLayout = Volatile.Read(ref _pendingLayout);
+                if (pendingLayout != null)
+                {
+                    Volatile.Write(ref _pendingLayout, null);
+                    ApplyPendingLayout(pendingLayout);
+                }
+
                 _frameRateStopWatch.Start();
                 var frameStart = _frameRateStopWatch.Elapsed;
                 IKeyAnimation keyAnimation = null;
@@ -756,6 +913,7 @@ namespace ShowControl.Rendering
                     transformAnimation = _activeTransformAnimation > -1 ? _transformAnimations[_activeTransformAnimation] : null;
                 }
                 UpdateMasterFaderFromSchedule();
+                var targetVector = _targetVector;
                 int pixelOffset = 0;
                 int channelOffset = 0;
                 if (keyAnimation != null)
@@ -769,10 +927,28 @@ namespace ShowControl.Rendering
                     }
                     var frameSpan = frame.AsSpan();
                     var surface = _pixelChannels;
-                            
-                    surface.Render(frameSpan.Slice(pixelOffset, surface.TotalPixelCount), targetVector.AsSpan().Slice(channelOffset, surface.TotalChannelCount), renderSettings);
-                    pixelOffset += surface.TotalPixelCount;
-                    channelOffset += surface.TotalChannelCount;
+
+                    // RenderSurface.Render throws on a size mismatch, and an exception here exits
+                    // the loop for good and leaves the rig frozen. Skip the render instead — but
+                    // still fall through to the frame pacing below, or a persistent mismatch would
+                    // spin the render thread at full speed.
+                    if (frameSpan.Length != surface.TotalPixelCount)
+                    {
+                        if (!_loggedFrameSizeMismatch)
+                        {
+                            _loggedFrameSizeMismatch = true;
+                            _logger.LogWarning(
+                                "Animation produced {FrameLength} pixels but the surface expects {SurfaceLength}; not rendering until they agree.",
+                                frameSpan.Length, surface.TotalPixelCount);
+                        }
+                    }
+                    else
+                    {
+                        _loggedFrameSizeMismatch = false;
+                        surface.Render(frameSpan.Slice(pixelOffset, surface.TotalPixelCount), targetVector.AsSpan().Slice(channelOffset, surface.TotalChannelCount), renderSettings);
+                        pixelOffset += surface.TotalPixelCount;
+                        channelOffset += surface.TotalChannelCount;
+                    }
                 }
                 //if (auxilaryAnimation != null)
                 //{
@@ -789,13 +965,13 @@ namespace ShowControl.Rendering
                 // overlap. Each device is isolated: one unreachable controller must not
                 // stop the others from being written, and a device that keeps failing
                 // backs off instead of throwing (and logging) on every frame.
-                int skip = 0;
+                // Each device's channel range comes from the layout rather than from a running
+                // total over the device array, so enabling a fixture can no longer shift another
+                // controller's data.
                 for (int i = 0; i < _outputDevices.Length; i++)
                 {
                     var outputDevice = _outputDevices[i];
-                    var channelCount = outputDevice.MaxChannels;
-                    var offset = skip;
-                    skip += channelCount; // advances even when skipped — the mapping is positional
+                    var segment = _activeLayout.Outputs[i];
 
                     _writeTasks[i] = null;
                     if (!_outputDeviceHealth[i].ShouldAttempt(_frameRateStopWatch.Elapsed))
@@ -805,7 +981,9 @@ namespace ShowControl.Rendering
 
                     try
                     {
-                        _writeTasks[i] = outputDevice.Write(targetVector.Skip(offset).Take(channelCount).ToArray());
+                        var buffer = _deviceBuffers[i];
+                        Array.Copy(targetVector, segment.ChannelStart, buffer, 0, segment.ChannelCount);
+                        _writeTasks[i] = outputDevice.Write(buffer);
                     }
                     catch (Exception ex)
                     {

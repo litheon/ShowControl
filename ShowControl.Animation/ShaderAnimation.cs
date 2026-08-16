@@ -1,5 +1,8 @@
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using ShowControl.Devices.Input;
 using ShowControl.Graphics;
+using ShowControl.PixelMapping;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -12,14 +15,24 @@ namespace ShowControl.Animation
     /// host: selecting the shader, holding its tunable parameters (rotary-adjustable,
     /// nudged back toward their defaults by the render operator timer), feeding it the
     /// pad colors, and sampling the rendered image back out into the pixel frame.
+    /// <para>
+    /// Where each pixel samples from is supplied by a <see cref="PixelSampleMap"/> compiled from the
+    /// saved pixel map, not computed here. The map is immutable and swapped with a single volatile
+    /// write, so the editor can drag a fixture and have the lights follow without a lock on the
+    /// render thread.
+    /// </para>
     /// </summary>
     public class ShaderAnimation : MidiAwareAnimation, IKeyAnimation, IDisposable
     {
-        private readonly int _pixelCount;
         private readonly IGraphicsHost _graphicsHost;
         private readonly string _shader;
         private readonly Color[] _shaderColors;
         private readonly Random _random;
+
+        private readonly ILogger _logger;
+        private PixelSampleMap _sampleMap;
+        private RgbSample[] _samples;
+        private bool _loggedImageSizeMismatch;
 
         private readonly object _currentFrameLock = new object();
         private Pixel[] _currentFrame;
@@ -34,21 +47,41 @@ namespace ShowControl.Animation
         private float _defaultDistortionStrength;
         private float _defaultParam1, _defaultParam2, _defaultParam3, _defaultParam4;
 
-        public ShaderAnimation(int pixelCount, IGraphicsHost graphicsHost, string shader, Color[] colors)
+        public ShaderAnimation(
+            PixelSampleMap sampleMap,
+            IGraphicsHost graphicsHost,
+            string shader,
+            Color[] colors,
+            ILogger logger = null)
         {
-            _pixelCount = pixelCount;
+            _sampleMap = sampleMap ?? throw new ArgumentNullException(nameof(sampleMap));
+            _logger = logger ?? NullLogger.Instance;
             _graphicsHost = graphicsHost;
             _shader = shader;
             _shaderColors = colors;
             _random = new Random();
             _pressedPads = new List<int>();
+
+            int pixelCount = sampleMap.PixelCount;
             _currentFrame = new Pixel[pixelCount];
             _nextFrame = new Pixel[pixelCount];
+            _samples = new RgbSample[pixelCount];
             _navigationColorTimer = new Timer(NavigationTimerTick, null, 1000, 1000);
             for (int i = 0; i < pixelCount; i++)
             {
                 _currentFrame[i] = new Pixel(_shaderColors[_random.Next() % _shaderColors.Length], 0, 0, 0x00);
             }
+        }
+
+        /// <summary>
+        /// Publishes new pixel geometry. Called from the UI thread while the render thread is
+        /// running: the map is immutable, so a single volatile write is enough and a frame in
+        /// flight simply finishes with the previous geometry.
+        /// </summary>
+        public void SetSampleMap(PixelSampleMap sampleMap)
+        {
+            if (sampleMap == null) throw new ArgumentNullException(nameof(sampleMap));
+            Volatile.Write(ref _sampleMap, sampleMap);
         }
 
         public Pixel[] GetNextFrame()
@@ -58,13 +91,29 @@ namespace ShowControl.Animation
         }
 
         /// <summary>
-        /// Samples the shader's rendered image into the pixel frame. Reads a band of
-        /// rows starting 80 rows above the vertical center, one row group per strip.
+        /// Samples the shader's rendered image into the pixel frame, one lookup per pixel through
+        /// the compiled sample map.
         /// </summary>
         private void AnimateFrame()
         {
+            var sampleMap = Volatile.Read(ref _sampleMap);
+
             lock (_currentFrameLock)
             {
+                if (sampleMap.ImageWidth != _graphicsHost.Width || sampleMap.ImageHeight != _graphicsHost.Height)
+                {
+                    if (!_loggedImageSizeMismatch)
+                    {
+                        // Once only: this is a per-frame path.
+                        _loggedImageSizeMismatch = true;
+                        _logger.LogError(
+                            "[ShaderAnimation] Pixel map is authored for a {MapWidth}x{MapHeight} shader image but the render target is {HostWidth}x{HostHeight}; not sampling.",
+                            sampleMap.ImageWidth, sampleMap.ImageHeight, _graphicsHost.Width, _graphicsHost.Height);
+                    }
+                    return;
+                }
+
+                EnsureCapacity(sampleMap.PixelCount);
                 Array.Copy(_currentFrame, _nextFrame, _currentFrame.Length);
 
                 using var memory = _graphicsHost.GetRenderedImage();
@@ -73,44 +122,35 @@ namespace ShowControl.Animation
                     return;
                 }
 
-                var span = memory.Memory.Span;
-
-                var width = _graphicsHost.Width;
-                var height = _graphicsHost.Height;
-                var initial = (height / 2) * width * 4 - width * 80 * 4;
-                int offset = 0;
-                int pixelStride = 0;
-                for (int i = 0; i < _pixelCount; i++)
+                sampleMap.Sample(memory.Memory.Span, _samples);
+                for (int i = 0; i < _nextFrame.Length; i++)
                 {
-                    var rowOffset = offset * width * 4;
-                    var r = initial + pixelStride + rowOffset;
-                    var g = initial + pixelStride + rowOffset + 1;
-                    var b = initial + pixelStride + rowOffset + 2;
-                    int posInStrip = i % 720;
-                    if (posInStrip >= 708) // last 12 pixels of each strip
-                    {
-                        _nextFrame[i].Color = Color.FromArgb(0, 0, 0, 0);
-                    }
-                    else
-                    {
-                        _nextFrame[i].Color = Color.FromArgb(0, span[r], span[g], span[b]);
-                    }
-                    if (i == 719 || i == 1439 || i == 2159 || i == 2879 || i == 3599 || i == 4319 || i == 5039 ||
-                        i == 5759 || i == 6479 || i == 7199 || i == 7919 || i == 8639 || i == 9359 || i == 10079 ||
-                        i == 10799)
-                    {
-                        offset += 10;
-                        pixelStride = 0;
-                    }
-                    else
-                    {
-                        pixelStride += 4;
-                    }
+                    var sample = _samples[i];
+                    _nextFrame[i].Color = Color.FromArgb(0, sample.R, sample.G, sample.B);
                 }
+
                 var temp = _currentFrame;
                 _currentFrame = _nextFrame;
                 _nextFrame = temp;
             }
+        }
+
+        /// <summary>
+        /// Resizes the frame buffers after a structural map change. Held under the frame lock so a
+        /// caller reading the current frame never sees a half-swapped pair.
+        /// </summary>
+        private void EnsureCapacity(int pixelCount)
+        {
+            if (_currentFrame.Length == pixelCount)
+            {
+                return;
+            }
+
+            var resized = new Pixel[pixelCount];
+            Array.Copy(_currentFrame, resized, Math.Min(_currentFrame.Length, pixelCount));
+            _currentFrame = resized;
+            _nextFrame = new Pixel[pixelCount];
+            _samples = new RgbSample[pixelCount];
         }
 
         private void NavigationTimerTick(object state)

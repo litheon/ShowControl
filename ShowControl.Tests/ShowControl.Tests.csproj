@@ -13,6 +13,7 @@
   <ItemGroup>
     <ProjectReference Include="..\ShowControl.Devices.DMX\ShowControl.Devices.DMX.csproj" />
     <ProjectReference Include="..\ShowControl.Devices.Output\ShowControl.Devices.Output.csproj" />
+    <ProjectReference Include="..\ShowControl.PixelMapping\ShowControl.PixelMapping.csproj" />
     <ProjectReference Include="..\ShowControl.Utilities\ShowControl.Utilities.csproj" />
   </ItemGroup>
 </Project>

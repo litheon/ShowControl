@@ -6,21 +6,101 @@
              Title="Graphics Preview"
              >
 
+    <!-- Single-cell grid: every child fills it and stacks in declaration order. The surface has no
+         size request, so the overlay's bounds are identical to it and no offset term is needed. -->
     <Grid BackgroundColor="Transparent">
         <graphics:VulkanSurfaceView x:Name="vulkanSurface" />
-        <Polyline
-        Stroke="Red"
-        StrokeThickness="2"
-        Points="0,50 50,0 100,50">
-        </Polyline>
+
+        <!-- Pixel map overlay. Hidden and input-transparent unless edit mode is on, so the preview
+             stays clean during a show. The near-transparent background is deliberate: a fully
+             transparent element is not reliably hit-testable over a SwapChainPanel on Windows. -->
+        <GraphicsView x:Name="MapOverlay"
+                      IsVisible="False"
+                      InputTransparent="True"
+                      BackgroundColor="#01000000">
+            <GraphicsView.GestureRecognizers>
+                <PointerGestureRecognizer PointerPressed="OnOverlayPointerPressed"
+                                          PointerMoved="OnOverlayPointerMoved"
+                                          PointerReleased="OnOverlayPointerReleased" />
+            </GraphicsView.GestureRecognizers>
+        </GraphicsView>
+
+        <!-- Editor panel -->
+        <Border x:Name="EditorPanel"
+                IsVisible="False"
+                HorizontalOptions="End"
+                VerticalOptions="Fill"
+                WidthRequest="300"
+                BackgroundColor="#DD101010"
+                Stroke="#40FFFFFF"
+                Padding="10">
+            <ScrollView>
+                <VerticalStackLayout Spacing="6">
+                    <Label Text="Pixel Map" TextColor="White" FontSize="16" FontAttributes="Bold" />
+                    <Label x:Name="DirtyLabel" TextColor="Orange" FontSize="11" />
+
+                    <HorizontalStackLayout Spacing="6">
+                        <Button Text="Open" FontSize="11" Padding="8,2" Clicked="OnOpenClicked" />
+                        <Button Text="Save" FontSize="11" Padding="8,2" Clicked="OnSaveClicked" />
+                        <Button Text="Save As…" FontSize="11" Padding="8,2" Clicked="OnSaveAsClicked" />
+                    </HorizontalStackLayout>
+
+                    <BoxView HeightRequest="1" Color="#40FFFFFF" />
+
+                    <Label Text="Fixtures" TextColor="White" FontSize="13" FontAttributes="Bold" />
+                    <CollectionView x:Name="FixtureList" HeightRequest="220" SelectionMode="Single"
+                                    SelectionChanged="OnFixtureSelected">
+                        <CollectionView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid ColumnDefinitions="Auto,*" Padding="0,2">
+                                    <CheckBox IsChecked="{Binding Enabled}" Color="White" />
+                                    <Label Grid.Column="1" Text="{Binding Description}" TextColor="White"
+                                           FontSize="11" VerticalOptions="Center" LineBreakMode="TailTruncation" />
+                                </Grid>
+                            </DataTemplate>
+                        </CollectionView.ItemTemplate>
+                    </CollectionView>
+
+                    <HorizontalStackLayout Spacing="6">
+                        <Button Text="Remove" FontSize="11" Padding="8,2" Clicked="OnRemoveFixtureClicked" />
+                        <Button Text="Toggle enabled" FontSize="11" Padding="8,2" Clicked="OnToggleEnabledClicked" />
+                    </HorizontalStackLayout>
+
+                    <BoxView HeightRequest="1" Color="#40FFFFFF" />
+
+                    <Label Text="Add fixture" TextColor="White" FontSize="13" FontAttributes="Bold" />
+                    <Entry x:Name="NewName" Placeholder="Name" FontSize="11" />
+                    <Picker x:Name="NewInterface" Title="Interface" FontSize="11" TextColor="White" />
+                    <Entry x:Name="NewIpAddress" Placeholder="IP address" Text="192.168.3.207" FontSize="11" />
+                    <Entry x:Name="NewPort" Placeholder="Port (DDP)" Text="4048" Keyboard="Numeric" FontSize="11" />
+                    <Entry x:Name="NewUniverse" Placeholder="Universe (ArtNet)" Text="0" Keyboard="Numeric" FontSize="11" />
+                    <Entry x:Name="NewStartChannel" Placeholder="Start channel" Text="0" Keyboard="Numeric" FontSize="11" />
+                    <Picker x:Name="NewPixelType" Title="Pixel type" FontSize="11" TextColor="White" />
+                    <Entry x:Name="NewPixelCount" Placeholder="Pixel count" Text="720" Keyboard="Numeric" FontSize="11" />
+                    <!-- Spacing and angle lay the run out at creation; neither is stored in the map. -->
+                    <Entry x:Name="NewSpacing" Placeholder="Spacing (image px)" Text="1" Keyboard="Numeric" FontSize="11" />
+                    <Entry x:Name="NewAngle" Placeholder="Angle (degrees)" Text="0" Keyboard="Numeric" FontSize="11" />
+                    <Button Text="Add" FontSize="11" Padding="8,2" Clicked="OnAddFixtureClicked" />
+
+                    <Label x:Name="StatusLabel" TextColor="#FFAAAAAA" FontSize="10" LineBreakMode="WordWrap" />
+                </VerticalStackLayout>
+            </ScrollView>
+        </Border>
+
+        <!-- Edit mode switch and shader parameters -->
+        <HorizontalStackLayout VerticalOptions="Start" HorizontalOptions="Start" Margin="8,8,0,0" Spacing="6">
+            <Switch x:Name="EditModeSwitch" Toggled="OnEditModeToggled" />
+            <Label Text="Edit pixel map" TextColor="Red" FontSize="12" VerticalOptions="Center" />
+        </HorizontalStackLayout>
+
         <Label x:Name="ShaderParamsLabel"
                TextColor="Red"
                FontFamily="Courier New"
                FontSize="12"
                VerticalOptions="Start"
                HorizontalOptions="Start"
-               Margin="8"
+               Margin="8,40,0,0"
                Text="Shader Params" />
     </Grid>
-    
+
 </ContentPage>
