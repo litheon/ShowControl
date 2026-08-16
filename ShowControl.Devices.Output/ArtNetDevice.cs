@@ -24,6 +24,9 @@ namespace ShowControl.Devices.Output
             MaxChannels = maxChannels;
         }
 
+        public override string ToString() =>
+            $"ArtNet {new System.Net.IPAddress(_ipAddress)} universe {_universe} ({MaxChannels}ch)";
+
         public async Task Write(byte[] dmxData)
         {
             await _controller.SendArtDMX(_ipAddress, _universe, 0, dmxData, _sequence);

@@ -25,6 +25,9 @@ namespace ShowControl.Rendering
     {
         private enum NavigationLevel { Root, KeyAnimation, TransformAnimation};
         private IDmxOutputDevice[] _outputDevices;
+        private OutputDeviceHealth[] _outputDeviceHealth;
+        private Task[] _writeTasks;
+        private readonly OutputDeviceHealth _artNetSyncHealth = new OutputDeviceHealth();
         private readonly Thread _renderThread;
         private readonly CancellationTokenSource _cts;
         private readonly TaskCompletionSource<bool> _tcs;
@@ -239,6 +242,16 @@ namespace ShowControl.Rendering
             _logger.LogInformation("Input device: {InputDevice}", _inputDevice?.ToString() ?? "(none)");
             _padTransitionStartIndex = _inputDevice.PadCount / 2;
             _outputDevices = _deviceEnumerator.GetDmxDevices(_cts.Token);
+            _outputDeviceHealth = new OutputDeviceHealth[_outputDevices.Length];
+            for (int i = 0; i < _outputDeviceHealth.Length; i++)
+            {
+                _outputDeviceHealth[i] = new OutputDeviceHealth();
+            }
+            _writeTasks = new Task[_outputDevices.Length];
+            foreach (var outputDevice in _outputDevices)
+            {
+                _logger.LogInformation("Output device: {Device}", outputDevice);
+            }
             Initialize();
             // Auto-activate animation 0 before starting the render thread
             // to avoid racing SetShader() with the render loop
@@ -501,6 +514,55 @@ namespace ShowControl.Rendering
         }
 
         /// <summary>
+        /// Turns a send failure into at most one log line per outage, plus a periodic
+        /// reminder while it persists. Called from the render loop, so it must stay
+        /// silent in the common (already-reported) case.
+        /// </summary>
+        private void ReportOutputDeviceFailure(int index, Exception exception)
+        {
+            var transition = _outputDeviceHealth[index].RecordFailure(_frameRateStopWatch.Elapsed);
+            switch (transition.Action)
+            {
+                case OutputDeviceLogAction.WentDown:
+                    _logger.LogWarning(exception,
+                        "Output device {Device} send failed; retrying every {RetrySeconds:F0}s, further failures suppressed until it recovers.",
+                        _outputDevices[index], OutputDeviceHealth.DefaultRetryInterval.TotalSeconds);
+                    break;
+                case OutputDeviceLogAction.StillDown:
+                    _logger.LogWarning(
+                        "Output device {Device} still failing: {FailedAttempts} attempts over {DownSeconds:F0}s.",
+                        _outputDevices[index], transition.FailedAttempts, transition.DownFor.TotalSeconds);
+                    break;
+            }
+        }
+
+        private void ReportOutputDeviceSuccess(int index)
+        {
+            var transition = _outputDeviceHealth[index].RecordSuccess(_frameRateStopWatch.Elapsed);
+            if (transition.Action == OutputDeviceLogAction.Recovered)
+            {
+                _logger.LogInformation(
+                    "Output device {Device} resumed after {FailedAttempts} failed attempts over {DownSeconds:F0}s.",
+                    _outputDevices[index], transition.FailedAttempts, transition.DownFor.TotalSeconds);
+            }
+        }
+
+        private void ReportArtNetSyncFailure(Exception exception)
+        {
+            var transition = _artNetSyncHealth.RecordFailure(_frameRateStopWatch.Elapsed);
+            switch (transition.Action)
+            {
+                case OutputDeviceLogAction.WentDown:
+                    _logger.LogWarning(exception, "ArtNet sync failed; further failures suppressed until it recovers.");
+                    break;
+                case OutputDeviceLogAction.StillDown:
+                    _logger.LogWarning("ArtNet sync still failing: {FailedAttempts} attempts over {DownSeconds:F0}s.",
+                        transition.FailedAttempts, transition.DownFor.TotalSeconds);
+                    break;
+            }
+        }
+
+        /// <summary>
         /// Logs the DMX address map as one entry per contiguous run of same-type
         /// fixtures. The pixel surface is >11k single-pixel devices, so a line per
         /// device stalled startup for as long as the sinks took to drain.
@@ -723,26 +785,69 @@ namespace ShowControl.Rendering
                 //    surface.Render(frameSpan, targetVector.AsSpan().Slice(channelOffset, surface.TotalChannelCount), renderSettings);
                 //}
 
+                // Dispatch every device before awaiting any of them, so the writes still
+                // overlap. Each device is isolated: one unreachable controller must not
+                // stop the others from being written, and a device that keeps failing
+                // backs off instead of throwing (and logging) on every frame.
                 int skip = 0;
-                var writeTasks = new System.Collections.Generic.List<Task>(_outputDevices.Length);
-                try
+                for (int i = 0; i < _outputDevices.Length; i++)
                 {
-                    foreach (IDmxOutputDevice outputDevice in _outputDevices)
+                    var outputDevice = _outputDevices[i];
+                    var channelCount = outputDevice.MaxChannels;
+                    var offset = skip;
+                    skip += channelCount; // advances even when skipped — the mapping is positional
+
+                    _writeTasks[i] = null;
+                    if (!_outputDeviceHealth[i].ShouldAttempt(_frameRateStopWatch.Elapsed))
                     {
-                        var t = outputDevice.MaxChannels;
-                        var output = targetVector.Skip(skip).Take(t).ToArray();
-                        writeTasks.Add(outputDevice.Write(output));
-                        skip += t;
+                        continue;
+                    }
+
+                    try
+                    {
+                        _writeTasks[i] = outputDevice.Write(targetVector.Skip(offset).Take(channelCount).ToArray());
+                    }
+                    catch (Exception ex)
+                    {
+                        ReportOutputDeviceFailure(i, ex);
                     }
                 }
-                catch (System.Net.Sockets.SocketException ex)
+
+                for (int i = 0; i < _writeTasks.Length; i++)
                 {
-                    _logger.LogWarning(ex, "SocketException while queuing output device writes.");
+                    var writeTask = _writeTasks[i];
+                    if (writeTask == null)
+                    {
+                        continue;
+                    }
+                    _writeTasks[i] = null;
+
+                    try
+                    {
+                        writeTask.GetAwaiter().GetResult();
+                        ReportOutputDeviceSuccess(i);
+                    }
+                    catch (Exception ex)
+                    {
+                        ReportOutputDeviceFailure(i, ex);
+                    }
                 }
-                try { Task.WhenAll(writeTasks).GetAwaiter().GetResult(); }
-                catch (Exception ex) { _logger.LogWarning(ex, "One or more output device writes failed."); }
-                try { _artNetController.SendSync().GetAwaiter().GetResult(); }
-                catch (Exception ex) { _logger.LogWarning(ex, "ArtNet sync failed."); }
+
+                if (_artNetSyncHealth.ShouldAttempt(_frameRateStopWatch.Elapsed))
+                {
+                    try
+                    {
+                        _artNetController.SendSync().GetAwaiter().GetResult();
+                        if (_artNetSyncHealth.RecordSuccess(_frameRateStopWatch.Elapsed).Action == OutputDeviceLogAction.Recovered)
+                        {
+                            _logger.LogInformation("ArtNet sync resumed.");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        ReportArtNetSyncFailure(ex);
+                    }
+                }
 
                 var frameEnd = _frameRateStopWatch.Elapsed;
                 var sendTime = TimeSpan.FromMicroseconds(21739) - (frameEnd - frameStart);

@@ -33,6 +33,7 @@ namespace ShowControl.Devices.Output
         private const byte DDP_TYPE_GRAYSCALE = 0x04;
 
         private readonly UdpClient _udpClient;
+        private readonly string _endpoint;
         private readonly byte _deviceId;
         private readonly int _dataOffset;
         private readonly byte _dataType;
@@ -69,9 +70,12 @@ namespace ShowControl.Devices.Output
             _dataType = dataType;
             _sequence = 1;
 
+            _endpoint = $"{new IPAddress(ipAddress)}:{port}";
             _udpClient = new UdpClient();
             _udpClient.Connect(new IPEndPoint(new IPAddress(ipAddress), port));
         }
+
+        public override string ToString() => $"DDP {_endpoint} ({MaxChannels}ch)";
 
         /// <summary>
         /// Creates a new DDP output device using a string IP address.

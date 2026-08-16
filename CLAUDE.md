@@ -17,6 +17,11 @@ MacCatalyst app (`ShowControl.ControlPanel.Maui`), published from a Mac via
 - `Console.WriteLine` / `Debug.WriteLine` are for temporary local debugging
   only. Nothing above Trace/Verbose level in per-frame paths (render loop,
   `OnRender`, audio frame handlers).
+- Recurring failures in per-frame paths go through `OutputDeviceHealth`
+  (`ShowControl.Utilities`): log once when it breaks, once per 30s while it
+  stays broken, once when it recovers — never per frame. Output-device sends
+  also back off to ~1/s while failing, and each device is written inside its
+  own try/catch so one dead controller cannot blank the others.
 
 ## Shaders
 
