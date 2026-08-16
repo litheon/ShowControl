@@ -1,6 +1,6 @@
 ﻿using Microsoft.Extensions.Logging;
+using Serilog;
 using ShowControl.Graphics;
-using System.Diagnostics;
 
 #if MACCATALYST
 using ShowControl.ControlPanel.Maui.Platforms.MacCatalyst;
@@ -25,18 +25,7 @@ namespace ShowControl.ControlPanel.Maui
             //    }
             //}
 
-            AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
-            {
-                var message = $"Unhandled exception (IsTerminating={e.IsTerminating}): {e.ExceptionObject}";
-                Debug.WriteLine(message);
-            };
-
-            TaskScheduler.UnobservedTaskException += (sender, e) =>
-            {
-                var message = $"Unobserved task exception: {e.Exception}";
-                Debug.WriteLine(message);
-                e.SetObserved();
-            };
+            ShowControl.Host.LoggingBootstrap.Initialize();
 
             var builder = MauiApp.CreateBuilder();
             builder
@@ -60,6 +49,7 @@ namespace ShowControl.ControlPanel.Maui
                 });
 
             builder.Logging.AddDebug();
+            builder.Logging.AddSerilog();
 #if !DEBUG
             builder.Logging.SetMinimumLevel(LogLevel.Warning);
 #endif

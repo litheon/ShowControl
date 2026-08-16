@@ -232,18 +232,12 @@ namespace ShowControl.Rendering
 
         public Task StartAsync(CancellationToken cancellationToken)
         {
-            Console.WriteLine("Test");
-            System.Diagnostics.Debug.WriteLine("Init");
+            _logger.LogInformation("RenderService starting");
             _inputService.OnInputReceived += InputService_OnInputReceived;
             _inputService.OnInputDeviceReconnected += _inputService_OnInputDeviceReconnected;
-            System.Diagnostics.Debug.WriteLine("Input service");
-            Console.WriteLine("Input service");
             _inputDevice = _inputService.Devices.FirstOrDefault();
-            Console.WriteLine("Input Device null: " + (_inputDevice == null ? "True" : "False"));
-            System.Diagnostics.Debug.WriteLine("Input Device null: " + _inputDevice == null ? "True" : "False");
+            _logger.LogInformation("Input device: {InputDevice}", _inputDevice?.ToString() ?? "(none)");
             _padTransitionStartIndex = _inputDevice.PadCount / 2;
-            Console.WriteLine("_deviceEnumerator null: " + (_deviceEnumerator == null ? "True" : "False"));
-            Console.WriteLine("_cts null: " + (_cts == null ? "True" : "False"));
             _outputDevices = _deviceEnumerator.GetDmxDevices(_cts.Token);
             Initialize();
             // Auto-activate animation 0 before starting the render thread
@@ -511,8 +505,7 @@ namespace ShowControl.Rendering
             int address = 1;
             for (int j = 0; j < _devices.Length; j++)
             {
-                //System.Diagnostics.Debug.WriteLine("Address {0} for {1}: {2}", j + 1, _devices[j].GetType().ToString(), address);
-                Console.WriteLine("Address {0} for {1}: {2}", j + 1, _devices[j].GetType().ToString(), address);
+                _logger.LogDebug("Address {Index} for {DeviceType}: {Address}", j + 1, _devices[j].GetType().ToString(), address);
                 address += _devices[j].ChannelCount;
             }
 

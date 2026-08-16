@@ -16,6 +16,8 @@ using System.Xml.Linq;
 using Buffer = Silk.NET.Vulkan.Buffer;
 using System.Reflection.Metadata.Ecma335;
 using Microsoft.Maui.Graphics;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -49,12 +51,22 @@ namespace ShowControl.Graphics
 
         private string _shader = Shaders.Kaleidoscope;
         private Thread _backgroundThread;
-        public GraphicsHost()
+        private readonly ILogger<GraphicsHost> _logger;
+        // static handle for the [UnmanagedCallersOnly] Vulkan debug callback
+        private static ILogger<GraphicsHost> _staticLogger;
+
+        public GraphicsHost() : this(NullLogger<GraphicsHost>.Instance)
         {
-            System.Diagnostics.Debug.WriteLine("[GraphicsHost] Constructor called");
+        }
+
+        public GraphicsHost(ILogger<GraphicsHost> logger)
+        {
+            _logger = logger;
+            _staticLogger = logger;
+            _logger.LogDebug("[GraphicsHost] Constructor called");
             _backgroundThread = new Thread(Run);
             _backgroundThread.Start();
-            System.Diagnostics.Debug.WriteLine("[GraphicsHost] Background thread started");
+            _logger.LogDebug("[GraphicsHost] Background thread started");
         }
         [StructLayout(LayoutKind.Sequential)]
         struct PushData
@@ -211,22 +223,22 @@ namespace ShowControl.Graphics
 
         public void Run()
         {
-            System.Diagnostics.Debug.WriteLine("[GraphicsHost] Run() started");
+            _logger.LogDebug("[GraphicsHost] Run() started");
             try
             {
                 //System.Threading.Thread.Sleep(20000);
-                System.Diagnostics.Debug.WriteLine("[GraphicsHost] Calling RunHeadless()");
+                _logger.LogDebug("[GraphicsHost] Calling RunHeadless()");
                 RunHeadless();
-                System.Diagnostics.Debug.WriteLine("[GraphicsHost] RunHeadless() completed");
+                _logger.LogDebug("[GraphicsHost] RunHeadless() completed");
                 // Auto-open preview window
-                System.Diagnostics.Debug.WriteLine("[GraphicsHost] Calling ShowPreviewWindow()");
+                _logger.LogDebug("[GraphicsHost] Calling ShowPreviewWindow()");
                 ShowPreviewWindow();
-                System.Diagnostics.Debug.WriteLine("[GraphicsHost] ShowPreviewWindow() dispatched");
+                _logger.LogDebug("[GraphicsHost] ShowPreviewWindow() dispatched");
             }
             catch (Exception e)
             {
-                System.Diagnostics.Debug.WriteLine($"[GraphicsHost] Exception in Run(): {e.Message}");
-                System.Diagnostics.Debug.WriteLine($"[GraphicsHost] Stack trace: {e.StackTrace}");
+                _logger.LogError($"[GraphicsHost] Exception in Run(): {e.Message}");
+                _logger.LogError($"[GraphicsHost] Stack trace: {e.StackTrace}");
             }
         }
 
@@ -505,7 +517,7 @@ namespace ShowControl.Graphics
             // Query surface capabilities
             _khrSurface.GetPhysicalDeviceSurfaceCapabilities(_physicalDevice, _surface, out var caps);
 
-            System.Diagnostics.Debug.WriteLine($"[GraphicsHost] RecreateSwapchain: requested={width}x{height}, caps.current={caps.CurrentExtent.Width}x{caps.CurrentExtent.Height}, caps.min={caps.MinImageExtent.Width}x{caps.MinImageExtent.Height}, caps.max={caps.MaxImageExtent.Width}x{caps.MaxImageExtent.Height}");
+            _logger.LogDebug($"[GraphicsHost] RecreateSwapchain: requested={width}x{height}, caps.current={caps.CurrentExtent.Width}x{caps.CurrentExtent.Height}, caps.min={caps.MinImageExtent.Width}x{caps.MinImageExtent.Height}, caps.max={caps.MaxImageExtent.Width}x{caps.MaxImageExtent.Height}");
 
             // On Metal, use the requested size directly since CAMetalLayer.drawableSize is already set
             var extent = new Extent2D(width, height);
@@ -638,7 +650,7 @@ namespace ShowControl.Graphics
                 return;
             }
 
-            System.Diagnostics.Debug.WriteLine("[GraphicsHost] Requesting preview window from MAUI app...");
+            _logger.LogDebug("[GraphicsHost] Requesting preview window from MAUI app...");
             _previewWindowOpen = true;
 
             // Wait for event handler to be subscribed (race condition with MainPage.Initialize)
@@ -652,7 +664,7 @@ namespace ShowControl.Graphics
 
                 if (PreviewWindowRequested == null)
                 {
-                    System.Diagnostics.Debug.WriteLine("[GraphicsHost] No handler subscribed to PreviewWindowRequested after 5 seconds");
+                    _logger.LogWarning("[GraphicsHost] No handler subscribed to PreviewWindowRequested after 5 seconds");
                     _previewWindowOpen = false;
                     return;
                 }
@@ -673,7 +685,7 @@ namespace ShowControl.Graphics
         /// </summary>
         public void OnPreviewWindowClosed()
         {
-            System.Diagnostics.Debug.WriteLine("[GraphicsHost] Preview window closed");
+            _logger.LogDebug("[GraphicsHost] Preview window closed");
             CleanupMetalPresentation();
             _previewWindowOpen = false;
         }
@@ -775,7 +787,7 @@ namespace ShowControl.Graphics
                 return;
             }
 
-            System.Diagnostics.Debug.WriteLine("[GraphicsHost] Requesting preview window from MAUI app...");
+            _logger.LogDebug("[GraphicsHost] Requesting preview window from MAUI app...");
             _previewWindowOpen = true;
 
             // Wait for event handler to be subscribed (race condition with MainPage.Initialize)
@@ -789,7 +801,7 @@ namespace ShowControl.Graphics
 
                 if (PreviewWindowRequested == null)
                 {
-                    System.Diagnostics.Debug.WriteLine("[GraphicsHost] No handler subscribed to PreviewWindowRequested after 10 seconds");
+                    _logger.LogWarning("[GraphicsHost] No handler subscribed to PreviewWindowRequested after 10 seconds");
                     _previewWindowOpen = false;
                     return;
                 }
@@ -858,7 +870,7 @@ namespace ShowControl.Graphics
                 return;
             }
 
-            System.Diagnostics.Debug.WriteLine($"[GraphicsHost] EnableWin32Presentation: hwnd=0x{hwnd:X}, size={width}x{height}");
+            _logger.LogDebug($"[GraphicsHost] EnableWin32Presentation: hwnd=0x{hwnd:X}, size={width}x{height}");
 
             _win32Hwnd = hwnd;
             _win32SurfaceWidth = width;
@@ -878,18 +890,18 @@ namespace ShowControl.Graphics
             if (result != Result.Success)
                 throw new Exception($"vkCreateWin32SurfaceKHR failed: {result}");
 
-            System.Diagnostics.Debug.WriteLine($"[GraphicsHost] Win32 surface created: {_surface.Handle}");
+            _logger.LogDebug($"[GraphicsHost] Win32 surface created: {_surface.Handle}");
 
             // Create swapchain
             _swapchainExtension = new KhrSwapchain(_vk.Context);
             CreateSwapchainForWin32Surface(width, height);
 
-            System.Diagnostics.Debug.WriteLine($"[GraphicsHost] Swapchain created: handle={_swapchain.Handle}, images={_swapchainImages?.Length ?? -1}, extent={_swapExtent.Width}x{_swapExtent.Height}");
+            _logger.LogDebug($"[GraphicsHost] Swapchain created: handle={_swapchain.Handle}, images={_swapchainImages?.Length ?? -1}, extent={_swapExtent.Width}x{_swapExtent.Height}");
 
             // Enable presentation
             PRESENT = true;
             _previewWindowOpen = true;
-            System.Diagnostics.Debug.WriteLine($"[GraphicsHost] Presentation enabled: PRESENT={PRESENT}");
+            _logger.LogDebug($"[GraphicsHost] Presentation enabled: PRESENT={PRESENT}");
         }
 
         private unsafe void CreateSwapchainForWin32Surface(uint width, uint height)
@@ -966,7 +978,7 @@ namespace ShowControl.Graphics
         /// </summary>
         public void HandleWin32SurfaceResize(uint width, uint height)
         {
-            System.Diagnostics.Debug.WriteLine($"[GraphicsHost] HandleWin32SurfaceResize: {width}x{height}, surface={_surface.Handle}");
+            _logger.LogDebug($"[GraphicsHost] HandleWin32SurfaceResize: {width}x{height}, surface={_surface.Handle}");
             if (width == 0 || height == 0) return;
             if (_surface.Handle == 0) return;
 
@@ -975,7 +987,7 @@ namespace ShowControl.Graphics
             _pendingResizeWidth = width;
             _pendingResizeHeight = height;
             _resizePending = true;
-            System.Diagnostics.Debug.WriteLine($"[GraphicsHost] Set _resizePending = true");
+            _logger.LogDebug($"[GraphicsHost] Set _resizePending = true");
 
             // Cancel any pending resize
             _resizeDebounceToken?.Cancel();
@@ -990,10 +1002,10 @@ namespace ShowControl.Graphics
                     await Task.Delay(100, token);
                     if (!token.IsCancellationRequested)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[GraphicsHost] Debounce complete, recreating swapchain");
+                        _logger.LogDebug($"[GraphicsHost] Debounce complete, recreating swapchain");
                         RecreateWin32Swapchain(_pendingResizeWidth, _pendingResizeHeight);
                         _resizePending = false;
-                        System.Diagnostics.Debug.WriteLine($"[GraphicsHost] Set _resizePending = false");
+                        _logger.LogDebug($"[GraphicsHost] Set _resizePending = false");
                     }
                 }
                 catch (TaskCanceledException) { }
@@ -1096,7 +1108,7 @@ namespace ShowControl.Graphics
         {
             if (PRESENT_DCOMP) return;
 
-            System.Diagnostics.Debug.WriteLine($"[GraphicsHost] EnableDirectCompositionPresentation: requested {width}x{height}");
+            _logger.LogDebug($"[GraphicsHost] EnableDirectCompositionPresentation: requested {width}x{height}");
 
             _dcompPresenter = presenter;
 
@@ -1107,7 +1119,7 @@ namespace ShowControl.Graphics
             _dcompWidth = presenter.Width;
             _dcompHeight = presenter.Height;
 
-            System.Diagnostics.Debug.WriteLine($"[GraphicsHost] EnableDirectCompositionPresentation: actual D3D11 size {_dcompWidth}x{_dcompHeight}, handle=0x{sharedHandle:X}");
+            _logger.LogDebug($"[GraphicsHost] EnableDirectCompositionPresentation: actual D3D11 size {_dcompWidth}x{_dcompHeight}, handle=0x{sharedHandle:X}");
 
             // Vulkan imports the D3D11 shared texture at actual size
             _vulkanExternalMemory = new VulkanExternalMemory(_vk, _instance, _device, _physicalDevice);
@@ -1116,7 +1128,7 @@ namespace ShowControl.Graphics
             // Enable DirectComposition presentation
             PRESENT_DCOMP = true;
             _previewWindowOpen = true;
-            System.Diagnostics.Debug.WriteLine($"[GraphicsHost] DirectComposition presentation enabled at {_dcompWidth}x{_dcompHeight}");
+            _logger.LogDebug($"[GraphicsHost] DirectComposition presentation enabled at {_dcompWidth}x{_dcompHeight}");
         }
 
         /// <summary>
@@ -1166,7 +1178,7 @@ namespace ShowControl.Graphics
 
                     if (newHandle == 0)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[GraphicsHost] RecreateDirectCompositionSharedImage: D3D11 returned invalid handle, skipping Vulkan import");
+                        _logger.LogWarning($"[GraphicsHost] RecreateDirectCompositionSharedImage: D3D11 returned invalid handle, skipping Vulkan import");
                         return;
                     }
 
@@ -1177,11 +1189,11 @@ namespace ShowControl.Graphics
                     _dcompHeight = actualHeight;
 
                     // Vulkan re-imports the new D3D11 texture at actual size
-                    System.Diagnostics.Debug.WriteLine($"[GraphicsHost] RecreateDirectCompositionSharedImage: Importing handle 0x{newHandle:X} at {actualWidth}x{actualHeight}");
+                    _logger.LogDebug($"[GraphicsHost] RecreateDirectCompositionSharedImage: Importing handle 0x{newHandle:X} at {actualWidth}x{actualHeight}");
                     _vulkanExternalMemory.ImportSharedTexture(newHandle, actualWidth, actualHeight, _graphicsQueueIndex);
                 }
 
-                System.Diagnostics.Debug.WriteLine($"[GraphicsHost] Recreated DirectComposition shared image: {_dcompWidth}x{_dcompHeight}");
+                _logger.LogDebug($"[GraphicsHost] Recreated DirectComposition shared image: {_dcompWidth}x{_dcompHeight}");
             }
             finally
             {
@@ -1324,7 +1336,7 @@ namespace ShowControl.Graphics
             if (IsInstanceLayerAvailable("VK_LAYER_KHRONOS_validation"))
                 layers.Add("VK_LAYER_KHRONOS_validation");
             else
-                Console.WriteLine("[Vulkan] VK_LAYER_KHRONOS_validation not available — skipping validation layer");
+                _logger.LogWarning("[Vulkan] VK_LAYER_KHRONOS_validation not available — skipping validation layer");
 #endif
 
             
@@ -1342,8 +1354,7 @@ namespace ShowControl.Graphics
             var result = _vk.CreateInstance(instanceCI, null, out _instance);
             if (result != Result.Success)
             {
-                System.Diagnostics.Debug.Print(result.ToString());
-                Console.WriteLine(result.ToString());
+                _logger.LogError("Vulkan CreateInstance failed: {Result}", result);
                 throw new Exception("Failed");
             }
 
@@ -1618,8 +1629,7 @@ namespace ShowControl.Graphics
             void* userData)
         {
             string msg = SilkMarshal.PtrToString((nint)callbackData->PMessage);
-            Console.WriteLine($"[Vulkan] {severity}: {msg}");
-            System.Diagnostics.Debug.Print($"[Vulkan] {severity}: {msg}");
+            _staticLogger?.LogWarning($"[Vulkan] {severity}: {msg}");
             return Vk.False; // or new Bool32(0)
         }
 
@@ -2451,7 +2461,7 @@ namespace ShowControl.Graphics
                     var res = _vk.QueueSubmit(_graphicsQueue, 1, ref submitInfo, _submitFence);
                     if (res != Result.Success)
                     {
-                        System.Diagnostics.Debug.Print($"QueueSubmit failed: {res}");
+                        _logger.LogError($"QueueSubmit failed: {res}");
                         throw new Exception($"QueueSubmit failed: {res}");
                     }
 
@@ -2467,7 +2477,7 @@ namespace ShowControl.Graphics
                         if (!_loggedFirstPresent)
                         {
                             _loggedFirstPresent = true;
-                            System.Diagnostics.Debug.WriteLine($"[GraphicsHost] First QueuePresent result: {pres}");
+                            _logger.LogDebug($"[GraphicsHost] First QueuePresent result: {pres}");
                         }
                         _imageAcquired = false;
                         if ((pres == Result.ErrorOutOfDateKhr || pres == Result.SuboptimalKhr) && !_isClosing)
@@ -2487,7 +2497,7 @@ namespace ShowControl.Graphics
                 var res = _vk.QueueSubmit(_graphicsQueue, 1, ref submitInfo, _submitFence);
                 if (res != Result.Success)
                 {
-                    System.Diagnostics.Debug.Print($"QueueSubmit failed: {res}");
+                    _logger.LogError($"QueueSubmit failed: {res}");
                     throw new Exception($"QueueSubmit failed: {res}");
                 }
 

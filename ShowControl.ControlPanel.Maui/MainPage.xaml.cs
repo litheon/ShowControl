@@ -26,7 +26,7 @@ namespace ShowControl.ControlPanel.Maui
         {
             if (_instance != null)
             {
-                Console.WriteLine("Instance was not null");
+                Serilog.Log.Warning("MainPage constructed twice; ignoring duplicate instance");
                 return;
             }
 
@@ -56,7 +56,7 @@ namespace ShowControl.ControlPanel.Maui
         private void Initialize()
         {
             var result =  _hostTask.GetAwaiter().GetResult();
-            Console.WriteLine("Do platform initialization");
+            Serilog.Log.Information("Doing platform initialization");
             result.Services.GetRequiredService<IInputService>().DoPlatformInitalization();
 
 #if MACCATALYST || WINDOWS
@@ -71,47 +71,46 @@ namespace ShowControl.ControlPanel.Maui
         {
             try
             {
-                System.Diagnostics.Debug.WriteLine($"[MainPage] Preview window requested: {e.Width}x{e.Height}");
+                Serilog.Log.Debug("[MainPage] Preview window requested: {Width}x{Height}", e.Width, e.Height);
 
                 // Create a new MAUI window with the preview page
                 var graphicsHost = sender as IGraphicsHost;
                 if (graphicsHost == null)
                 {
-                    System.Diagnostics.Debug.WriteLine("[MainPage] ERROR: graphicsHost is null");
+                    Serilog.Log.Error("[MainPage] graphicsHost is null");
                     return;
                 }
 
-                System.Diagnostics.Debug.WriteLine("[MainPage] Creating PreviewPage...");
+                Serilog.Log.Debug("[MainPage] Creating PreviewPage...");
                 var previewPage = new PreviewPage(graphicsHost);
 
-                System.Diagnostics.Debug.WriteLine("[MainPage] Creating Window...");
+                Serilog.Log.Debug("[MainPage] Creating Window...");
                 var window = new Window(previewPage)
                 {
                     Title = "Graphics Preview",
                 };
 
                 // Delay to allow main window to fully initialize (timing issue)
-                Console.WriteLine("[MainPage] Scheduling OpenWindow with delay...");
+                Serilog.Log.Debug("[MainPage] Scheduling OpenWindow with delay...");
                 _ = Task.Run(async () =>
                 {
                     await Task.Delay(500);
                     MainThread.BeginInvokeOnMainThread(() =>
                     {
-                        Console.WriteLine($"[MainPage] Calling OpenWindow... Application.Current={Application.Current}");
+                        Serilog.Log.Debug("[MainPage] Calling OpenWindow... Application.Current={ApplicationCurrent}", Application.Current);
                         if (Application.Current == null)
                         {
-                            Console.WriteLine("[MainPage] ERROR: Application.Current is null!");
+                            Serilog.Log.Error("[MainPage] Application.Current is null!");
                             return;
                         }
                         Application.Current.OpenWindow(window);
-                        Console.WriteLine("[MainPage] OpenWindow called successfully");
+                        Serilog.Log.Debug("[MainPage] OpenWindow called successfully");
                     });
                 });
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[MainPage] EXCEPTION in OnPreviewWindowRequested: {ex.Message}");
-                Console.WriteLine($"[MainPage] Stack trace: {ex.StackTrace}");
+                Serilog.Log.Error(ex, "[MainPage] Exception in OnPreviewWindowRequested");
             }
         }
 #endif

@@ -21,13 +21,14 @@ namespace ShowControl.Host
         [STAThread]
         public static Task<IHost> Main(string[] args, EventHandler<AudioFrameProcessedEventArgs> audioFrameProcessedEventHandler, Action<IDmxDevice[]> devices)
         {
-
+            LoggingBootstrap.Initialize();
             var builder = CreateHostBuilder(args, audioFrameProcessedEventHandler, devices);
             return builder.StartAsync();
         }
 
         static IHostBuilder CreateHostBuilder(string[] args, EventHandler<AudioFrameProcessedEventArgs> audioFrameProcessedEventHandler, Action<IDmxDevice[]> devices) =>
             Microsoft.Extensions.Hosting.Host.CreateDefaultBuilder(args)
+                .UseSerilog()
                 .ConfigureServices((_, services) =>
                     services
                         .AddSingleton<IEnttecDmxUsbDeviceEnumerator, EnttecDmxUsbDeviceEnumerator>()
