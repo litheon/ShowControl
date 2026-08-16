@@ -39,9 +39,9 @@ namespace ShowControl.Devices.Output
                 // new ArtNetDevice(_artNetController,3, new byte[] { 192, 168, 3, 207 }, 510),
                 // new ArtNetDevice(_artNetController,4, new byte[] { 192, 168, 3, 207 }, 120),
 
-                new DdpDevice(new byte[] { 192, 168, 3, 208 }, 8640),
-                new DdpDevice(new byte[] { 192, 168, 3, 93 }, 8640),
-                new DdpDevice(new byte[] { 192, 168, 3, 103 }, 8640),
+                //new DdpDevice(new byte[] { 192, 168, 3, 208 }, 8640),
+                //new DdpDevice(new byte[] { 192, 168, 3, 93 }, 8640),
+                //new DdpDevice(new byte[] { 192, 168, 3, 103 }, 8640),
                 new DdpDevice(new byte[] { 192, 168, 3, 207 }, 8640)
                 // new ArtNetDevice(_artNetController,5, new byte[] { 192, 168, 3, 207 }, 510),
                 // new ArtNetDevice(_artNetController,6, new byte[] { 192, 168, 3, 207 }, 510),

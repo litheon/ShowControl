@@ -1,4 +1,7 @@
+using System;
 using System.Linq;
+using System.Net;
+using System.Net.Sockets;
 using ShowControl.Devices.Output;
 using Xunit;
 
@@ -66,6 +69,56 @@ namespace ShowControl.Tests
         public void GetChunks_ZeroLength_YieldsNothing()
         {
             Assert.Empty(DdpDevice.GetChunks(dataLength: 0, dataOffset: 0));
+        }
+
+        [Fact]
+        public void Constructor_DoesNotOpenSocket_SoStartupSurvivesAnUnreachableController()
+        {
+            // 192.0.2.0/24 is TEST-NET-1: guaranteed unroutable. Connecting eagerly in
+            // the constructor is what used to take startup down when the venue network
+            // was not up yet.
+            var device = new DdpDevice(new byte[] { 192, 0, 2, 1 }, 8640);
+
+            Assert.Equal(8640, device.MaxChannels);
+            Assert.Equal("DDP 192.0.2.1:4048 (8640ch)", device.ToString());
+
+            device.Dispose();
+        }
+
+        [Fact]
+        public void Write_ConnectsLazily_AndSucceedsOverLoopback()
+        {
+            using var listener = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
+            var port = ((IPEndPoint)listener.Client.LocalEndPoint!).Port;
+            using var device = new DdpDevice(new byte[] { 127, 0, 0, 1 }, 30, port: port);
+
+            device.Write(new byte[30]);
+
+            var remote = new IPEndPoint(IPAddress.Any, 0);
+            var received = listener.Receive(ref remote);
+            Assert.Equal(10 + 30, received.Length);
+            Assert.Equal(0x40, received[0]);
+        }
+
+        [Fact]
+        public void Write_AfterDispose_Throws()
+        {
+            var device = new DdpDevice(new byte[] { 127, 0, 0, 1 }, 30);
+            device.Dispose();
+
+            // Write throws synchronously rather than returning a faulted task, which is
+            // what lets the caller attribute the failure to this specific device.
+            void WriteToDisposedDevice() => device.Write(new byte[30]);
+
+            Assert.Throws<ObjectDisposedException>(WriteToDisposedDevice);
+        }
+
+        [Fact]
+        public void Dispose_IsIdempotent()
+        {
+            var device = new DdpDevice(new byte[] { 127, 0, 0, 1 }, 30);
+            device.Dispose();
+            device.Dispose();
         }
 
         [Fact]

@@ -1,5 +1,6 @@
 using System;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Threading.Tasks;
 
@@ -32,7 +33,15 @@ namespace ShowControl.Devices.Output
         private const byte DDP_TYPE_RGBW = 0x03;
         private const byte DDP_TYPE_GRAYSCALE = 0x04;
 
-        private readonly UdpClient _udpClient;
+        // The socket is created on first use rather than in the constructor, so the app
+        // can start before the venue network is up: connecting to an address with no
+        // route throws, and that used to kill startup. It is also torn down and rebuilt
+        // after any send failure, because a socket bound to an interface that has since
+        // gone away never recovers on its own.
+        private readonly object _connectionLock = new object();
+        private UdpClient _udpClient;
+        private readonly IPEndPoint _endPoint;
+        private readonly bool _isLoopback;
         private readonly string _endpoint;
         private readonly byte _deviceId;
         private readonly int _dataOffset;
@@ -70,9 +79,10 @@ namespace ShowControl.Devices.Output
             _dataType = dataType;
             _sequence = 1;
 
-            _endpoint = $"{new IPAddress(ipAddress)}:{port}";
-            _udpClient = new UdpClient();
-            _udpClient.Connect(new IPEndPoint(new IPAddress(ipAddress), port));
+            var address = new IPAddress(ipAddress);
+            _endPoint = new IPEndPoint(address, port);
+            _isLoopback = IPAddress.IsLoopback(address);
+            _endpoint = $"{address}:{port}";
         }
 
         public override string ToString() => $"DDP {_endpoint} ({MaxChannels}ch)";
@@ -96,16 +106,80 @@ namespace ShowControl.Devices.Output
             if (_disposed)
                 throw new ObjectDisposedException(nameof(DdpDevice));
 
+            var client = EnsureConnected();
             int dataLength = Math.Min(dmxData.Length, MaxChannels);
 
-            foreach (var (sourceOffset, chunkSize, deviceOffset) in GetChunks(dataLength, _dataOffset))
+            try
             {
-                byte[] packet = BuildPacket(dmxData, sourceOffset, chunkSize, deviceOffset, _sequence, _dataType, _deviceId);
-                _udpClient.Send(packet, packet.Length);
+                foreach (var (sourceOffset, chunkSize, deviceOffset) in GetChunks(dataLength, _dataOffset))
+                {
+                    byte[] packet = BuildPacket(dmxData, sourceOffset, chunkSize, deviceOffset, _sequence, _dataType, _deviceId);
+                    client.Send(packet, packet.Length);
+                }
+            }
+            catch
+            {
+                // Rebuild on the next attempt. Recreating a socket that was actually fine
+                // (an unlistening controller returns ICMP unreachable, which is transient)
+                // costs nothing at the caller's retry cadence, whereas keeping a socket
+                // whose interface has disappeared would never recover.
+                ResetConnection();
+                throw;
             }
 
             _sequence = NextSequence(_sequence);
             return Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// Returns a connected socket, creating it if needed. Throws when the network
+        /// is not ready yet — the caller's failure handling supplies the retry cadence,
+        /// so this never blocks waiting for an interface to appear.
+        /// </summary>
+        private UdpClient EnsureConnected()
+        {
+            var existing = _udpClient;
+            if (existing != null)
+            {
+                return existing;
+            }
+
+            // Loopback works with no network at all; anything else needs an interface up.
+            if (!_isLoopback && !NetworkInterface.GetIsNetworkAvailable())
+            {
+                throw new SocketException((int)SocketError.NetworkDown);
+            }
+
+            lock (_connectionLock)
+            {
+                if (_disposed)
+                    throw new ObjectDisposedException(nameof(DdpDevice));
+                if (_udpClient != null)
+                    return _udpClient;
+
+                var created = new UdpClient();
+                try
+                {
+                    created.Connect(_endPoint);
+                }
+                catch
+                {
+                    created.Dispose();
+                    throw;
+                }
+
+                _udpClient = created;
+                return created;
+            }
+        }
+
+        private void ResetConnection()
+        {
+            lock (_connectionLock)
+            {
+                _udpClient?.Dispose();
+                _udpClient = null;
+            }
         }
 
         /// <summary>Splits a frame into per-packet (sourceOffset, chunkSize, deviceOffset) spans of at most 1440 bytes.</summary>
@@ -164,10 +238,15 @@ namespace ShowControl.Devices.Output
 
         public void Dispose()
         {
-            if (!_disposed)
+            lock (_connectionLock)
             {
-                _udpClient?.Dispose();
+                if (_disposed)
+                {
+                    return;
+                }
                 _disposed = true;
+                _udpClient?.Dispose();
+                _udpClient = null;
             }
         }
     }

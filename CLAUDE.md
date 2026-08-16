@@ -30,6 +30,17 @@ MacCatalyst app (`ShowControl.ControlPanel.Maui`), published from a Mac via
   `ShowControl.ControlPanel.Maui/Resources/Raw/` and `ShowControl.Host/`
   automatically — never copy or commit `.spv` by hand.
 
+## Networking
+
+- The app must survive starting before the venue network is up. `DdpDevice`
+  opens its socket on first send, not in the constructor, and rebuilds it after
+  any send failure; when the network is missing it throws rather than blocking,
+  and `OutputDeviceHealth` supplies the retry cadence.
+- `ArtNetController` instead waits on `_readyTask` until `ArtNet.Instance`
+  publishes a NetworkClient. That wait is unbounded, and `SendSync` is called
+  from the render thread — if no network client ever appears, the render loop
+  parks on the first frame. Worth bounding if ArtNet comes back into use.
+
 ## Venue toggles
 
 - Commented-out device lists (`DmxDeviceEnumerator`), fader-schedule values,
