@@ -43,10 +43,11 @@ namespace ShowControl.ControlPanel.Maui
             }
 
             InitializeComponent();
+            //Thread.Sleep(20000);
             _hostTask = Host.Host.Main(new string[] { }, OnAudioFrameProcessed, HandlePixelMap);
             Initialize();
             _instance = this;
-            //Thread.Sleep(20000);
+        
             //Task.Run(() => new GraphicsHost().Run());
         }
 

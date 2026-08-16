@@ -2683,6 +2683,8 @@ namespace ShowControl.Graphics
 
         public void SetShader(string shader)
         {
+            SpinWait.SpinUntil(() => _running == true);
+
             // 1) Tell render loop to pause submits
             _readReadyEvent.Reset();              // stop new ReadFromMemory users
             _running = false;                     // ask render loop to exit its while-step boundary

@@ -16,39 +16,6 @@
   <PropertyGroup Condition="$(TargetFramework.StartsWith('net9.0-windows'))">
     <DefineConstants>$(DefineConstants);WINDOWS</DefineConstants>
   </PropertyGroup>
-
-  <ItemGroup>
-    <None Remove="clown.frag.spv" />
-    <None Remove="geometry.frag.spv" />
-    <None Remove="kaleidoscope.frag.spv" />
-    <None Remove="portaudio.dll" />
-    <None Remove="rtmidi.dll" />
-    <None Remove="simple.frag.spv" />
-    <None Remove="simple.vert.spv" />
-  </ItemGroup>
-  <ItemGroup>
-    <Content Include="clown.frag.spv">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </Content>
-    <Content Include="geometry.frag.spv">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </Content>
-    <Content Include="kaleidoscope.frag.spv">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </Content>
-    <Content Include="portaudio.dll">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </Content>
-    <Content Include="rtmidi.dll">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </Content>
-    <Content Include="simple.frag.spv">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </Content>
-    <Content Include="simple.vert.spv">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </Content>
-  </ItemGroup>
   <!-- .spv files are generated (not tracked in git); make sure Graphics has compiled and
        copied them here before bundle-resource collection validates the Content items above -->
   <Target Name="EnsureCompiledShaders" BeforeTargets="AssignTargetPaths;_CollectBundleResources" Condition="!Exists('kaleidoscope.frag.spv')">
