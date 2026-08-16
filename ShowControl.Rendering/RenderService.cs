@@ -610,34 +610,7 @@ namespace ShowControl.Rendering
 
         private void UpdateMasterFaderFromSchedule()
         {
-            var now = DateTime.Now;
-            // Use hours past noon so the evening-to-morning span doesn't cross midnight boundary
-            double hour = now.Hour + now.Minute / 60.0 + now.Second / 3600.0;
-            if (hour < 12.0) hour += 24.0; // e.g. 4 AM → 28.0
-
-            // Before first waypoint or after last — use nearest endpoint
-            if (hour <= _faderSchedule[0].hour)
-            {
-                _masterFader = _faderSchedule[0].value;
-                return;
-            }
-            if (hour >= _faderSchedule[_faderSchedule.Length - 1].hour)
-            {
-                _masterFader = _faderSchedule[_faderSchedule.Length - 1].value;
-                return;
-            }
-
-            for (int i = 0; i < _faderSchedule.Length - 1; i++)
-            {
-                var (h0, v0) = _faderSchedule[i];
-                var (h1, v1) = _faderSchedule[i + 1];
-                if (hour >= h0 && hour < h1)
-                {
-                    double t = (hour - h0) / (h1 - h0);
-                    _masterFader = (int)Math.Round(v0 + (v1 - v0) * t);
-                    return;
-                }
-            }
+            _masterFader = FaderSchedule.Evaluate(_faderSchedule, FaderSchedule.ToScheduleHour(DateTime.Now));
         }
 
         private void InitializePads()

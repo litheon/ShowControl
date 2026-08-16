@@ -93,29 +93,38 @@ namespace ShowControl.Devices.Output
                 throw new ObjectDisposedException(nameof(DdpDevice));
 
             int dataLength = Math.Min(dmxData.Length, MaxChannels);
-            int offset = _dataOffset;
+
+            foreach (var (sourceOffset, chunkSize, deviceOffset) in GetChunks(dataLength, _dataOffset))
+            {
+                byte[] packet = BuildPacket(dmxData, sourceOffset, chunkSize, deviceOffset, _sequence, _dataType, _deviceId);
+                _udpClient.Send(packet, packet.Length);
+            }
+
+            _sequence = NextSequence(_sequence);
+            return Task.CompletedTask;
+        }
+
+        /// <summary>Splits a frame into per-packet (sourceOffset, chunkSize, deviceOffset) spans of at most 1440 bytes.</summary>
+        internal static System.Collections.Generic.IEnumerable<(int sourceOffset, int chunkSize, int deviceOffset)> GetChunks(int dataLength, int dataOffset)
+        {
+            int offset = dataOffset;
             int remaining = dataLength;
             int sourceOffset = 0;
 
             while (remaining > 0)
             {
                 int chunkSize = Math.Min(remaining, DDP_MAX_DATA_PER_PACKET);
-                bool isLastPacket = (remaining - chunkSize) <= 0;
-
-                byte[] packet = BuildPacket(dmxData, sourceOffset, chunkSize, offset, isLastPacket);
-                _udpClient.Send(packet, packet.Length);
-
+                yield return (sourceOffset, chunkSize, offset);
                 offset += chunkSize;
                 sourceOffset += chunkSize;
                 remaining -= chunkSize;
             }
-
-            // Increment sequence for next frame (1-15, wrap to 1)
-            _sequence = (byte)((_sequence % 15) + 1);
-            return Task.CompletedTask;
         }
 
-        private byte[] BuildPacket(byte[] data, int sourceOffset, int length, int deviceOffset, bool push)
+        /// <summary>Sequence walks 1-15 and wraps back to 1 (0 is reserved for "no sequencing").</summary>
+        internal static byte NextSequence(byte sequence) => (byte)((sequence % 15) + 1);
+
+        internal static byte[] BuildPacket(byte[] data, int sourceOffset, int length, int deviceOffset, byte sequence, byte dataType, byte deviceId)
         {
             byte[] packet = new byte[DDP_HEADER_SIZE + length];
 
@@ -125,13 +134,13 @@ namespace ShowControl.Devices.Output
             packet[0] = DDP_FLAGS1_VER1;
 
             // Byte 1: Sequence number (1-15)
-            packet[1] = _sequence;
+            packet[1] = sequence;
 
             // Byte 2: Data type
-            packet[2] = _dataType;
+            packet[2] = dataType;
 
             // Byte 3: Device ID
-            packet[3] = _deviceId;
+            packet[3] = deviceId;
 
             // Bytes 4-7: Data offset (big-endian 32-bit)
             packet[4] = (byte)((deviceOffset >> 24) & 0xFF);

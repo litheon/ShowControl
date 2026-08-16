@@ -8,4 +8,7 @@
   <ItemGroup>
     <ProjectReference Include="..\external\ArtNetSharp\ArtNetSharp\ArtNetSharp.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="ShowControl.Tests" />
+  </ItemGroup>
 </Project>
