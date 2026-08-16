@@ -67,8 +67,6 @@ namespace ShowControl.Devices.Output
                 // new ArtNetDevice(_artNetController,7, new byte[] { 192, 168, 3, 196 }, 510),
                 // new ArtNetDevice(_artNetController,8, new byte[] { 192, 168, 3, 196 }, 30),
             };
-
-            return _enttecDmxUsbDeviceEnumerator.GetDmxOutputDevices(token);
         }
     }
 }
