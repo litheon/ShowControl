@@ -1,7 +1,9 @@
 ﻿using Microsoft.Extensions.Hosting;
 using ShowControl.Devices.Audio;
 using ShowControl.Devices.DMX;
+using ShowControl.Host;
 using System;
+using System.Collections.ObjectModel;
 using System.Runtime.InteropServices;
 using System.Text;
 using Point = ShowControl.Devices.Audio.Point;
@@ -20,6 +22,14 @@ namespace ShowControl.ControlPanel.Maui
         PointCollection activePoints;
         private readonly Task<IHost> _hostTask;
         int x = 10;
+
+        // Log pane: polls the in-memory sink rather than being called back per event,
+        // so logging from the render/audio threads never touches the UI directly.
+        private const int MaxLogRowsShown = 500;
+        private static readonly TimeSpan LogPollInterval = TimeSpan.FromMilliseconds(250);
+        private readonly ObservableCollection<LogEntryView> _logRows = new ObservableCollection<LogEntryView>();
+        private long _lastLogSequence = -1;
+        private IDispatcherTimer _logTimer;
 
         private static MainPage _instance;
         public MainPage()
@@ -80,6 +90,50 @@ namespace ShowControl.ControlPanel.Maui
             var graphicsHost = result.Services.GetRequiredService<IGraphicsHost>();
             graphicsHost.PreviewWindowRequested += OnPreviewWindowRequested;
 #endif
+
+            StartLogPane();
+        }
+
+        private void StartLogPane()
+        {
+            LogView.ItemsSource = _logRows;
+            PumpLogRows(); // show whatever was logged during startup
+
+            _logTimer = Dispatcher.CreateTimer();
+            _logTimer.Interval = LogPollInterval;
+            _logTimer.Tick += (sender, e) => PumpLogRows();
+            _logTimer.Start();
+        }
+
+        private void PumpLogRows()
+        {
+            var newLines = UiLogSink.Instance.ReadSince(_lastLogSequence);
+            if (newLines.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var line in newLines)
+            {
+                _logRows.Add(new LogEntryView(line));
+                _lastLogSequence = line.Sequence;
+            }
+
+            while (_logRows.Count > MaxLogRowsShown)
+            {
+                _logRows.RemoveAt(0);
+            }
+
+            if (LogAutoScroll.IsChecked && _logRows.Count > 0)
+            {
+                LogView.ScrollTo(_logRows.Count - 1, position: ScrollToPosition.End, animate: false);
+            }
+        }
+
+        // Clears the on-screen rows only; the rolling log file is untouched.
+        private void OnClearLogClicked(object sender, EventArgs e)
+        {
+            _logRows.Clear();
         }
 
 #if MACCATALYST || WINDOWS

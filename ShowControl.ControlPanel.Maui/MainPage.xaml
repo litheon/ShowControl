@@ -1,15 +1,15 @@
-﻿<?xml version="1.0" encoding="utf-8" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="ShowControl.ControlPanel.Maui.MainPage">
 
-    <Grid>
+    <Grid RowDefinitions="*,Auto">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="Auto" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
-        <ScrollView>
-            <VerticalStackLayout Grid.Column="0">
+        <ScrollView Grid.Row="0" Grid.Column="0">
+            <VerticalStackLayout>
                 <Label x:Name="Bpm" Width="200" Text="BPM"></Label>
                 <Label x:Name="AmplitudeRatio" Width="200" Text="Amplitude Ratio"></Label>
                 <Label x:Name="BassAmplitudeCurrent" Width="200" Text="Current Bass Amplitude"></Label>
@@ -17,8 +17,34 @@
                 <Label x:Name="Addresses" Width="400" Text="Devices"></Label>
             </VerticalStackLayout>
         </ScrollView>
-        <Border Grid.Column="1">
+        <Border Grid.Row="0" Grid.Column="1">
             <Polyline x:Name="polyline" Stroke="Red" StrokeThickness="3" />
+        </Border>
+
+        <!-- Log pane: tails the in-memory Serilog sink -->
+        <Border Grid.Row="1" Grid.ColumnSpan="2" HeightRequest="240" Margin="0,4,0,0">
+            <Grid RowDefinitions="Auto,*">
+                <HorizontalStackLayout Grid.Row="0" Spacing="12" Padding="6,4">
+                    <Label Text="Log" FontAttributes="Bold" VerticalOptions="Center" />
+                    <CheckBox x:Name="LogAutoScroll" IsChecked="True" VerticalOptions="Center" />
+                    <Label Text="Auto-scroll" VerticalOptions="Center" />
+                    <Button x:Name="LogClearButton" Text="Clear" Clicked="OnClearLogClicked"
+                            Padding="10,0" HeightRequest="30" VerticalOptions="Center" />
+                </HorizontalStackLayout>
+                <CollectionView x:Name="LogView" Grid.Row="1" Margin="6,0,6,6">
+                    <CollectionView.ItemTemplate>
+                        <DataTemplate>
+                            <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="8" Padding="0,1">
+                                <Label Grid.Column="0" Text="{Binding Timestamp}" FontSize="11" TextColor="Gray" />
+                                <Label Grid.Column="1" Text="{Binding Level}" FontSize="11"
+                                       FontAttributes="Bold" TextColor="{Binding LevelColor}" />
+                                <Label Grid.Column="2" Text="{Binding Message}" FontSize="11"
+                                       LineBreakMode="TailTruncation" />
+                            </Grid>
+                        </DataTemplate>
+                    </CollectionView.ItemTemplate>
+                </CollectionView>
+            </Grid>
         </Border>
     </Grid>
 

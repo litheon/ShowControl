@@ -33,6 +33,7 @@ namespace ShowControl.Host
                     .MinimumLevel.Override("Microsoft", LogEventLevel.Information)
                     .WriteTo.Debug()
                     .WriteTo.Console()
+                    .WriteTo.Sink(UiLogSink.Instance)
                     .WriteTo.File(Path.Combine(LogDirectory, "showcontrol-.log"),
                         rollingInterval: RollingInterval.Day,
                         retainedFileCountLimit: 14,
