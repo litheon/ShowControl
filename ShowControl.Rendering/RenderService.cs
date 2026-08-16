@@ -86,9 +86,9 @@ namespace ShowControl.Rendering
         {
             lock (_navigationLock)
             {
-                if (_activeKeyAnimation > -1 && _keyAnimations[_activeKeyAnimation] is VibrantAnimation vibrant)
+                if (_activeKeyAnimation > -1 && _keyAnimations[_activeKeyAnimation] is ShaderAnimation shaderAnimation)
                 {
-                    vibrant.NudgeParamsTowardDefaults();
+                    shaderAnimation.NudgeParamsTowardDefaults();
                 }
             }
         }
@@ -518,7 +518,7 @@ namespace ShowControl.Rendering
                 //new RainbowAnimation(_pixelChannels.TotalPixelCount, warmLucidas, _audioService, _cts.Token, fastAnimate: true),
                 //new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg9, _audioService, _cts.Token, fastAnimate: true),
                 //new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg2Lucidas, _audioService, _cts.Token, fastAnimate: true),
-                // new VibrantAnimation(_pixelChannels.TotalPixelCount, _audioService, _graphicsHost, Shaders.Geometry, new Color[]
+                // new ShaderAnimation(_pixelChannels.TotalPixelCount, _graphicsHost, Shaders.Geometry, new Color[]
                 // {
                 //     Color.Red,
                 //     Color.FromArgb(255, 0, 137),
@@ -526,9 +526,9 @@ namespace ShowControl.Rendering
                 //     Color.FromArgb(67, 112, 0),
                 //     Color.FromArgb(255, 74, 0),
                 //     Color.FromArgb(9, 254, 182)
-                // }, _cts.Token),
-                new VibrantAnimation(_pixelChannels.TotalPixelCount, _audioService, _graphicsHost, Shaders.Kaleidoscope, frequentWarmColdRoygviv, _cts.Token),
-                // new VibrantAnimation(_pixelChannels.TotalPixelCount, _audioService, _graphicsHost, Shaders.Clown, new Color[]
+                // }),
+                new ShaderAnimation(_pixelChannels.TotalPixelCount, _graphicsHost, Shaders.Kaleidoscope, frequentWarmColdRoygviv),
+                // new ShaderAnimation(_pixelChannels.TotalPixelCount, _graphicsHost, Shaders.Clown, new Color[]
                 // {
                 //     Color.FromArgb(220,  20,  20), // red
                 //     Color.FromArgb(255, 200,   0), // yellow
@@ -546,7 +546,7 @@ namespace ShowControl.Rendering
                 //     Color.FromArgb(120,   0, 200), // violet
                 //     Color.FromArgb(  0, 220, 120), // seafoam
                 //     Color.FromArgb(200,   0,  40), // crimson
-                // }, _cts.Token)
+                // })
                 //new RainbowAnimation(_pixelChannels.TotalPixelCount, dragonCyborg8, _audioService, _cts.Token, fastAnimate: true),
             };
             _auxilaryKeyAnimations = new IKeyAnimation[]
@@ -561,7 +561,7 @@ namespace ShowControl.Rendering
                 //new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg6, _audioService, _cts.Token),
                 //new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg6, _audioService, _cts.Token),
                 //commented so we don't have multiple calls to graphics host
-                //new VibrantAnimation(_parChannels.TotalPixelCount, _audioService, _graphicsHost, _cts.Token)
+                //new ShaderAnimation(_parChannels.TotalPixelCount, _graphicsHost, Shaders.Kaleidoscope, dragonCyborg9)
                 //new RainbowAnimation(_parChannels.TotalPixelCount, dragonCyborg8, _audioService, _cts.Token),
             };
 
