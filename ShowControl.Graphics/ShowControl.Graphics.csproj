@@ -51,8 +51,8 @@
     <Exec Command="&quot;$(GlslcPath)&quot; &quot;%(ShaderSource.FullPath)&quot; -o &quot;%(ShaderSource.FullPath).spv&quot;"
           Condition="$([MSBuild]::IsOSPlatform('windows')) AND Exists('$(GlslcPath)')"
           WorkingDirectory="$(ProjectDir)" />
-    <Warning Text="Vulkan SDK glslc.exe not found at $(GlslcPath). Shaders will not be compiled."
-             Condition="$([MSBuild]::IsOSPlatform('windows')) AND !Exists('$(GlslcPath)')" />
+    <Error Text="Vulkan SDK glslc.exe not found at $(GlslcPath). Install the Vulkan SDK or set $(VulkanSDK)."
+           Condition="$([MSBuild]::IsOSPlatform('windows')) AND !Exists('$(GlslcPath)')" />
     <!-- Mac/Linux: invoke glslc from PATH; will error at build time if not installed -->
     <Exec Command="glslc &quot;%(ShaderSource.FullPath)&quot; -o &quot;%(ShaderSource.FullPath).spv&quot;"
           Condition="!$([MSBuild]::IsOSPlatform('windows'))"
@@ -68,6 +68,18 @@
           DestinationFolder="..\ShowControl.ControlPanel.Maui\Resources\Raw"
           SkipUnchangedFiles="true" />
     <Message Text="Copied %(CompiledShaders.Filename)%(CompiledShaders.Extension) to MAUI Resources\Raw"
+             Importance="high" />
+  </Target>
+
+  <!-- Copy compiled shaders to Host, which bundles them as Content in its output -->
+  <Target Name="CopyCompiledShadersToHost" AfterTargets="CompileShaders" Condition="Exists('..\ShowControl.Host')">
+    <ItemGroup>
+      <CompiledShadersForHost Include="**\*.spv" />
+    </ItemGroup>
+    <Copy SourceFiles="@(CompiledShadersForHost)"
+          DestinationFolder="..\ShowControl.Host"
+          SkipUnchangedFiles="true" />
+    <Message Text="Copied %(CompiledShadersForHost.Filename)%(CompiledShadersForHost.Extension) to ShowControl.Host"
              Importance="high" />
   </Target>
 </Project>
