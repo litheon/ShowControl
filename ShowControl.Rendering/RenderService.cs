@@ -500,14 +500,43 @@ namespace ShowControl.Rendering
             return _tcs.Task;
         }
 
-        private void Initialize()
+        /// <summary>
+        /// Logs the DMX address map as one entry per contiguous run of same-type
+        /// fixtures. The pixel surface is >11k single-pixel devices, so a line per
+        /// device stalled startup for as long as the sinks took to drain.
+        /// </summary>
+        private void LogDeviceAddresses()
         {
+            if (_devices.Length == 0)
+            {
+                return;
+            }
+
             int address = 1;
+            int runStartIndex = 0;
+            int runStartAddress = address;
+
             for (int j = 0; j < _devices.Length; j++)
             {
-                _logger.LogDebug("Address {Index} for {DeviceType}: {Address}", j + 1, _devices[j].GetType().ToString(), address);
                 address += _devices[j].ChannelCount;
+
+                bool lastOfRun = j == _devices.Length - 1
+                    || _devices[j + 1].GetType() != _devices[runStartIndex].GetType();
+
+                if (lastOfRun)
+                {
+                    _logger.LogDebug("Addresses {StartAddress}-{EndAddress}: {Count} x {DeviceType} (devices {StartDevice}-{EndDevice})",
+                        runStartAddress, address - 1, j - runStartIndex + 1,
+                        _devices[runStartIndex].GetType().Name, runStartIndex + 1, j + 1);
+                    runStartIndex = j + 1;
+                    runStartAddress = address;
+                }
             }
+        }
+
+        private void Initialize()
+        {
+            LogDeviceAddresses();
 
 
             _keyAnimations = new IKeyAnimation[]

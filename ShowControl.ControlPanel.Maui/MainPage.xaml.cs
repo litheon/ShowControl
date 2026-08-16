@@ -38,14 +38,30 @@ namespace ShowControl.ControlPanel.Maui
             //Task.Run(() => new GraphicsHost().Run());
         }
 
+        // Summarizes the address map as one line per contiguous run of same-type
+        // fixtures. Listing every device produced ~11.5k lines (~450 KB) for the
+        // pixel surface, which is unreadable and slow to lay out in the label.
         private void HandleDevices(IDmxDevice[] devices)
         {
             int address = 1;
             var addressOutput = new StringBuilder();
+            int runStartIndex = 0;
+            int runStartAddress = address;
+
             for (int j = 0; j < devices.Length; j++)
             {
-                addressOutput.AppendLine(string.Format("Address {0} for {1}: {2}", j + 1, devices[j].GetType().ToString(), address));
                 address += devices[j].ChannelCount;
+
+                bool lastOfRun = j == devices.Length - 1
+                    || devices[j + 1].GetType() != devices[runStartIndex].GetType();
+
+                if (lastOfRun)
+                {
+                    addressOutput.AppendLine(string.Format("Addresses {0}-{1}: {2} x {3}",
+                        runStartAddress, address - 1, j - runStartIndex + 1, devices[runStartIndex].GetType().Name));
+                    runStartIndex = j + 1;
+                    runStartAddress = address;
+                }
             }
             MainThread.BeginInvokeOnMainThread(() =>
             {
