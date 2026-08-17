@@ -19,9 +19,13 @@
                       InputTransparent="True"
                       BackgroundColor="#01000000">
             <GraphicsView.GestureRecognizers>
+                <!-- PointerExited ends the drag too: on Mac Catalyst a drag that leaves the view
+                     is reported as an exit and the gesture then ends without a PointerReleased. -->
                 <PointerGestureRecognizer PointerPressed="OnOverlayPointerPressed"
                                           PointerMoved="OnOverlayPointerMoved"
-                                          PointerReleased="OnOverlayPointerReleased" />
+                                          PointerReleased="OnOverlayPointerReleased"
+                                          PointerExited="OnOverlayPointerExited" />
+                <PinchGestureRecognizer PinchUpdated="OnOverlayPinch" />
             </GraphicsView.GestureRecognizers>
         </GraphicsView>
 
@@ -37,7 +41,7 @@
             <ScrollView>
                 <VerticalStackLayout Spacing="6">
                     <Label Text="Pixel Map" TextColor="White" FontSize="16" FontAttributes="Bold" />
-                    <Label x:Name="DirtyLabel" TextColor="Orange" FontSize="11" />
+                    <Label Text="{Binding DirtyText}" TextColor="Orange" FontSize="11" />
 
                     <HorizontalStackLayout Spacing="6">
                         <Button Text="Open" FontSize="11" Padding="8,2" Clicked="OnOpenClicked" />
@@ -48,11 +52,20 @@
                     <BoxView HeightRequest="1" Color="#40FFFFFF" />
 
                     <Label Text="Fixtures" TextColor="White" FontSize="13" FontAttributes="Bold" />
+                    <!-- MeasureFirstItem plus a fixed row height on purpose: the rows are uniform,
+                         and self-sizing cells make UICollectionViewFlowLayout invalidate its layout
+                         while animating an insert, which it answers by throwing. On Mac Catalyst
+                         that NSException comes back through the managed handler and aborts.
+                         SelectedItem is deliberately NOT bound: the code-behind assigns it only when
+                         it actually differs, which is what keeps redundant index-path selections
+                         away from a list that has just changed shape. -->
                     <CollectionView x:Name="FixtureList" HeightRequest="220" SelectionMode="Single"
+                                    ItemSizingStrategy="MeasureFirstItem"
+                                    ItemsSource="{Binding Rows}"
                                     SelectionChanged="OnFixtureSelected">
                         <CollectionView.ItemTemplate>
                             <DataTemplate>
-                                <Grid ColumnDefinitions="Auto,*" Padding="0,2">
+                                <Grid ColumnDefinitions="Auto,*" Padding="0,2" HeightRequest="28">
                                     <CheckBox IsChecked="{Binding Enabled}" Color="White" />
                                     <Label Grid.Column="1" Text="{Binding Description}" TextColor="White"
                                            FontSize="11" VerticalOptions="Center" LineBreakMode="TailTruncation" />
@@ -62,35 +75,65 @@
                     </CollectionView>
 
                     <HorizontalStackLayout Spacing="6">
-                        <Button Text="Remove" FontSize="11" Padding="8,2" Clicked="OnRemoveFixtureClicked" />
-                        <Button Text="Toggle enabled" FontSize="11" Padding="8,2" Clicked="OnToggleEnabledClicked" />
+                        <Button Text="Remove" FontSize="11" Padding="8,2" Command="{Binding RemoveFixtureCommand}" />
+                        <Button Text="Toggle enabled" FontSize="11" Padding="8,2" Command="{Binding ToggleEnabledCommand}" />
+                    </HorizontalStackLayout>
+
+                    <!-- For a strip whose data-in end is the opposite one to what the map assumes:
+                         the run stays where it is, the pixel order reverses. The overlay's ring
+                         marks the first pixel, so the result is visible at a glance. -->
+                    <Button Text="Flip direction" FontSize="11" Padding="8,2"
+                            HorizontalOptions="Start" Command="{Binding FlipDirectionCommand}" />
+
+                    <!-- Spacing of the selected fixture, read back off its stored offsets. Applying
+                         scales the run about its first pixel, so the fixture keeps its position and
+                         its shape and only the gap between pixels changes. -->
+                    <HorizontalStackLayout Spacing="6">
+                        <Label Text="Pixel spacing" TextColor="White" FontSize="11" VerticalOptions="Center" />
+                        <Entry Text="{Binding SpacingText}" Placeholder="Spacing" WidthRequest="70"
+                               Keyboard="Numeric" FontSize="11" ReturnCommand="{Binding ApplySpacingCommand}" />
+                        <Button Text="Apply" FontSize="11" Padding="8,2" Command="{Binding ApplySpacingCommand}" />
                     </HorizontalStackLayout>
 
                     <BoxView HeightRequest="1" Color="#40FFFFFF" />
 
                     <Label Text="Add fixture" TextColor="White" FontSize="13" FontAttributes="Bold" />
-                    <Entry x:Name="NewName" Placeholder="Name" FontSize="11" />
-                    <Picker x:Name="NewInterface" Title="Interface" FontSize="11" TextColor="White" />
-                    <Entry x:Name="NewIpAddress" Placeholder="IP address" Text="192.168.3.207" FontSize="11" />
-                    <Entry x:Name="NewPort" Placeholder="Port (DDP)" Text="4048" Keyboard="Numeric" FontSize="11" />
-                    <Entry x:Name="NewUniverse" Placeholder="Universe (ArtNet)" Text="0" Keyboard="Numeric" FontSize="11" />
-                    <Entry x:Name="NewStartChannel" Placeholder="Start channel" Text="0" Keyboard="Numeric" FontSize="11" />
-                    <Picker x:Name="NewPixelType" Title="Pixel type" FontSize="11" TextColor="White" />
-                    <Entry x:Name="NewPixelCount" Placeholder="Pixel count" Text="720" Keyboard="Numeric" FontSize="11" />
-                    <!-- Spacing and angle lay the run out at creation; neither is stored in the map. -->
-                    <Entry x:Name="NewSpacing" Placeholder="Spacing (image px)" Text="1" Keyboard="Numeric" FontSize="11" />
-                    <Entry x:Name="NewAngle" Placeholder="Angle (degrees)" Text="0" Keyboard="Numeric" FontSize="11" />
-                    <Button Text="Add" FontSize="11" Padding="8,2" Clicked="OnAddFixtureClicked" />
+                    <Entry Text="{Binding NewName}" Placeholder="Name" FontSize="11" />
+                    <Picker x:Name="NewInterface" Title="Interface" FontSize="11" TextColor="White"
+                            SelectedIndexChanged="OnInterfaceSelected" />
+                    <Entry Text="{Binding NewIpAddress}" Placeholder="IP address" FontSize="11" />
+                    <Entry Text="{Binding NewPort}" Placeholder="Port (DDP)" Keyboard="Numeric" FontSize="11" />
+                    <Entry Text="{Binding NewUniverse}" Placeholder="Universe (ArtNet)" Keyboard="Numeric" FontSize="11" />
+                    <Entry Text="{Binding NewStartChannel}" Placeholder="Start channel" Keyboard="Numeric" FontSize="11" />
+                    <Picker x:Name="NewPixelType" Title="Pixel type" FontSize="11" TextColor="White"
+                            SelectedIndexChanged="OnPixelTypeSelected" />
+                    <Entry Text="{Binding NewPixelCount}" Placeholder="Pixel count" Keyboard="Numeric" FontSize="11" />
+                    <!-- Spacing and angle lay the run out at creation; neither is stored in the map.
+                         1.25 is the shipped rig's spacing: one LED per image pixel at the render
+                         target's previous size, scaled with it. -->
+                    <Entry Text="{Binding NewSpacing}" Placeholder="Spacing (image px)" Keyboard="Numeric" FontSize="11" />
+                    <Entry Text="{Binding NewAngle}" Placeholder="Angle (degrees)" Keyboard="Numeric" FontSize="11" />
+                    <Button Text="Add" FontSize="11" Padding="8,2" Command="{Binding AddFixtureCommand}" />
 
-                    <Label x:Name="StatusLabel" TextColor="#FFAAAAAA" FontSize="10" LineBreakMode="WordWrap" />
+                    <Label Text="{Binding StatusText}" TextColor="#FFAAAAAA" FontSize="10" LineBreakMode="WordWrap" />
                 </VerticalStackLayout>
             </ScrollView>
         </Border>
 
-        <!-- Edit mode switch and shader parameters -->
+        <!-- Edit mode switch, zoom controls and shader parameters.
+             The zoom controls sit here rather than in EditorPanel so they stay put when the panel
+             is scrolled, and are hidden with edit mode because that is when the zoom resets. -->
         <HorizontalStackLayout VerticalOptions="Start" HorizontalOptions="Start" Margin="8,8,0,0" Spacing="6">
             <Switch x:Name="EditModeSwitch" Toggled="OnEditModeToggled" />
             <Label Text="Edit pixel map" TextColor="Red" FontSize="12" VerticalOptions="Center" />
+
+            <HorizontalStackLayout x:Name="ZoomControls" IsVisible="False" Spacing="4" Margin="12,0,0,0">
+                <Button Text="−" FontSize="12" Padding="10,2" Clicked="OnZoomOutClicked" />
+                <Button Text="+" FontSize="12" Padding="10,2" Clicked="OnZoomInClicked" />
+                <Button Text="Fit" FontSize="11" Padding="8,2" Clicked="OnZoomFitClicked" />
+                <Label Text="{Binding Zoom.Label}" TextColor="Red" FontSize="12"
+                       WidthRequest="46" VerticalOptions="Center" />
+            </HorizontalStackLayout>
         </HorizontalStackLayout>
 
         <Label x:Name="ShaderParamsLabel"

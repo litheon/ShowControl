@@ -80,6 +80,7 @@
 	  <ProjectReference Include="..\ShowControl.Host\ShowControl.Host.csproj" />
 	  <ProjectReference Include="..\ShowControl.Graphics\ShowControl.Graphics.csproj" />
 	  <ProjectReference Include="..\ShowControl.PixelMapping\ShowControl.PixelMapping.csproj" />
+	  <ProjectReference Include="..\ShowControl.ControlPanel.Editor\ShowControl.ControlPanel.Editor.csproj" />
 	</ItemGroup>
 
 	<Target Name="BeforeBuildScript" BeforeTargets="BeforeBuild" Condition="'$(OS)' != 'Windows_NT'">

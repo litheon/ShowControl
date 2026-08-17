@@ -242,7 +242,14 @@ namespace ShowControl.Graphics
             }
         }
 
-        public void RunHeadless(int width = 1080, int height = 960)
+        /// <summary>
+        /// Starts the offscreen render loop. The default extent is the coordinate space every pixel
+        /// map is authored in, so it has to stay in step with <c>PixelMap.DefaultImageWidth</c> and
+        /// <c>DefaultImageHeight</c> (ShowControl.PixelMapping, which this project does not
+        /// reference). The shaders normalize by <c>u_resolution</c>, so changing it changes
+        /// resolution rather than the picture — as long as the aspect ratio is kept.
+        /// </summary>
+        public void RunHeadless(int width = 1350, int height = 1200)
         {
             PRESENT = false; // make sure your OnRender uses the no-present path
             _offscreenExtent = new Extent2D((uint)width, (uint)height);

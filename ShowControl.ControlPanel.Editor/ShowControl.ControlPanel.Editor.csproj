@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('osx'))">net9.0;net9.0-maccatalyst</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">net9.0</TargetFrameworks>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
+    <Platforms>AnyCPU;x64;x86;ARM64</Platforms>
+    <Nullable>enable</Nullable>
+    <IsTrimmable>true</IsTrimmable>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The editor's logic, kept out of the MAUI app so the plain-net9.0 test project can reach it.
+         Do not add a MAUI reference, and do not use Microsoft.Maui.Graphics types — System.Drawing
+         (which PixelLayoutTools already uses) or plain tuples instead. Everything here has to build
+         for net9.0 or it stops being testable, which is the whole reason the project exists. -->
+    <ProjectReference Include="..\ShowControl.PixelMapping\ShowControl.PixelMapping.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
+  </ItemGroup>
+</Project>

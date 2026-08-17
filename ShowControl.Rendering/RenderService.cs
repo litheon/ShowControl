@@ -248,8 +248,20 @@ namespace ShowControl.Rendering
             _logger.LogInformation("RenderService starting");
             _inputService.OnInputReceived += InputService_OnInputReceived;
             _inputService.OnInputDeviceReconnected += _inputService_OnInputDeviceReconnected;
-            _inputDevice = _inputService.Devices.FirstOrDefault();
-            _logger.LogInformation("Input device: {InputDevice}", _inputDevice?.ToString() ?? "(none)");
+
+            // No control surface is not a startup failure. Everything the show actually needs —
+            // shader, pixel map, DMX output — is independent of it, and the host is started from the
+            // MainPage constructor, so throwing here takes the whole app down before it has a window.
+            _inputDevice = _inputService.Devices.FirstOrDefault() ?? AbsentMidiInputDevice.Instance;
+            if (ReferenceEquals(_inputDevice, AbsentMidiInputDevice.Instance))
+            {
+                _logger.LogWarning("No control surface found; running without one. Plugging one in is picked up live.");
+            }
+            else
+            {
+                _logger.LogInformation("Input device: {InputDevice}", _inputDevice);
+            }
+
             _padTransitionStartIndex = _inputDevice.PadCount / 2;
             RebuildOutputDevices(_activeLayout, previousLayout: null, previousDevices: null);
             Initialize();
@@ -264,11 +276,44 @@ namespace ShowControl.Rendering
             return Task.CompletedTask;
         }
 
+        /// <summary>
+        /// Picks up a control surface that appeared after startup. On Mac the CoreMIDI notification
+        /// fires for a surface plugged in later as well as for one that reconnected, so a show that
+        /// came up without one adopts it here rather than staying dark until the next launch.
+        /// </summary>
         private void _inputService_OnInputDeviceReconnected(object sender, EventArgs e)
         {
             lock (_navigationLock)
             {
+                if (ReferenceEquals(_inputDevice, AbsentMidiInputDevice.Instance))
+                {
+                    var device = _inputService.Devices.FirstOrDefault();
+                    if (device != null)
+                    {
+                        _inputDevice = device;
+                        _padTransitionStartIndex = _inputDevice.PadCount / 2;
+                        if (_keyAnimations != null)
+                        {
+                            InitializePads();
+                        }
+                        _logger.LogInformation("Control surface connected: {InputDevice}", _inputDevice);
+                    }
+                }
+
                 SetNavigationLevel(_navigationLevel);
+            }
+        }
+
+        /// <summary>
+        /// Pad slots only exist while a control surface is connected. With none the array is empty,
+        /// so every pad write has to be a no-op rather than an index out of range — some of these
+        /// calls arrive on an animation's own timer thread, where it would be fatal.
+        /// </summary>
+        private void SetPadIllumination(int index, PadIllumination illumination)
+        {
+            if (_padStates != null && index >= 0 && index < _padStates.Length)
+            {
+                _padStates[index].PadIllumination = illumination;
             }
         }
 
@@ -283,13 +328,13 @@ namespace ShowControl.Rendering
                 }
                 if (_activeKeyAnimation > -1)
                 {
-                    _padStates[_activeKeyAnimation].PadIllumination = PadIllumination.Solid;
+                    SetPadIllumination(_activeKeyAnimation, PadIllumination.Solid);
                     var existingAnimation = _keyAnimations[_activeKeyAnimation];
                     existingAnimation.Stop();
                     existingAnimation = _auxilaryKeyAnimations[_activeKeyAnimation];
                     existingAnimation.Stop();
                 }
-                _padStates[index].PadIllumination = PadIllumination.Blink;
+                SetPadIllumination(index, PadIllumination.Blink);
                 _activeKeyAnimation = index;
                 animation = _keyAnimations[_activeKeyAnimation];
             }
@@ -307,7 +352,7 @@ namespace ShowControl.Rendering
                 }
                 if (_activeTransformAnimation == index)
                 {
-                    _padStates[index + _padTransitionStartIndex].PadIllumination = PadIllumination.Solid;
+                    SetPadIllumination(index + _padTransitionStartIndex, PadIllumination.Solid);
                     animation = _transformAnimations[_activeTransformAnimation];
                     animation.Stop();
                     _activeTransformAnimation = -1;
@@ -315,12 +360,12 @@ namespace ShowControl.Rendering
                 }
                 else if (_activeTransformAnimation > -1)
                 {
-                    _padStates[_activeTransformAnimation + _padTransitionStartIndex].PadIllumination = PadIllumination.Solid;
+                    SetPadIllumination(_activeTransformAnimation + _padTransitionStartIndex, PadIllumination.Solid);
                     var existingAnimation = _transformAnimations[_activeTransformAnimation];
                     existingAnimation.Stop();
                 }
 
-                _padStates[index + _padTransitionStartIndex].PadIllumination = PadIllumination.Breathe;
+                SetPadIllumination(index + _padTransitionStartIndex, PadIllumination.Breathe);
                 _activeTransformAnimation = index;
                 animation = _transformAnimations[_activeTransformAnimation];
                 animation.Start(_inputDevice.AsReadOnly());
@@ -1080,12 +1125,15 @@ namespace ShowControl.Rendering
             }
             else if (e.EventType == DeviceStateChangeEventType.NavigationColor)
             {
-                if (sourceAnimationIndex > -1)
+                // Raised from the animation's own timer thread, and with no control surface there
+                // are no pad slots to colour, so the bounds check is what keeps that thread alive.
+                var padStates = _padStates;
+                if (sourceAnimationIndex > -1 && padStates != null && sourceAnimationIndex < padStates.Length)
                 {
-                    _padStates[sourceAnimationIndex].Color = e.NavigationColor;
+                    padStates[sourceAnimationIndex].Color = e.NavigationColor;
                     if (navigationLevel == NavigationLevel.Root)
                     {
-                        _inputDevice.SetPadState(sourceAnimationIndex, _padStates[sourceAnimationIndex]);
+                        _inputDevice.SetPadState(sourceAnimationIndex, padStates[sourceAnimationIndex]);
                     }
                 }
             }

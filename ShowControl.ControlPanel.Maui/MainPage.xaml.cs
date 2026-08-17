@@ -11,6 +11,7 @@ using GraphicsPoint = Microsoft.Maui.Graphics.Point;
 using ShowControl.Devices.Input;
 using ShowControl.Graphics;
 using ShowControl.PixelMapping;
+using Microsoft.Extensions.Logging;
 
 namespace ShowControl.ControlPanel.Maui
 {
@@ -71,7 +72,22 @@ namespace ShowControl.ControlPanel.Maui
 
         private void Initialize()
         {
-            var result =  _hostTask.GetAwaiter().GetResult();
+            IHost result;
+            try
+            {
+                result = _hostTask.GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                // This runs from the constructor, which UIKit calls inside viewDidLoad: an exception
+                // escaping here aborts the process before there is a window to read the error in.
+                // Come up without the host instead and put the failure on screen.
+                Serilog.Log.Error(ex, "[MainPage] The host failed to start; the management UI is running without it.");
+                Addresses.Text = "Startup failed: " + ex.Message;
+                StartLogPane();
+                return;
+            }
+
             // Held so the preview window can resolve the pixel map editor, and registered so window
             // teardown and the platform lifecycle hooks have something to flush and stop.
             _host = result;
@@ -145,10 +161,22 @@ namespace ShowControl.ControlPanel.Maui
                     return;
                 }
 
+                // The graphics host keeps running when host startup failed, and asks for its window
+                // anyway. Without the services behind it there is no map to edit, so say so rather
+                // than opening a preview that cannot work.
+                if (_host == null)
+                {
+                    Serilog.Log.Error("[MainPage] Preview window requested but the host did not start; not opening it.");
+                    return;
+                }
+
                 Serilog.Log.Debug("[MainPage] Creating PreviewPage...");
-                var previewPage = new PreviewPage(
-                    graphicsHost,
-                    _host.Services.GetRequiredService<IPixelMapEditor>());
+                var pixelMapEditor = _host.Services.GetRequiredService<IPixelMapEditor>();
+                var editorViewModel = new ShowControl.ControlPanel.Editor.PixelMapEditorViewModel(
+                    pixelMapEditor,
+                    _host.Services.GetRequiredService<IPixelTypeResolver>(),
+                    _host.Services.GetService<ILogger<ShowControl.ControlPanel.Editor.PixelMapEditorViewModel>>());
+                var previewPage = new PreviewPage(graphicsHost, editorViewModel, pixelMapEditor);
 
                 Serilog.Log.Debug("[MainPage] Creating Window...");
                 var window = new Window(previewPage)

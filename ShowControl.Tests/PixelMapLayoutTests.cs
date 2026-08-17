@@ -9,9 +9,10 @@ namespace ShowControl.Tests
     {
         /// <summary>
         /// The old channel split was positional, so the single live controller received
-        /// targetVector[0..8639] — strips 0-3, image rows 400/410/420/430. The shipped map has to
-        /// put exactly those four on 192.168.3.207 at those channel offsets, or the rig looks
-        /// different the first time the new build runs.
+        /// targetVector[0..8639] — strips 0-3, image rows 400/410/420/430 before the render target
+        /// grew, 500/512.5/525/537.5 after. The shipped map has to put exactly those four on
+        /// 192.168.3.207 at those channel offsets, or the rig looks different the first time the
+        /// new build runs.
         /// </summary>
         [Fact]
         public void ShippedDefaultMap_EnablesFourStripsOnOneControllerTotalling8640Channels()
@@ -28,7 +29,7 @@ namespace ShowControl.Tests
             var fixtures = layout.FixtureSlots.ToArray();
             Assert.Equal(4, fixtures.Length);
             Assert.Equal(new[] { 0, 2160, 4320, 6480 }, fixtures.Select(f => f.ChannelStart).ToArray());
-            Assert.Equal(new[] { 400f, 410f, 420f, 430f }, fixtures.Select(f => f.Fixture!.OriginY).ToArray());
+            Assert.Equal(new[] { 500f, 512.5f, 525f, 537.5f }, fixtures.Select(f => f.Fixture!.OriginY).ToArray());
             Assert.Equal(2880, layout.TotalPixelCount);
             Assert.Equal(8640, layout.TotalChannelCount);
         }

@@ -10,11 +10,15 @@ namespace ShowControl.PixelMapping
     {
         public const int CurrentVersion = 1;
 
-        /// <summary>Shader render target width. Fixed by <c>GraphicsHost.RunHeadless</c>.</summary>
-        public const int DefaultImageWidth = 1080;
+        /// <summary>
+        /// Shader render target width. Must match <c>GraphicsHost.RunHeadless</c>, which is where it
+        /// is actually set — <c>ShaderAnimation</c> refuses to sample when the two disagree, and
+        /// <c>PixelMapValidator</c> rejects a map authored for any other size.
+        /// </summary>
+        public const int DefaultImageWidth = 1350;
 
-        /// <summary>Shader render target height. Fixed by <c>GraphicsHost.RunHeadless</c>.</summary>
-        public const int DefaultImageHeight = 960;
+        /// <summary>Shader render target height. Must match <c>GraphicsHost.RunHeadless</c>.</summary>
+        public const int DefaultImageHeight = 1200;
 
         public int Version { get; set; } = CurrentVersion;
 

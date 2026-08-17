@@ -33,17 +33,30 @@ namespace ShowControl.Tests
         public const int LegacyPixelCount = PixelsPerStrip * StripCount;
 
         /// <summary>
+        /// The render target the legacy sampling loop was written against, and the factor the shader
+        /// image was enlarged by since. The loop's constants are that image's geometry, so the
+        /// parity test runs at these dimensions rather than the current ones.
+        /// </summary>
+        public const int LegacyImageWidth = 1080;
+
+        public const int LegacyImageHeight = 960;
+
+        public const float LegacyScale = (float)ImageWidth / LegacyImageWidth;
+
+        /// <summary>
         /// A synthetic RGBA image whose bytes are a deterministic function of (x, y), so a sampling
         /// offset that is wrong by a row, a column or a channel cannot coincidentally match.
         /// </summary>
-        public static byte[] SyntheticImage()
+        public static byte[] SyntheticImage() => SyntheticImage(ImageWidth, ImageHeight);
+
+        public static byte[] SyntheticImage(int width, int height)
         {
-            var image = new byte[ImageWidth * ImageHeight * 4];
-            for (int y = 0; y < ImageHeight; y++)
+            var image = new byte[width * height * 4];
+            for (int y = 0; y < height; y++)
             {
-                for (int x = 0; x < ImageWidth; x++)
+                for (int x = 0; x < width; x++)
                 {
-                    int at = ((y * ImageWidth) + x) * 4;
+                    int at = ((y * width) + x) * 4;
                     image[at] = (byte)(x & 0xFF);
                     image[at + 1] = (byte)(y & 0xFF);
                     image[at + 2] = (byte)(((x * 7) + (y * 13)) & 0xFF);
@@ -98,6 +111,63 @@ namespace ShowControl.Tests
         public static PixelMap AllStripsEnabled()
         {
             var map = DefaultPixelMap.Load();
+            foreach (var fixture in map.Fixtures)
+            {
+                fixture.Enabled = true;
+            }
+            return map;
+        }
+
+        /// <summary>
+        /// The venue rig as it stood on the 1080x960 render target: 16 strips of 720 on image rows
+        /// 400+10k, one pixel per image column, the last twelve of each strip dead, four strips live
+        /// on the one controller that was actually wired.
+        /// <para>
+        /// Written out here rather than derived from the shipped map, because it is the fixed point
+        /// two separate tests are pinned to: that the coordinate-driven sampler reproduces the
+        /// legacy loop on the geometry that loop was written for, and that the shipped map is this
+        /// same rig scaled to the current image.
+        /// </para>
+        /// </summary>
+        public static PixelMap LegacyRig()
+        {
+            string[] controllers = { "192.168.3.207", "192.168.3.208", "192.168.3.93", "192.168.3.103" };
+
+            var map = new PixelMap
+            {
+                ImageWidth = LegacyImageWidth,
+                ImageHeight = LegacyImageHeight
+            };
+
+            for (int strip = 0; strip < StripCount; strip++)
+            {
+                var fixture = new FixtureDefinition
+                {
+                    Name = $"Strip {strip + 1}",
+                    Enabled = strip < 4,
+                    Output = new OutputTarget
+                    {
+                        Interface = OutputInterfaceType.Ddp,
+                        IpAddress = controllers[strip / 4],
+                        Port = OutputTarget.DefaultDdpPort,
+                        StartChannel = (strip % 4) * PixelsPerStrip * 3
+                    },
+                    PixelType = "WS2812B",
+                    OriginX = 0f,
+                    OriginY = 400f + (10f * strip),
+                    PixelOffsets = PixelLayoutTools.GenerateLine(PixelsPerStrip)
+                };
+                fixture.BlankedPixels.Add(new PixelRange(708, 12));
+                map.Fixtures.Add(fixture);
+            }
+
+            return map;
+        }
+
+        /// <summary>The legacy rig with every strip enabled, matching the whole-frame legacy loop.</summary>
+        public static PixelMap LegacyRigWithAllStripsEnabled()
+        {
+            var map = LegacyRig();
             foreach (var fixture in map.Fixtures)
             {
                 fixture.Enabled = true;

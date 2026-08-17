@@ -10,18 +10,27 @@ namespace ShowControl.Tests
         /// The gate for the cutover. The pixel map replaced the hand-written strip arithmetic in
         /// ShaderAnimation with no fallback path, so the new sampling has to reproduce the old one
         /// exactly or the rig changes the first time the app starts.
+        /// <para>
+        /// Run against the legacy rig on the legacy 1080x960 image: the loop's constants are that
+        /// image's geometry, and the shipped map has since been scaled to a larger render target.
+        /// What keeps the rig honest across that move is this test plus
+        /// <see cref="ShippedDefaultMap_IsTheLegacyRigScaledToTheCurrentImage"/> — together they say
+        /// the sampler is faithful and the shipped map is the same rig.
+        /// </para>
         /// </summary>
         [Fact]
-        public void LegacySamplingReference_AndDefaultMapWithAllStripsEnabled_ProduceIdenticalPixels()
+        public void LegacySamplingReference_AndLegacyRigWithAllStripsEnabled_ProduceIdenticalPixels()
         {
-            var image = PixelMappingTestData.SyntheticImage();
+            var image = PixelMappingTestData.SyntheticImage(
+                PixelMappingTestData.LegacyImageWidth,
+                PixelMappingTestData.LegacyImageHeight);
             var expected = PixelMappingTestData.LegacySample(
                 image,
-                PixelMappingTestData.ImageWidth,
-                PixelMappingTestData.ImageHeight,
+                PixelMappingTestData.LegacyImageWidth,
+                PixelMappingTestData.LegacyImageHeight,
                 PixelMappingTestData.LegacyPixelCount);
 
-            var map = PixelMappingTestData.AllStripsEnabled();
+            var map = PixelMappingTestData.LegacyRigWithAllStripsEnabled();
             var layout = PixelMapLayoutBuilder.Build(map, new TestPixelTypes());
             var sampleMap = PixelSampleMapBuilder.Build(map, layout);
 
@@ -39,51 +48,67 @@ namespace ShowControl.Tests
         }
 
         /// <summary>
-        /// Only four strips were ever reaching a controller: the single live DdpDevice took
-        /// targetVector[0..8639]. Those are the ones the shipped map enables, and they must line up
-        /// with the front of the legacy frame.
+        /// The render target grew; the rig did not move. Every fixture in the shipped map has to be
+        /// its legacy self scaled by the same factor as the image — same shape, same fraction of the
+        /// picture, same wiring — or the show looks different at the new resolution.
         /// </summary>
         [Fact]
-        public void ShippedDefaultMap_SamplesTheSamePixelsThatUsedToLeaveTheMachine()
+        public void ShippedDefaultMap_IsTheLegacyRigScaledToTheCurrentImage()
         {
-            var image = PixelMappingTestData.SyntheticImage();
-            var legacy = PixelMappingTestData.LegacySample(
-                image,
-                PixelMappingTestData.ImageWidth,
-                PixelMappingTestData.ImageHeight,
-                PixelMappingTestData.LegacyPixelCount);
+            var shipped = DefaultPixelMap.Load();
+            var legacy = PixelMappingTestData.LegacyRig();
+            float scale = PixelMappingTestData.LegacyScale;
 
-            var map = DefaultPixelMap.Load();
-            var layout = PixelMapLayoutBuilder.Build(map, new TestPixelTypes());
-            var sampleMap = PixelSampleMapBuilder.Build(map, layout);
+            Assert.Equal(PixelMap.DefaultImageWidth, shipped.ImageWidth);
+            Assert.Equal(PixelMap.DefaultImageHeight, shipped.ImageHeight);
+            Assert.Equal(legacy.ImageWidth * scale, shipped.ImageWidth);
+            Assert.Equal(legacy.ImageHeight * scale, shipped.ImageHeight);
+            Assert.Equal(legacy.Fixtures.Count, shipped.Fixtures.Count);
 
-            Assert.Equal(2880, sampleMap.PixelCount);
-
-            var actual = new RgbSample[sampleMap.PixelCount];
-            sampleMap.Sample(image, actual);
-
-            for (int i = 0; i < actual.Length; i++)
+            for (int i = 0; i < legacy.Fixtures.Count; i++)
             {
-                Assert.True(legacy[i] == actual[i], $"Pixel {i}: legacy {legacy[i]} vs mapped {actual[i]}");
+                var was = legacy.Fixtures[i];
+                var now = shipped.Fixtures[i];
+
+                Assert.Equal(was.Name, now.Name);
+                Assert.Equal(was.Enabled, now.Enabled);
+                Assert.Equal(was.PixelType, now.PixelType);
+                Assert.Equal(was.Output.Key, now.Output.Key);
+                Assert.Equal(was.Output.StartChannel, now.Output.StartChannel);
+                Assert.Equal(was.BlankedPixels, now.BlankedPixels);
+
+                Assert.Equal(was.OriginX * scale, now.OriginX);
+                Assert.Equal(was.OriginY * scale, now.OriginY);
+                Assert.Equal(was.PixelCount, now.PixelCount);
+                for (int offset = 0; offset < was.PixelOffsets.Length; offset++)
+                {
+                    Assert.Equal(was.PixelOffsets[offset] * scale, now.PixelOffsets[offset]);
+                }
             }
         }
 
+        /// <summary>
+        /// The scaled rows and columns the rig lands on, spelled out. Scaling by 1.25 puts every
+        /// other strip on a half row, which floors onto the row below — sampling positions are
+        /// deliberately floored rather than rounded, and this pins that.
+        /// </summary>
         [Fact]
-        public void DefaultMap_PlacesStripKOnImageRow400Plus10K_AndBlanksTheLastTwelvePixels()
+        public void DefaultMap_PlacesStripKOnTheScaledImageRow_AndBlanksTheLastTwelvePixels()
         {
             var map = PixelMappingTestData.AllStripsEnabled();
             var layout = PixelMapLayoutBuilder.Build(map, new TestPixelTypes());
             var sampleMap = PixelSampleMapBuilder.Build(map, layout);
             var offsets = sampleMap.ByteOffsets;
+            float scale = PixelMappingTestData.LegacyScale;
 
             for (int strip = 0; strip < PixelMappingTestData.StripCount; strip++)
             {
-                int row = 400 + (10 * strip);
+                int row = (int)MathF.Floor((400f + (10f * strip)) * scale);
                 int baseIndex = strip * PixelMappingTestData.PixelsPerStrip;
 
                 for (int column = 0; column < 708; column++)
                 {
-                    int expected = ((row * PixelMappingTestData.ImageWidth) + column) * 4;
+                    int expected = ((row * PixelMappingTestData.ImageWidth) + (int)MathF.Floor(column * scale)) * 4;
                     Assert.Equal(expected, offsets[baseIndex + column]);
                 }
 
