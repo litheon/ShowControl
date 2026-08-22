@@ -43,20 +43,18 @@
     <!-- Exclude compiled shaders from project - they're copied to MAUI Resources -->
     <None Remove="**\*.spv" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ShowControl.Utilities\ShowControl.Utilities.csproj" />
+  </ItemGroup>
 
   <!-- Compile shaders before build -->
   <Target Name="CompileShaders" BeforeTargets="BeforeBuild">
     <Message Text="Compiling Vulkan shaders..." Importance="high" />
     <!-- Windows: check that glslc.exe exists at the known SDK path before invoking -->
-    <Exec Command="&quot;$(GlslcPath)&quot; &quot;%(ShaderSource.FullPath)&quot; -o &quot;%(ShaderSource.FullPath).spv&quot;"
-          Condition="$([MSBuild]::IsOSPlatform('windows')) AND Exists('$(GlslcPath)')"
-          WorkingDirectory="$(ProjectDir)" />
-    <Error Text="Vulkan SDK glslc.exe not found at $(GlslcPath). Install the Vulkan SDK or set $(VulkanSDK)."
-           Condition="$([MSBuild]::IsOSPlatform('windows')) AND !Exists('$(GlslcPath)')" />
+    <Exec Command="&quot;$(GlslcPath)&quot; &quot;%(ShaderSource.FullPath)&quot; -o &quot;%(ShaderSource.FullPath).spv&quot;" Condition="$([MSBuild]::IsOSPlatform('windows')) AND Exists('$(GlslcPath)')" WorkingDirectory="$(ProjectDir)" />
+    <Error Text="Vulkan SDK glslc.exe not found at $(GlslcPath). Install the Vulkan SDK or set $(VulkanSDK)." Condition="$([MSBuild]::IsOSPlatform('windows')) AND !Exists('$(GlslcPath)')" />
     <!-- Mac/Linux: invoke glslc from PATH; will error at build time if not installed -->
-    <Exec Command="glslc &quot;%(ShaderSource.FullPath)&quot; -o &quot;%(ShaderSource.FullPath).spv&quot;"
-          Condition="!$([MSBuild]::IsOSPlatform('windows'))"
-          WorkingDirectory="$(ProjectDir)" />
+    <Exec Command="glslc &quot;%(ShaderSource.FullPath)&quot; -o &quot;%(ShaderSource.FullPath).spv&quot;" Condition="!$([MSBuild]::IsOSPlatform('windows'))" WorkingDirectory="$(ProjectDir)" />
   </Target>
 
   <!-- Copy compiled shaders to MAUI Resources -->
@@ -64,11 +62,8 @@
     <ItemGroup>
       <CompiledShaders Include="**\*.spv" />
     </ItemGroup>
-    <Copy SourceFiles="@(CompiledShaders)"
-          DestinationFolder="..\ShowControl.ControlPanel.Maui\Resources\Raw"
-          SkipUnchangedFiles="true" />
-    <Message Text="Copied %(CompiledShaders.Filename)%(CompiledShaders.Extension) to MAUI Resources\Raw"
-             Importance="high" />
+    <Copy SourceFiles="@(CompiledShaders)" DestinationFolder="..\ShowControl.ControlPanel.Maui\Resources\Raw" SkipUnchangedFiles="true" />
+    <Message Text="Copied %(CompiledShaders.Filename)%(CompiledShaders.Extension) to MAUI Resources\Raw" Importance="high" />
   </Target>
 
   <!-- Copy compiled shaders to Host, which bundles them as Content in its output -->
@@ -76,10 +71,7 @@
     <ItemGroup>
       <CompiledShadersForHost Include="**\*.spv" />
     </ItemGroup>
-    <Copy SourceFiles="@(CompiledShadersForHost)"
-          DestinationFolder="..\ShowControl.Host"
-          SkipUnchangedFiles="true" />
-    <Message Text="Copied %(CompiledShadersForHost.Filename)%(CompiledShadersForHost.Extension) to ShowControl.Host"
-             Importance="high" />
+    <Copy SourceFiles="@(CompiledShadersForHost)" DestinationFolder="..\ShowControl.Host" SkipUnchangedFiles="true" />
+    <Message Text="Copied %(CompiledShadersForHost.Filename)%(CompiledShadersForHost.Extension) to ShowControl.Host" Importance="high" />
   </Target>
 </Project>

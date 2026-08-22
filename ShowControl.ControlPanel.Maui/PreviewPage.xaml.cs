@@ -21,12 +21,6 @@ namespace ShowControl.ControlPanel.Maui
     /// </summary>
     public partial class PreviewPage : ContentPage
     {
-        /// <summary>
-        /// Long enough to outlast the graphics host's own 100ms resize debounce, after which the
-        /// swapchain has been rebuilt and the preview is being presented again.
-        /// </summary>
-        private static readonly TimeSpan ResizeSettleInterval = TimeSpan.FromMilliseconds(180);
-
         private static readonly TimeSpan AutosaveInterval = TimeSpan.FromMilliseconds(500);
 
         /// <summary>Selection radius in overlay points, converted to image units at hit-test time.</summary>
@@ -48,7 +42,6 @@ namespace ShowControl.ControlPanel.Maui
         private readonly PixelMapOverlayDrawable _overlayDrawable = new PixelMapOverlayDrawable();
 
         private IDispatcherTimer _paramTimer;
-        private IDispatcherTimer _resizeSettleTimer;
         private IDispatcherTimer _autosaveTimer;
 
         private bool _suppressListSelection;
@@ -70,6 +63,12 @@ namespace ShowControl.ControlPanel.Maui
 #if MACCATALYST
         /// <summary>Scroll-wheel and trackpad-scroll zoom. Held so the recognizer outlives the call.</summary>
         private ScrollZoomGesture _scrollZoom;
+
+        /// <summary>Window lifecycle, so the preview learns it is hidden at the edge, not on a poll.</summary>
+        private PreviewVisibilityMonitor _visibilityMonitor;
+
+        /// <summary>Last reported preview visibility, so only changes are logged and pushed down.</summary>
+        private bool? _lastPresentationVisible;
 #endif
 
 #if WINDOWS
@@ -84,6 +83,12 @@ namespace ShowControl.ControlPanel.Maui
             _pixelMapEditor = pixelMapEditor;
             BindingContext = _viewModel;
 
+            // Pin the native drawable to the rendered image's size, before the surface's first
+            // layout pass. The preview is a full-surface stretch of that image either way, so
+            // tracking the window bought nothing but a swapchain rebuild per resize step.
+            vulkanSurface.PinnedDrawableWidth = _graphicsHost.Width;
+            vulkanSurface.PinnedDrawableHeight = _graphicsHost.Height;
+
             // Wire up events from the Vulkan surface view
             vulkanSurface.SurfaceReady += OnSurfaceReady;
             vulkanSurface.SurfaceSizeChanged += OnSurfaceSizeChanged;
@@ -91,8 +96,21 @@ namespace ShowControl.ControlPanel.Maui
 
             _paramTimer = Dispatcher.CreateTimer();
             _paramTimer.Interval = TimeSpan.FromMilliseconds(250);
-            _paramTimer.Tick += (s, e) => UpdateShaderParamsLabel();
+            _paramTimer.Tick += (s, e) =>
+            {
+                UpdateShaderParamsLabel();
+
+                // The backstop, not the mechanism. The notifications below are what actually catch
+                // the window leaving; this is here to notice the states nobody announces — a view
+                // pulled out of its window, say — and to restore presentation if an edge was missed.
+                UpdatePresentationVisibility(reason: "poll");
+            };
             _paramTimer.Start();
+
+#if MACCATALYST
+            _visibilityMonitor = new PreviewVisibilityMonitor();
+            _visibilityMonitor.Changed += OnPreviewVisibilityNotification;
+#endif
 
             InitializeEditor();
         }
@@ -115,10 +133,6 @@ namespace ShowControl.ControlPanel.Maui
             _autosaveTimer.Interval = AutosaveInterval;
             _autosaveTimer.Tick += OnAutosaveTick;
 
-            _resizeSettleTimer = Dispatcher.CreateTimer();
-            _resizeSettleTimer.Interval = ResizeSettleInterval;
-            _resizeSettleTimer.Tick += OnResizeSettled;
-
             _pixelMapEditor.Changed += OnPixelMapChangedExternally;
             _viewModel.PropertyChanged += OnViewModelPropertyChanged;
             _viewModel.WorkingMapReplaced += (s, e) => RefreshOverlay();
@@ -132,6 +146,92 @@ namespace ShowControl.ControlPanel.Maui
                 // The prompt the user did not get on the way out. Deferred so the window is up.
                 Dispatcher.Dispatch(async () => await PromptForRecoveredWork());
             }
+        }
+
+#if MACCATALYST
+        /// <summary>
+        /// A window-lifecycle notification arrived. Re-evaluates immediately rather than leaving it
+        /// to the poll, which the system slows down at exactly the moment this matters.
+        /// </summary>
+        private void OnPreviewVisibilityNotification(object sender, PreviewVisibilityEventArgs e) =>
+            RunGuarded("Preview visibility", () =>
+            {
+                // Window notifications are posted for every window in the process, and MAUI has more
+                // than one. Only this preview's window says anything about this preview.
+                if (e.Source is UIKit.UIWindow window &&
+                    vulkanSurface.Handler?.PlatformView is UIKit.UIView view &&
+                    !ReferenceEquals(window, view.Window))
+                {
+                    return;
+                }
+
+                // A leaving notification is acted on, not verified: it is delivered before the state
+                // it announces is readable, so asking would get the answer that is about to be wrong.
+                UpdatePresentationVisibility(e.HidesPreview ? false : null, e.Notification);
+            });
+#endif
+
+        /// <summary>
+        /// Tells the graphics host whether the preview is actually on screen.
+        /// <para>
+        /// A hidden window withholds its drawable, and a frame submitted for presentation waits on
+        /// that drawable — with the rig's pixels in the same submission. So this is not about saving
+        /// work while nobody is looking; it is what keeps a minimised window from stopping the
+        /// lights.
+        /// </para>
+        /// <para>
+        /// Called from the UI thread, which is the only place UIKit may be asked, and from two
+        /// directions: the lifecycle notifications, which are the real signal, and a 250ms poll that
+        /// backstops them. <paramref name="forced"/> is how a notification reports a transition the
+        /// state has not caught up with yet; everything else re-derives from UIKit, so there is only
+        /// ever one definition of visible.
+        /// </para>
+        /// <para>
+        /// The raw signals are logged on every change: which of them actually moves when a Catalyst
+        /// window is minimised is worth having on the record rather than assumed.
+        /// </para>
+        /// </summary>
+        /// <param name="forced">Overrides the derived answer; only ever false, never true.</param>
+        /// <param name="reason">What prompted the check, for the log.</param>
+        private void UpdatePresentationVisibility(bool? forced = null, string reason = "poll")
+        {
+#if MACCATALYST
+            if (vulkanSurface.Handler?.PlatformView is not UIKit.UIView view)
+            {
+                return;
+            }
+
+            var window = view.Window;
+            var scene = window?.WindowScene;
+            var state = scene?.ActivationState;
+
+            // Nothing short of foreground-*active* is safe to present into. Foreground-inactive is
+            // not "visible but unfocused" as far as Core Animation is concerned: it is also the state
+            // of a window that is minimised, on another Space, or completely covered by another app,
+            // and in all of those the compositor stops recycling drawables — which strands the frame
+            // the rig's pixels are travelling in. The trade is that the preview holds its last frame
+            // whenever the app is not frontmost. That is the right way round for a show rig: the
+            // picture comes back the moment the window is clicked, and the lights never stopped.
+            bool visible =
+                forced ??
+                (window != null &&
+                 !window.Hidden &&
+                 !view.Hidden &&
+                 view.Superview != null &&
+                 state == UIKit.UISceneActivationState.ForegroundActive);
+
+            if (_lastPresentationVisible == visible)
+            {
+                return;
+            }
+
+            _lastPresentationVisible = visible;
+            Serilog.Log.Debug(
+                "[PreviewPage] Preview visibility → {Visible} via {Reason} (window={HasWindow}, windowHidden={WindowHidden}, viewHidden={ViewHidden}, superview={HasSuperview}, sceneState={State})",
+                visible, reason, window != null, window?.Hidden, view.Hidden, view.Superview != null, state);
+
+            _graphicsHost.SetPresentationEnabled(visible);
+#endif
         }
 
         /// <summary>Hands the drawable the current map and selection, and redraws.</summary>
@@ -506,23 +606,18 @@ namespace ShowControl.ControlPanel.Maui
         /// offscreen image, so a resize never touches the map — the overlay just recomputes its
         /// scale from its own bounds. The zoom needs nothing either: the visible region is a
         /// fraction of the image and the anchor is relative to the view, so the same part stays on
-        /// screen. Presentation is suspended for the drag plus the host's 100ms debounce, so the
-        /// overlay dims over the stale frame rather than being offset to match it.
+        /// screen.
+        /// <para>
+        /// Nothing dims here any more. The overlay used to fade over the preview during a resize
+        /// because presentation was suspended while the swapchain was rebuilt, leaving a stale frame
+        /// the map no longer matched. With the drawable pinned the preview keeps presenting
+        /// throughout and the compositor scales it, so the two stay registered the whole way.
+        /// </para>
         /// </summary>
         private void OnOverlaySizeChanged(object sender, EventArgs e)
         {
             EndPan();
             _viewModel.EndDrag();
-            _overlayDrawable.Dimmed = true;
-            _resizeSettleTimer.Stop();
-            _resizeSettleTimer.Start();
-            MapOverlay.Invalidate();
-        }
-
-        private void OnResizeSettled(object sender, EventArgs e)
-        {
-            _resizeSettleTimer.Stop();
-            _overlayDrawable.Dimmed = false;
             MapOverlay.Invalidate();
         }
 
@@ -709,9 +804,13 @@ namespace ShowControl.ControlPanel.Maui
 
         private void OnSurfaceReady(object sender, nint surfaceHandle)
         {
-            System.Diagnostics.Debug.WriteLine("[PreviewPage] Surface ready");
+            // The surface lifecycle goes to the real log, not just the debugger: what the window
+            // does on minimise, hide and Space changes is only diagnosable after the fact.
+            Serilog.Log.Debug("[PreviewPage] Surface ready (layer {Handle:X})", surfaceHandle);
 #if MACCATALYST
-            _graphicsHost.EnableMetalPresentation(surfaceHandle, (uint)vulkanSurface.Width, (uint)vulkanSurface.Height);
+            // The pinned drawable size, not the view's: the swapchain has to match the layer's
+            // drawable exactly, and that is now fixed at the rendered image's size.
+            _graphicsHost.EnableMetalPresentation(surfaceHandle, (uint)_graphicsHost.Width, (uint)_graphicsHost.Height);
 #elif WINDOWS
             if (_useDirectComposition && vulkanSurface.Handler is SwapChainPanelHandler swapChainHandler)
             {
@@ -742,7 +841,7 @@ namespace ShowControl.ControlPanel.Maui
 
         private void OnSurfaceSizeChanged(object sender, SurfaceSizeChangedEventArgs e)
         {
-            System.Diagnostics.Debug.WriteLine($"[PreviewPage] Surface size changed: {e.Width}x{e.Height}");
+            Serilog.Log.Debug("[PreviewPage] Surface size changed: {Width}x{Height}", e.Width, e.Height);
 #if MACCATALYST
             _graphicsHost.HandleMetalSurfaceResize((uint)e.Width, (uint)e.Height);
 #elif WINDOWS
@@ -759,14 +858,13 @@ namespace ShowControl.ControlPanel.Maui
 
         private void OnSurfaceDestroying(object sender, EventArgs e)
         {
-            System.Diagnostics.Debug.WriteLine("[PreviewPage] Surface destroying");
+            Serilog.Log.Debug("[PreviewPage] Surface destroying (view left its window)");
         }
 
         protected override void OnDisappearing()
         {
             base.OnDisappearing();
             _paramTimer?.Stop();
-            _resizeSettleTimer?.Stop();
 
             // Last chance on this window: the map must be on disk before it goes away.
             FlushWorkingCopy();
@@ -777,9 +875,16 @@ namespace ShowControl.ControlPanel.Maui
 #if MACCATALYST
             _scrollZoom?.Dispose();
             _scrollZoom = null;
+
+            if (_visibilityMonitor != null)
+            {
+                _visibilityMonitor.Changed -= OnPreviewVisibilityNotification;
+                _visibilityMonitor.Dispose();
+                _visibilityMonitor = null;
+            }
 #endif
 
-            System.Diagnostics.Debug.WriteLine("[PreviewPage] Disappearing");
+            Serilog.Log.Debug("[PreviewPage] Disappearing; tearing down presentation.");
             _graphicsHost.OnPreviewWindowClosed();
         }
     }

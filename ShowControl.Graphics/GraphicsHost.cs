@@ -18,6 +18,7 @@ using System.Reflection.Metadata.Ecma335;
 using Microsoft.Maui.Graphics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using ShowControl.Utilities;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -150,6 +151,22 @@ namespace ShowControl.Graphics
         private bool _imageAcquired = false;
         private uint _acquiredImageIndex = 0;
 
+        /// <summary>
+        /// Which frame slot's image-available semaphore belongs to the image we are holding.
+        /// <para>
+        /// An acquire signals <c>_imageAvailableSemaphores[_currentFrame]</c>, and the submit that
+        /// consumes the image has to wait on that same one. They are not the same slot whenever a
+        /// frame acquires and a later frame presents — which is every time presentation is turned
+        /// off with an image in hand: the window went away, frames keep rendering for the rig, and
+        /// <c>_currentFrame</c> advances the whole time. Waiting on the current slot's semaphore
+        /// then waits on something nothing will ever signal, the submit never retires, and the
+        /// unbounded fence wait at the top of the next frame takes the render loop and the rig with
+        /// it. Only meaningful while <see cref="_imageAcquired"/> is true, which stays the authority
+        /// on whether an image is held.
+        /// </para>
+        /// </summary>
+        private int _acquiredFrameIndex = -1;
+
         private Silk.NET.Vulkan.Buffer _buffer;
 
         private Stopwatch _stopwatch = new Stopwatch();
@@ -214,9 +231,98 @@ namespace ShowControl.Graphics
         private volatile bool _isClosing = false;
         private volatile bool _tearingDownWSI = false;
         private volatile bool _resizePending = false;
+
+        /// <summary>
+        /// Set when the GPU reports the device gone. Terminal: nothing below this class survives it,
+        /// so the render loop stops rather than resubmitting work that can only fail again. Getting
+        /// the picture back needs the whole Vulkan device rebuilding, which is a restart today.
+        /// </summary>
+        private volatile bool _deviceLost = false;
+
+        /// <summary>Tracks the paused/resumed transition so it is logged once, not per frame.</summary>
+        private bool _presentationSuspended;
+
+        /// <summary>
+        /// A call into the presentation stack taking longer than this is not normal work: it is the
+        /// compositor refusing to hand over a drawable, which it does while the window is minimised
+        /// or hidden. Metal will sit on the request for up to a second.
+        /// </summary>
+        private static readonly TimeSpan PresentStallThreshold = TimeSpan.FromMilliseconds(100);
+
+        /// <summary>How long to leave presentation alone after a stall before trying again.</summary>
+        private static readonly TimeSpan PresentRetryInterval = TimeSpan.FromSeconds(1);
+
+        /// <summary>
+        /// How often the loop renders a frame.
+        /// <para>
+        /// Presentation used to set this rate by accident. With FIFO, an acquire that found no free
+        /// swapchain image returned early and the frame did no work at all, so the loop advanced only
+        /// as fast as the compositor released images — the display's refresh, near enough. Once a
+        /// frame that cannot be presented had to render anyway (the rig's pixels are in that same
+        /// submission and must not stop when the window does), nothing was left holding the loop
+        /// back and it free-ran at whatever the GPU would do: hundreds of full renders and 6.5MB
+        /// staging copies a second, feeding a rig that samples 46 of them.
+        /// </para>
+        /// <para>
+        /// So it is paced explicitly instead, and no longer depends on a swapchain existing. It is
+        /// set to the rate the rig actually consumes — the same 21739µs <c>RenderService</c> paces
+        /// its own loop to — because a frame rendered between two samples is a frame nobody reads.
+        /// Matching exactly rather than leaving headroom means jitter on either loop occasionally
+        /// costs a sample its fresh frame, and the sampler holds the previous one for a tick; that
+        /// is invisible on LEDs and cheaper than rendering spares against it. Keep the two in step
+        /// if either changes.
+        /// </para>
+        /// </summary>
+        private static readonly TimeSpan TargetFrameInterval = TimeSpan.FromMicroseconds(21739);
+
+
+        /// <summary>
+        /// Presentation is skipped entirely until this time. Backing off after a stall is what keeps
+        /// a minimised window from costing the render loop a blocking call every frame — the frames
+        /// still render and the rig still gets its pixels, they just are not shown to nobody.
+        /// </summary>
+        private TimeSpan _presentRetryAfter;
+
+        private readonly OutputDeviceHealth _presentStallHealth = new OutputDeviceHealth();
+
+        /// <summary>
+        /// False while the preview window is hidden. See <see cref="SetPresentationEnabled"/>: a
+        /// frame that carries swapchain work waits on a drawable a minimised window will not give,
+        /// and the rig's pixels are in the same submission.
+        /// </summary>
+        private volatile bool _presentationEnabled = true;
+
+        public void SetPresentationEnabled(bool enabled)
+        {
+            if (_presentationEnabled == enabled)
+            {
+                return;
+            }
+
+            _presentationEnabled = enabled;
+            _logger.LogDebug("[GraphicsHost] Presentation {State} (preview window {Visibility}).",
+                enabled ? "enabled" : "disabled", enabled ? "visible" : "hidden");
+        }
+
+        /// <summary>
+        /// Throttles reporting from the render loop, which runs thousands of times a second: a
+        /// failure that repeats every frame is logged once, then at most every 30s. Without it a
+        /// persistent failure writes tens of thousands of lines a minute, and the disk and the
+        /// logging pipeline take the process down with them — which is exactly what a lost device
+        /// did before this existed.
+        /// </summary>
+        private readonly OutputDeviceHealth _renderHealth = new OutputDeviceHealth();
+
+        /// <summary>
+        /// Serializes swapchain teardown/creation against itself and against cleanup. Two threads
+        /// recreating at once is how the device gets lost.
+        /// </summary>
+        private readonly object _swapchainLock = new object();
         private bool _previewWindowOpen = false;
         private bool _loggedPresentStart = false;
         private bool _loggedFirstPresent = false;
+        private bool _loggedFirstBlit = false;
+        private bool _loggedDcompBlitSize = false;
         private CancellationTokenSource? _resizeDebounceToken;
         private uint _pendingResizeWidth;
         private uint _pendingResizeHeight;
@@ -267,11 +373,125 @@ namespace ShowControl.Graphics
         private void RenderLoop()
         {
             _stopwatch.Start();
-            while (_running)
+            while (_running && !_deviceLost)
             {
+                var frameStarted = _stopwatch.Elapsed;
                 OnRender(0);
-                Thread.Sleep(0);    // Throttle to prevent 100% CPU usage
+
+                // Sleep the rest of the frame. What was here was Thread.Sleep(0), which despite its
+                // comment throttles nothing: it yields to another runnable thread if one is waiting
+                // and returns immediately otherwise, so the loop simply ran flat out on a core.
+                var remaining = TargetFrameInterval - (_stopwatch.Elapsed - frameStarted);
+                Thread.Sleep(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero);
             }
+
+            if (_deviceLost)
+            {
+                _logger.LogError(
+                    "[GraphicsHost] Render loop stopped: the GPU device was lost. The preview and the sampled pixels are frozen on the last good frame; restarting the app is the only way back.");
+            }
+        }
+
+        /// <summary>
+        /// Reports a failure from inside the render loop at most once per outage, plus a reminder
+        /// every 30s. The loop runs thousands of times a second, so anything that logs per attempt
+        /// here is not a diagnostic — it is a denial of service against the app itself.
+        /// </summary>
+        private void ReportRenderFailure(string what, Exception? exception = null)
+        {
+            var transition = _renderHealth.RecordFailure(_stopwatch.Elapsed);
+            switch (transition.Action)
+            {
+                case OutputDeviceLogAction.WentDown:
+                    _logger.LogError(exception, "[GraphicsHost] {What}; further occurrences suppressed until it recovers.", what);
+                    break;
+                case OutputDeviceLogAction.StillDown:
+                    _logger.LogError("[GraphicsHost] {What} — still failing after {Attempts} attempts over {Seconds:F0}s.",
+                        what, transition.FailedAttempts, transition.DownFor.TotalSeconds);
+                    break;
+            }
+        }
+
+        private void ReportRenderSuccess()
+        {
+            if (_renderHealth.IsDown &&
+                _renderHealth.RecordSuccess(_stopwatch.Elapsed).Action == OutputDeviceLogAction.Recovered)
+            {
+                _logger.LogInformation("[GraphicsHost] Rendering resumed.");
+            }
+        }
+
+        /// <summary>
+        /// Logs the preview going quiet and coming back, once per transition rather than per frame.
+        /// The rig keeps being fed either way — this is about being able to tell afterwards what the
+        /// window did when someone says "it does something on minimise".
+        /// </summary>
+        private void NotePresentationSuspended(string reason)
+        {
+            if (_presentationSuspended)
+            {
+                return;
+            }
+
+            _presentationSuspended = true;
+            _logger.LogDebug("[GraphicsHost] Presentation paused: {Reason}. Offscreen rendering and pixel sampling continue.", reason);
+        }
+
+        /// <summary>
+        /// Notes a blocking call into the presentation stack and backs presentation off for a
+        /// second. Reported once per outage plus a reminder, never per frame.
+        /// </summary>
+        private void NotePresentStall(string where, TimeSpan took)
+        {
+            _presentRetryAfter = _stopwatch.Elapsed + PresentRetryInterval;
+
+            var transition = _presentStallHealth.RecordFailure(_stopwatch.Elapsed);
+            switch (transition.Action)
+            {
+                case OutputDeviceLogAction.WentDown:
+                    _logger.LogDebug(
+                        "[GraphicsHost] {Where} blocked for {Milliseconds:F0}ms — the window is minimised or hidden. Presentation backs off to {Retry:F0}s while the rig keeps rendering; further stalls suppressed.",
+                        where, took.TotalMilliseconds, PresentRetryInterval.TotalSeconds);
+                    break;
+                case OutputDeviceLogAction.StillDown:
+                    _logger.LogDebug(
+                        "[GraphicsHost] {Where} still stalling: {Attempts} times over {Seconds:F0}s.",
+                        where, transition.FailedAttempts, transition.DownFor.TotalSeconds);
+                    break;
+            }
+        }
+
+        private void NotePresentationResumed()
+        {
+            if (_presentStallHealth.IsDown &&
+                _presentStallHealth.RecordSuccess(_stopwatch.Elapsed).Action == OutputDeviceLogAction.Recovered)
+            {
+                _logger.LogDebug("[GraphicsHost] Presentation stalls cleared.");
+            }
+
+            if (!_presentationSuspended)
+            {
+                return;
+            }
+
+            _presentationSuspended = false;
+            _logger.LogDebug("[GraphicsHost] Presentation resumed.");
+        }
+
+        /// <summary>
+        /// Latches a lost device. Everything built on it — pipelines, swapchain, the staging ring the
+        /// LED sampling reads — is invalid from here, so the loop is stopped instead of being left to
+        /// resubmit work that cannot succeed.
+        /// </summary>
+        private void ReportDeviceLost(string where)
+        {
+            if (_deviceLost)
+            {
+                return;
+            }
+
+            _deviceLost = true;
+            _logger.LogError("[GraphicsHost] {Where} reported VK_ERROR_DEVICE_LOST; stopping the render loop.", where);
         }
 
         public void StopHeadless()
@@ -352,8 +572,8 @@ namespace ShowControl.Graphics
         {
             if (_surface.Handle != 0)
             {
-                // Surface already exists, just resize
-                HandleMetalSurfaceResize(width, height);
+                // Already presenting to this layer. There is nothing to bring up to date: the
+                // drawable is pinned, so the size cannot have changed under us.
                 return;
             }
 
@@ -385,47 +605,19 @@ namespace ShowControl.Graphics
         }
 
         /// <summary>
-        /// Handles resize of the Metal surface by recreating the swapchain.
-        /// Debounces rapid resize events to avoid constant swapchain recreation.
+        /// Nothing to do: the Metal drawable is pinned to the offscreen image's size, so a window
+        /// resize does not invalidate the swapchain and there is nothing to rebuild.
+        /// <para>
+        /// This used to debounce and then recreate the swapchain on every resize, which is what a
+        /// renderer drawing at the window's resolution has to do. This one does not draw at the
+        /// window's resolution — it blits a fixed image — so matching the swapchain to the window
+        /// only moved the final upscale out of the compositor and into the blit, at the price of a
+        /// heavyweight GPU rebuild on a path driven by a mouse drag. Overlapping rebuilds from a
+        /// fast resize are what took the GPU device out and hung the app.
+        /// </para>
         /// </summary>
         public void HandleMetalSurfaceResize(uint width, uint height)
         {
-            if (width == 0 || height == 0) return;
-            if (_surface.Handle == 0) return;
-
-            _metalSurfaceWidth = width;
-            _metalSurfaceHeight = height;
-            _pendingResizeWidth = width;
-            _pendingResizeHeight = height;
-            _resizePending = true;  // Skip preview rendering while resize pending
-
-            // Cancel any pending resize
-            _resizeDebounceToken?.Cancel();
-            _resizeDebounceToken = new CancellationTokenSource();
-            var token = _resizeDebounceToken.Token;
-
-            // Debounce: wait 100ms after last resize before recreating swapchain
-            Task.Run(async () =>
-            {
-                try
-                {
-                     await Task.Delay(100, token);
-                    if (!token.IsCancellationRequested)
-                    {
-                        RecreateSwapchainForSize(_pendingResizeWidth, _pendingResizeHeight);
-                        _resizePending = false;  // Resume preview rendering
-                    }
-                }
-                catch (TaskCanceledException)
-                {
-                    // Expected when resize is cancelled by a new resize
-                }
-            }, token).ContinueWith((t) => {
-                if (t.IsFaulted)
-                {
-                    var exception = t.Exception.ToString();
-                }
-            });
         }
 
         /// <summary>
@@ -510,14 +702,51 @@ namespace ShowControl.Graphics
         }
 
         /// <summary>
-        /// Recreates the swapchain with a new size.
+        /// Rebuilds the swapchain at the pinned drawable size.
+        /// <para>
+        /// With the drawable pinned this should never be needed — the swapchain's extent cannot stop
+        /// matching a layer whose drawable size never changes. It exists for the case where the
+        /// compositor invalidates the swapchain anyway, a display reconfiguration being the likely
+        /// one: without it the acquire would report out-of-date and the preview would skip frames
+        /// for the rest of the session.
+        /// </para>
+        /// </summary>
+        private void RebuildSwapchainAtPinnedSize()
+        {
+            if (_deviceLost || _isClosing || _tearingDownWSI || _surface.Handle == 0)
+            {
+                return;
+            }
+
+            lock (_swapchainLock)
+            {
+                if (_deviceLost || _isClosing || _tearingDownWSI || _surface.Handle == 0)
+                {
+                    return;
+                }
+
+                // Through the throttle: if this ever does start repeating, it must not become the
+                // log storm the old resize path was.
+                ReportRenderFailure("Swapchain reported out of date; rebuilding at the pinned drawable size");
+                RecreateSwapchainForSize(_metalSurfaceWidth, _metalSurfaceHeight);
+            }
+        }
+
+        /// <summary>
+        /// Rebuilds the swapchain at a new size. Callers must hold <c>_swapchainLock</c>: two of
+        /// these running at once destroy each other's objects, and MoltenVK answers that by losing
+        /// the device.
         /// </summary>
         private unsafe void RecreateSwapchainForSize(uint width, uint height)
         {
             // Stop OnRender from running during swapchain recreation
             _recreatingSwapchain = true;
             _imageAcquired = false;
-            _vk.QueueWaitIdle(_graphicsQueue);
+
+            // The whole device, not just the graphics queue: the staging ring the LED sampling reads
+            // is filled by transfers on this device too, and the images about to be destroyed may
+            // still be referenced by them.
+            _vk.DeviceWaitIdle(_device);
 
             try
             {
@@ -615,28 +844,35 @@ namespace ShowControl.Graphics
         /// </summary>
         public unsafe void CleanupMetalPresentation()
         {
+            _logger.LogDebug("[GraphicsHost] Tearing down Metal presentation (surface and swapchain destroyed).");
             PRESENT = false;
             _imageAcquired = false;
             _tearingDownWSI = true;
 
-            _vk.QueueWaitIdle(_graphicsQueue);
-
-            DestroyPerImageSyncObjects();
-
-            if (_swapchain.Handle != 0)
+            // Under the same lock a rebuild takes: closing the window while one is in flight would
+            // otherwise free the swapchain from under it.
+            lock (_swapchainLock)
             {
-                _swapchainExtension.DestroySwapchain(_device, _swapchain, null);
-                _swapchain = default;
+                _vk.DeviceWaitIdle(_device);
+
+                DestroyPerImageSyncObjects();
+
+                if (_swapchain.Handle != 0)
+                {
+                    _swapchainExtension.DestroySwapchain(_device, _swapchain, null);
+                    _swapchain = default;
+                }
+
+                if (_surface.Handle != 0)
+                {
+                    _khrSurface.DestroySurface(_instance, _surface, null);
+                    _surface = default;
+                }
+
+                _swapchainImages = null;
+                _metalLayerPtr = 0;
             }
 
-            if (_surface.Handle != 0)
-            {
-                _khrSurface.DestroySurface(_instance, _surface, null);
-                _surface = default;
-            }
-
-            _swapchainImages = null;
-            _metalLayerPtr = 0;
             _tearingDownWSI = false;
         }
 
@@ -1910,6 +2146,7 @@ namespace ShowControl.Graphics
         {
             _recreatingSwapchain = true;     // stop OnRender from submitting
             _imageAcquired = false;          // we won’t reuse any previously acquired image
+            _acquiredFrameIndex = -1;
             _vk.QueueWaitIdle(_graphicsQueue); // <<< CRITICAL: drain all in-flight work/presents
                                                // You can use _vk.DeviceWaitIdle(_device) if you prefer to be extra safe.
         }
@@ -1926,15 +2163,23 @@ namespace ShowControl.Graphics
                 return;
             }
             // Skip presentation if resize is pending (swapchain size doesn't match window)
-            var present = PRESENT && !_resizePending;
+            // Backing off after a stall: while the window is minimised, asking for a drawable costs
+            // a blocking call into Core Animation, so try once a second instead of every frame. The
+            // frame still renders and the rig still gets its pixels either way.
+            var present = PRESENT && _presentationEnabled && !_resizePending && _stopwatch.Elapsed >= _presentRetryAfter;
+            if (PRESENT && !present && _stopwatch.Elapsed < _presentRetryAfter)
+            {
+                NotePresentationSuspended("backing off after a stalled present");
+            }
             if (PRESENT && !_loggedPresentStart)
             {
                 _loggedPresentStart = true;
-                System.Diagnostics.Debug.WriteLine($"[GraphicsHost] OnRender: PRESENT mode active, _resizePending={_resizePending}, present={present}");
+                _logger.LogDebug("[GraphicsHost] Presentation path active (resizePending={ResizePending}, presenting={Presenting}).",
+                    _resizePending, present);
             }
             if (PRESENT && _resizePending)
             {
-                System.Diagnostics.Debug.WriteLine("[GraphicsHost] OnRender: Skipping presentation due to _resizePending");
+                NotePresentationSuspended("a resize is pending");
             }
             try
             {
@@ -1968,16 +2213,19 @@ namespace ShowControl.Graphics
             uint imageIndex = 0;
             if (PRESENT && !_isClosing)
             {
-                // Bail if swapchain not ready
+                // Swapchain not ready — mid-rebuild, or torn down. Render without presenting rather
+                // than dropping the frame: the rig is fed from the offscreen image either way.
                 if (_swapchain.Handle == 0 || _swapchainImages == null || _swapchainImages.Length == 0)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[GraphicsHost] OnRender: Swapchain not ready - handle={_swapchain.Handle}, images={_swapchainImages?.Length ?? -1}");
-                    return;
+                    NotePresentationSuspended("the swapchain is not ready");
+                    present = false;
                 }
-
-                // If we don’t already own an image, try to acquire one with finite timeout
-                if (!_imageAcquired)
+                // If we don't already own an image, try to acquire one with finite timeout
+                else if (!_imageAcquired)
                 {
+                    // Timed: the timeout below is zero, but MoltenVK still has to ask Core Animation
+                    // for a drawable, and that call blocks while the window is minimised.
+                    var acquireStarted = _stopwatch.Elapsed;
                     var acq = _swapchainExtension.AcquireNextImage(
                         _device, _swapchain,
                         0ul, // <-- finite timeout: non-blocking
@@ -1985,48 +2233,84 @@ namespace ShowControl.Graphics
                         default,
                         ref imageIndex);
 
-                    if (acq == Result.NotReady)
+                    var acquireTook = _stopwatch.Elapsed - acquireStarted;
+                    if (acquireTook >= PresentStallThreshold)
                     {
-                        // No image available right now. Don’t reset the fence, just try again next frame.
-                        return;
+                        NotePresentStall("AcquireNextImage", acquireTook);
                     }
-                    if (acq == Result.ErrorOutOfDateKhr && !_isClosing)
+
+                    // Whatever the window is doing, this frame still renders offscreen and still
+                    // feeds the rig — only the presenting is skipped. The LEDs sample the offscreen
+                    // image, and they must not go dark because nobody is looking at the preview.
+                    if (acq == Result.NotReady || acq == Result.Timeout)
                     {
-                        // Trigger your swapchain recreate path here
+                        // Minimised, occluded, or on another Space: no drawable to be had.
+                        present = false;
+                        NotePresentationSuspended($"no drawable available ({acq})");
+                    }
+                    else if (acq == Result.ErrorOutOfDateKhr && !_isClosing)
+                    {
                         BeginSwapchainRecreate();
 #if WINDOWS
                         RecreateWin32Swapchain(_win32SurfaceWidth, _win32SurfaceHeight);
+#elif MACCATALYST
+                        RebuildSwapchainAtPinnedSize();
 #endif
                         EndSwapchainRecreate();
-                        return;
+                        present = false;
                     }
-                    // Success or Suboptimal
-                    _imageAcquired = true;
-                    _acquiredImageIndex = imageIndex;
-
-                    if (_imageSerial[imageIndex] != 0)
+                    else
                     {
-                        var wi = new SemaphoreWaitInfo { SType = StructureType.SemaphoreWaitInfo, SemaphoreCount = 1 };
-                        fixed (Semaphore* p = &_gpuDoneTL)
+                        // Success or Suboptimal — suboptimal is the steady state with a pinned
+                        // drawable, since the swapchain is deliberately not the layer's size.
+                        NotePresentationResumed();
+                        _imageAcquired = true;
+                        _acquiredImageIndex = imageIndex;
+                        _acquiredFrameIndex = _currentFrame;
+
+                        if (_imageSerial[imageIndex] != 0)
                         {
-                            fixed(ulong* imageSerial = &_imageSerial[imageIndex])
+                            var wi = new SemaphoreWaitInfo { SType = StructureType.SemaphoreWaitInfo, SemaphoreCount = 1 };
+                            fixed (Semaphore* p = &_gpuDoneTL)
                             {
-                                wi.PSemaphores = p;
-                                wi.PValues = imageSerial;
-                                _vk.WaitSemaphores(_device, &wi, ulong.MaxValue);
+                                fixed (ulong* imageSerial = &_imageSerial[imageIndex])
+                                {
+                                    wi.PSemaphores = p;
+                                    wi.PValues = imageSerial;
+                                    _vk.WaitSemaphores(_device, &wi, ulong.MaxValue);
+                                }
                             }
                         }
                     }
                 }
+                else if (_acquiredFrameIndex >= 0)
+                {
+                    // Reuse the one we already acquired previously (e.g., last frame aborted before
+                    // present, or presentation was paused between the acquire and now).
+                    imageIndex = _acquiredImageIndex;
+                }
                 else
                 {
-                    // Reuse the one we already acquired previously (e.g., last frame aborted before present)
-                    imageIndex = _acquiredImageIndex;
+                    // Held an image but lost track of which semaphore goes with it. There is nothing
+                    // safe to wait on, so render for the rig and let the next frame acquire afresh.
+                    _imageAcquired = false;
+                    present = false;
                 }
             }
 
-            // 1) Ensure last submit finished before touching this CB
+            // 1) Ensure last submit finished before touching this CB.
+            //
+            // Timed, because this is where a starved presentation shows up: if the previous frame
+            // was submitted waiting on a swapchain image that never arrived — a minimised window
+            // withholding its drawable — that submission never executes, and this wait is where the
+            // render loop, and with it the rig, stops.
+            var fenceWaitStarted = _stopwatch.Elapsed;
             _vk.WaitForFences(_device, 1, in _submitFence, true, ulong.MaxValue);
+            var fenceWaitTook = _stopwatch.Elapsed - fenceWaitStarted;
+            if (fenceWaitTook >= PresentStallThreshold)
+            {
+                NotePresentStall("WaitForFences (previous submit)", fenceWaitTook);
+            }
 
             // Record commands
             _vk.ResetCommandBuffer(cmd, 0);
@@ -2257,9 +2541,11 @@ namespace ShowControl.Graphics
                 var dstHeight = _vulkanExternalMemory.Height;
 
                 // Debug: log dimensions being used
-                if (_currentFrame == 0)
+                if (!_loggedDcompBlitSize)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[GraphicsHost] DComp blit: offscreen={_offscreenExtent.Width}x{_offscreenExtent.Height} -> sharedImage={dstWidth}x{dstHeight}");
+                    _loggedDcompBlitSize = true;
+                    _logger.LogDebug("[GraphicsHost] DComp blit: offscreen {SrcWidth}x{SrcHeight} to shared image {DstWidth}x{DstHeight}.",
+                        _offscreenExtent.Width, _offscreenExtent.Height, dstWidth, dstHeight);
                 }
 
                 // Blit offscreen image to shared image for D3D11
@@ -2296,14 +2582,25 @@ namespace ShowControl.Graphics
             // If we're presenting, blit the off-screen image into the swapchain image
             if (present)
             {
-                System.Diagnostics.Debug.WriteLine($"[GraphicsHost] Blitting to swapchain, extent={_swapExtent.Width}x{_swapExtent.Height}, imageIndex={imageIndex}");
-                if (_swapExtent.Width == 0 || _swapExtent.Height == 0)
+                if (!_loggedFirstBlit)
                 {
-                    // Skip frame will resizing
-                    System.Diagnostics.Debug.WriteLine("[GraphicsHost] Skipping blit - extent is 0");
-                    return;
+                    _loggedFirstBlit = true;
+                    _logger.LogDebug("[GraphicsHost] Blitting to the swapchain at {Width}x{Height}.",
+                        _swapExtent.Width, _swapExtent.Height);
                 }
 
+                if (_swapExtent.Width == 0 || _swapExtent.Height == 0)
+                {
+                    // Mid-teardown. Skip the blit, but do not leave the frame: nothing swapchain-
+                    // related has been recorded yet, while the staging copy the rig reads has, and
+                    // returning here would skip the bookkeeping at the end that publishes it.
+                    NotePresentationSuspended("the swapchain extent is zero");
+                    present = false;
+                }
+            }
+
+            if (present)
+            {
                 // swapchain image: UNDEFINED -> TRANSFER_DST
                 ImageMemoryBarrier swapToDst = new()
                 {
@@ -2401,7 +2698,9 @@ namespace ShowControl.Graphics
             }
             if (present)
             {
-                waitSems[waitCount] = _imageAvailableSemaphores[_currentFrame]; // binary
+                // The acquiring frame's semaphore, not this frame's — see _acquiredFrameIndex. The
+                // two differ whenever an image was acquired and presentation then paused.
+                waitSems[waitCount] = _imageAvailableSemaphores[_acquiredFrameIndex]; // binary
                 waitStages[waitCount] = PipelineStageFlags.PipelineStageTransferBit;
                 waitVals[waitCount] = 0;                      // <- dummy, ignored for binary
                 waitCount++;
@@ -2449,6 +2748,7 @@ namespace ShowControl.Graphics
             if (present && (_recreatingSwapchain || _swapchain.Handle == 0))
             {
                 _imageAcquired = false;
+                _acquiredFrameIndex = -1;
                 return;
             }
 
@@ -2458,18 +2758,23 @@ namespace ShowControl.Graphics
             if (present)
             {
                 var renderFinishedForThisImage = _renderFinishedByImage[imageIndex];
-                var waitStage = PipelineStageFlags.PipelineStageTransferBit; // we first use the swapchain image in a transfer op
-                fixed (Semaphore* pWait = &_imageAvailableSemaphores[_currentFrame])
                 {
+                    // The image-available wait is already in submitInfo, against the slot that
+                    // acquired the image rather than the slot rendering it.
                     Semaphore* pSignal = &renderFinishedForThisImage;
 
-                    CommandBuffer* pCmd = &cmd;
-                    ulong val;
                     var res = _vk.QueueSubmit(_graphicsQueue, 1, ref submitInfo, _submitFence);
                     if (res != Result.Success)
                     {
-                        _logger.LogError($"QueueSubmit failed: {res}");
-                        throw new Exception($"QueueSubmit failed: {res}");
+                        if (res == Result.ErrorDeviceLost)
+                        {
+                            ReportDeviceLost("QueueSubmit (present path)");
+                        }
+                        else
+                        {
+                            ReportRenderFailure($"QueueSubmit failed: {res}");
+                        }
+                        return;
                     }
 
                     // Present waits on renderFinished
@@ -2480,22 +2785,41 @@ namespace ShowControl.Graphics
                             swapchainCount: 1, pSwapchains: pSwap,
                             pImageIndices: &imageIndex
                         );
+                        var presentStarted = _stopwatch.Elapsed;
                         var pres = _swapchainExtension.QueuePresent(_graphicsQueue, presentInfo);
+                        var presentTook = _stopwatch.Elapsed - presentStarted;
+                        if (presentTook >= PresentStallThreshold)
+                        {
+                            NotePresentStall("QueuePresent", presentTook);
+                        }
+
                         if (!_loggedFirstPresent)
                         {
                             _loggedFirstPresent = true;
                             _logger.LogDebug($"[GraphicsHost] First QueuePresent result: {pres}");
                         }
                         _imageAcquired = false;
-                        if ((pres == Result.ErrorOutOfDateKhr || pres == Result.SuboptimalKhr) && !_isClosing)
+                        _acquiredFrameIndex = -1;
+                        _imageSerial[imageIndex] = producedValue;
+
+                        // SUBOPTIMAL is the steady state here, not a problem: the swapchain is
+                        // deliberately not the layer's size, so the compositor scales it and says
+                        // so on every present. Only out-of-date needs action.
+                        //
+                        // Note there is no early return in this block. The staging copy that feeds
+                        // the LEDs is already recorded in this frame's command buffer and has been
+                        // submitted; bailing out here would skip the bookkeeping below that
+                        // publishes it, which froze the rig on the first frame the moment
+                        // presentation started reporting SUBOPTIMAL.
+                        if (pres == Result.ErrorOutOfDateKhr && !_isClosing)
                         {
 #if WINDOWS
                             RecreateWin32Swapchain(_win32SurfaceWidth, _win32SurfaceHeight);
+#elif MACCATALYST
+                            RebuildSwapchainAtPinnedSize();
 #endif
-                            return;
                         }
                     }
-                    _imageSerial[imageIndex] = producedValue;
                 }
             }
             else
@@ -2504,8 +2828,15 @@ namespace ShowControl.Graphics
                 var res = _vk.QueueSubmit(_graphicsQueue, 1, ref submitInfo, _submitFence);
                 if (res != Result.Success)
                 {
-                    _logger.LogError($"QueueSubmit failed: {res}");
-                    throw new Exception($"QueueSubmit failed: {res}");
+                    if (res == Result.ErrorDeviceLost)
+                    {
+                        ReportDeviceLost("QueueSubmit (offscreen path)");
+                    }
+                    else
+                    {
+                        ReportRenderFailure($"QueueSubmit failed: {res}");
+                    }
+                    return;
                 }
 
 #if WINDOWS
@@ -2535,15 +2866,26 @@ namespace ShowControl.Graphics
 
             _currentFrame = (_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 
+            ReportRenderSuccess();
             }
-            catch
+            catch (Exception ex)
             {
-
+                // Was a bare, silent catch. A frame that throws every time then failed invisibly and
+                // forever; the throttle is what makes it a diagnosable fault instead of a hang.
+                ReportRenderFailure("Frame failed", ex);
             }
         }
 
         public unsafe RenderedImageHandle<byte> ReadFromMemory()
         {
+            // Nothing will ever be produced again on a lost device, and this path waits on a
+            // timeline semaphore with no timeout — so bail before it, rather than risk parking the
+            // thread that drives the rig. The animation treats Empty as "keep the last frame".
+            if (_deviceLost)
+            {
+                return RenderedImageHandle<byte>.Empty;
+            }
+
             _readReadyEvent.Wait();
 
             if (_stagingRing == null || _stagingRing.IsDisposed)
@@ -2690,6 +3032,14 @@ namespace ShowControl.Graphics
 
         public void SetShader(string shader)
         {
+            if (_deviceLost)
+            {
+                // Rebuilding a pipeline on a dead device achieves nothing, and this waits on the
+                // render thread and a fence to get there.
+                _logger.LogWarning("[GraphicsHost] Ignoring SetShader('{Shader}'): the GPU device is lost.", shader);
+                return;
+            }
+
             SpinWait.SpinUntil(() => _running == true);
 
             // 1) Tell render loop to pause submits

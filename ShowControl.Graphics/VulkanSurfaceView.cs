@@ -27,6 +27,22 @@ namespace ShowControl.Graphics
         /// </summary>
         public event EventHandler? SurfaceDestroying;
 
+        /// <summary>
+        /// Fixes the native drawable at this size in pixels instead of following the view's bounds.
+        /// Zero means follow the bounds, which is the ordinary behaviour for a renderer that draws at
+        /// the window's resolution.
+        /// <para>
+        /// This one does not: it renders a fixed offscreen image and blits that to the surface, so a
+        /// drawable that tracked the window bought only the sharpness of the final upscale — and cost
+        /// a swapchain rebuild on every resize step, which is a heavyweight GPU operation on a path
+        /// driven by a mouse drag. Pinned, the swapchain is created once and never goes out of date;
+        /// the compositor scales the drawable to the layer instead.
+        /// </para>
+        /// </summary>
+        public int PinnedDrawableWidth { get; set; }
+
+        public int PinnedDrawableHeight { get; set; }
+
         public void OnSurfaceReady(nint surfaceHandle)
         {
             SurfaceReady?.Invoke(this, surfaceHandle);

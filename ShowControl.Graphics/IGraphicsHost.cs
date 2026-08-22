@@ -131,5 +131,17 @@ namespace ShowControl.Graphics
         /// Called by the MAUI app when the preview window is closed.
         /// </summary>
         void OnPreviewWindowClosed();
+
+        /// <summary>
+        /// Turns presenting on and off as the preview window becomes visible or hidden.
+        /// <para>
+        /// Not an optimisation. A frame submitted for presentation waits on the swapchain's
+        /// image-available semaphore, and that submission also carries the copy the LEDs are fed
+        /// from — so while a minimised window withholds its drawable, the submission never executes
+        /// and the rig stops with it. Disabled, the frame carries no swapchain work at all and the
+        /// pixels keep flowing.
+        /// </para>
+        /// </summary>
+        void SetPresentationEnabled(bool enabled);
     }
 }

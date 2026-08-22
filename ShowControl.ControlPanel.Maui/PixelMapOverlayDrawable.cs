@@ -30,9 +30,6 @@ namespace ShowControl.ControlPanel.Maui
 
         public Guid? SelectedFixtureId { get; set; }
 
-        /// <summary>Dimmed while the preview beneath is not being presented, during a window resize.</summary>
-        public bool Dimmed { get; set; }
-
         /// <summary>
         /// Part of the image the preview is showing. Set by the page's zoom; must be the same
         /// rectangle the graphics host was given, or the map drifts off the picture.
@@ -56,14 +53,12 @@ namespace ShowControl.ControlPanel.Maui
             {
                 var region = Region.IsUsable ? Region : PreviewRegion.WholeImage(map.ImageWidth, map.ImageHeight);
                 var transform = new PixelMapOverlayTransform(map, dirtyRect.Width, dirtyRect.Height, region);
-                canvas.Alpha = Dimmed ? 0.35f : 1f;
 
                 foreach (var fixture in map.Fixtures)
                 {
                     DrawFixture(canvas, transform, fixture);
                 }
 
-                canvas.Alpha = 1f;
             }
             catch (Exception ex)
             {
@@ -140,10 +135,11 @@ namespace ShowControl.ControlPanel.Maui
     /// <summary>
     /// Converts between overlay points and shader-image coordinates.
     /// <para>
-    /// Recomputed on every size change and never cached across one: the swapchain extent is
-    /// debounced 100ms behind the view and reports device pixels on Mac but DIPs on Windows, so the
-    /// overlay's own bounds are the only trustworthy reference. Both compositing stages are full
-    /// stretches, so the display scale factor cancels and must not be applied.
+    /// Recomputed on every size change and never cached across one. The overlay's own bounds are the
+    /// only trustworthy reference: the surface's drawable is pinned to the rendered image's size and
+    /// has nothing to do with the window, and on Windows the swapchain extent lags the view. Every
+    /// compositing stage is a full stretch, so the display scale factor cancels and must not be
+    /// applied.
     /// </para>
     /// <para>
     /// Zoom is expressed as the region of the image the preview is presenting, which is exactly the

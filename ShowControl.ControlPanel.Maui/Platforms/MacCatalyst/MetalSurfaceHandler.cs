@@ -83,6 +83,13 @@ namespace ShowControl.ControlPanel.Maui.Platforms.MacCatalyst
         {
             base.ConnectHandler(platformView);
 
+            // Read before the first layout pass, so the drawable is created at the pinned size
+            // rather than at the window's and then changed to it.
+            platformView.PinnedDrawableSize =
+                VirtualView is { PinnedDrawableWidth: > 0, PinnedDrawableHeight: > 0 }
+                    ? new CGSize(VirtualView.PinnedDrawableWidth, VirtualView.PinnedDrawableHeight)
+                    : null;
+
             platformView.LayerReady += OnLayerReady;
             platformView.SizeChanged += OnSizeChanged;
             platformView.ViewRemoving += OnViewRemoving;
@@ -146,27 +153,44 @@ namespace ShowControl.ControlPanel.Maui.Platforms.MacCatalyst
         /// </summary>
         public CAMetalLayer MetalLayer => (CAMetalLayer)Layer;
 
+        /// <summary>
+        /// Fixed drawable size in pixels, or null to follow the view's bounds.
+        /// <para>
+        /// Pinned is what this app wants: it renders a fixed offscreen image and blits that here, so
+        /// a drawable tracking the window only moved the final upscale from the compositor into the
+        /// blit — and made every resize step rebuild the swapchain. Pinned, the swapchain never goes
+        /// out of date and Core Animation scales the drawable to the layer instead.
+        /// </para>
+        /// </summary>
+        public CGSize? PinnedDrawableSize { get; set; }
+
         public override void LayoutSubviews()
         {
             base.LayoutSubviews();
 
-            // Update drawable size to match the view's pixel dimensions
-            var newSize = new CGSize(
+            var newSize = PinnedDrawableSize ?? new CGSize(
                 Bounds.Width * ContentScaleFactor,
                 Bounds.Height * ContentScaleFactor
             );
 
-            if (newSize.Width > 0 && newSize.Height > 0)
+            if (newSize.Width <= 0 || newSize.Height <= 0)
+            {
+                return;
+            }
+
+            // Only when it actually changes. Pinned, that is once — so the resize path downstream
+            // never runs, which is the point of pinning.
+            if (MetalLayer.DrawableSize != newSize)
             {
                 MetalLayer.DrawableSize = newSize;
                 SizeChanged?.Invoke(this, newSize);
+            }
 
-                // Report layer ready on first valid size if not already reported
-                if (!_layerReported)
-                {
-                    _layerReported = true;
-                    LayerReady?.Invoke(this, MetalLayer.Handle);
-                }
+            // Report layer ready on first valid size if not already reported
+            if (!_layerReported)
+            {
+                _layerReported = true;
+                LayerReady?.Invoke(this, MetalLayer.Handle);
             }
         }
 
@@ -180,7 +204,7 @@ namespace ShowControl.ControlPanel.Maui.Platforms.MacCatalyst
                 if (!_layerReported && Bounds.Width > 0 && Bounds.Height > 0)
                 {
                     _layerReported = true;
-                    MetalLayer.DrawableSize = new CGSize(
+                    MetalLayer.DrawableSize = PinnedDrawableSize ?? new CGSize(
                         Bounds.Width * ContentScaleFactor,
                         Bounds.Height * ContentScaleFactor
                     );

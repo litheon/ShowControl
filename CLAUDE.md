@@ -23,6 +23,98 @@ MacCatalyst app (`ShowControl.ControlPanel.Maui`), published from a Mac via
   also back off to ~1/s while failing, and each device is written inside its
   own try/catch so one dead controller cannot blank the others.
 
+## Graphics host
+
+- The render loop logs through `ReportRenderFailure`, which throttles on
+  `OutputDeviceHealth` exactly as the output devices do. Nothing in `OnRender`
+  may log per attempt: it runs thousands of times a second, so a failure that
+  repeats every frame writes tens of thousands of lines a minute and takes the
+  process down with the log — a lost GPU device did precisely that, filling 50MB
+  in 40 seconds and requiring a force quit.
+- `VK_ERROR_DEVICE_LOST` is terminal. `_deviceLost` latches, the render loop
+  stops, `ReadFromMemory` returns Empty rather than waiting on a timeline
+  semaphore that will never be signalled, and `SetShader` is ignored. Recovering
+  the picture means rebuilding the Vulkan device and everything under it; today
+  that is a restart.
+- **The Metal drawable is pinned and the swapchain is never rebuilt on resize.**
+  `VulkanSurfaceView.PinnedDrawableWidth/Height` fixes `CAMetalLayer.DrawableSize`
+  at the offscreen image's size, so `LayoutSubviews` stops changing it, the
+  swapchain never goes out of date, and `HandleMetalSurfaceResize` is a documented
+  no-op. This is only sound because nothing renders at the window's resolution:
+  the shader draws a fixed image and the preview is a full stretch of it, so
+  matching the swapchain to the window merely moved the final upscale from the
+  compositor into the blit — while putting a heavyweight GPU rebuild on a path
+  driven by a mouse drag, where overlapping rebuilds lost the device and hung the
+  app. The cost is a softer preview when the window is larger than the image.
+  Pass the pinned size to `EnableMetalPresentation`, not the view's: the swapchain
+  extent has to match the drawable. Unpinning it was tried while chasing a CPU
+  spike and put back: the spike was the render loop, not the resolution.
+- **The render loop is paced explicitly** to `TargetFrameInterval`, which is the
+  same 21739µs (~46fps) `RenderService` paces its own loop to — a frame rendered
+  between two samples is a frame nobody reads. Keep the two in step if either
+  changes; matching exactly means jitter occasionally costs a sample its fresh
+  frame and the sampler holds the previous one, which is invisible on LEDs.
+  Presentation used to set the rate by accident: with FIFO, an acquire that found
+  no free image returned early and the frame did no work, so the loop advanced at
+  the display's refresh. Once a frame that cannot be presented had to render anyway
+  — the rig's pixels are in that submission — nothing paced it and it free-ran at
+  hundreds of frames a second, each one a full render and a 6.5MB staging copy,
+  spiking CPU and GPU for frames nobody read. `Thread.Sleep(0)`, which is what was
+  there under a comment claiming to throttle, yields and returns immediately; it is
+  not a delay.
+- Nothing in `OnRender` writes to `Debug.WriteLine` any more. What is genuinely
+  once-per-session (the first blit, the DComp target size, presentation coming up)
+  is `_logger.LogDebug` behind a `_loggedX` flag; what recurs (a swapchain not
+  ready, a zero extent, a pending resize) goes through `NotePresentationSuspended`,
+  which reports the transition and then stays quiet. Both call sites pass constant
+  strings, so nothing interpolates per frame either.
+- A minimised or hidden window makes Core Animation sit on the drawable request,
+  so `AcquireNextImage` blocks for up to a second even with a zero timeout. Both
+  it and `QueuePresent` are timed; a call over 100ms backs presentation off for a
+  second (`_presentRetryAfter`) and is logged once per outage. The frames still
+  render and the rig still gets its pixels — only the showing stops, which is free
+  when nobody is looking.
+- **Presentation must never gate the LED path.** `OnRender` renders offscreen and
+  copies to the staging ring the rig samples; presenting is a separate concern
+  layered on top. So a swapchain that is not ready, an acquire that yields no
+  drawable (minimised, occluded, on another Space) and a present that reports
+  out-of-date all set `present = false` and carry on — they never return early,
+  because the bookkeeping that publishes the staging slot lives at the end of the
+  frame. Skipping it freezes the rig on its last frame. `SUBOPTIMAL` in particular
+  is the *steady state* with a pinned drawable, since the swapchain is
+  deliberately not the layer's size: treating it as a reason to bail stopped the
+  LEDs after the first frame.
+- **The rig's pixels and the preview's are still in one submission**, so the
+  guards above are avoidance, not isolation: the staging copy that feeds the LEDs
+  and the blit to the swapchain are recorded into the same command buffer, and
+  when `present` is true that submit waits on the image-available semaphore *at
+  the transfer stage* — which is the stage the staging copy is in. A drawable the
+  compositor will not hand back therefore withholds the LED data itself, and both
+  `WaitForFences` at the top of the next frame and `WaitSemaphores` in
+  `ReadFromMemory` are unbounded, so the stall propagates to the output thread and
+  the rig stops sending entirely. Splitting the submit in two — offscreen plus
+  staging signalling `_gpuDoneTL`, present waiting on that — is the fix that would
+  make the rest of this section merely an optimisation.
+- **A held image outlives the frame that acquired it.** The acquire signals
+  `_imageAvailableSemaphores[_currentFrame]`, and the submit that consumes the
+  image must wait on that same slot — but the two are different frames whenever an
+  image is acquired and presentation then pauses, because frames keep rendering for
+  the rig and `_currentFrame` keeps advancing. `_acquiredFrameIndex` records the
+  acquiring slot for exactly this reason; waiting on the current slot instead waits
+  on a semaphore nothing will signal, and the unbounded fence wait next frame takes
+  the render loop and the rig with it.
+- The one remaining rebuild is `RebuildSwapchainAtPinnedSize`, from an
+  out-of-date acquire — a display reconfiguration, say — because otherwise the
+  preview would skip frames for the rest of the session. It holds `_swapchainLock`
+  (two threads recreating at once is how the device gets lost), logs through the
+  render throttle, and drains with `DeviceWaitIdle` rather than `QueueWaitIdle`
+  because the staging ring the LED sampling reads is filled by transfers on the
+  same device. `CleanupMetalPresentation` takes the same lock.
+- Windows still recreates on resize (`RecreateWin32Swapchain`,
+  `RecreateDirectCompositionSharedImage`). Pinning would suit it equally — the
+  DComp path blits the same fixed image to a shared texture — but that target does
+  not build on macOS, so it was left alone.
+
 ## Shaders
 
 - `.frag`/`.vert` in `ShowControl.Graphics/` are the source of truth; `.spv`
@@ -49,6 +141,27 @@ MacCatalyst app (`ShowControl.ControlPanel.Maui`), published from a Mac via
   types out of it — `System.Drawing` or tuples — or it stops building for net9.0
   and the tests go with it. `PreviewPage` keeps only what is genuinely platform:
   pointer coordinates, the surface transform, the drawable, dialogs and timers.
+- **Presentation is gated on the window, from `PreviewPage`.** A window that is
+  not being composited withholds its drawable, and the frame that waits on it
+  carries the rig's pixels — so `UpdatePresentationVisibility` calling
+  `SetPresentationEnabled` is a safety mechanism, not a power saving. It is driven
+  by `PreviewVisibilityMonitor`, which observes the scene/application/window
+  lifecycle notifications; the 250ms poll is only a backstop, because a MAUI
+  dispatcher timer is an `NSTimer` the system coalesces exactly when the app stops
+  being frontmost. Leaving notifications (`WillDeactivate`, `WillResignActive`,
+  `DidEnterBackground`, `DidBecomeHidden`) are *acted on* rather than verified —
+  they arrive before the state they announce is readable, so polling at that moment
+  returns the answer that is about to be wrong — while returning ones only prompt a
+  re-evaluation. Window notifications are posted for every window in the process,
+  so the handler checks the source is this preview's.
+- **Only `ForegroundActive` counts as visible.** Foreground-*inactive* is not
+  "visible but unfocused": it is equally the state of a window that is minimised,
+  on another Space, or fully covered by another app, and Core Animation stops
+  recycling drawables in all three. The trade is that the preview holds its last
+  frame whenever the app is not frontmost — deliberately, since the picture returns
+  on the next click and the lights never stopped. Relaxing it to include
+  `ForegroundInactive` is a one-line change in `UpdatePresentationVisibility` and a
+  real risk; do not make it to "fix" a frozen preview.
 - **Command bindings bypass the view's try/catch.** `RunGuarded` in the page is
   what stops a UI-callback exception aborting the process on Catalyst, and a
   `Command=` binding does not go through it — so every command body runs inside
@@ -70,6 +183,32 @@ MacCatalyst app (`ShowControl.ControlPanel.Maui`), published from a Mac via
   exactly the range in which the region stays inside the image, which is why
   clamping the anchor is the only clamp. If they ever disagree the map visibly
   drifts off the picture — that is the check after touching any of it.
+- **TODO — zoom on Windows.** The zoom itself should already work there and is
+  simply unverified: MAUI's Windows transform sets `RenderTransformOrigin` to the
+  anchor and a `ScaleTransform`, the same "the anchor maps to itself" semantics
+  the `PreviewRegion` arithmetic assumes, and `RenderTransform` does not affect
+  layout, so `SwapChainPanel.SizeChanged` never fires and no swapchain is rebuilt.
+  So the buttons, drag-to-pan and overlay registration need testing, not code.
+  What is genuinely missing is the scroll input, and pinch:
+  - Wheel and precision-touchpad scroll both arrive as
+    `UIElement.PointerWheelChanged` on the overlay's platform view.
+    `e.GetCurrentPoint(element)` gives `.Position` (the focus) and
+    `.Properties.MouseWheelDelta` (±120 per notch). Raise the existing
+    `ScrollZoomEventArgs` from it and `PreviewPage.OnScrollZoom` needs no change;
+    set `e.Handled` so it does not bubble.
+  - MAUI's `PinchGestureRecognizer` on Windows rides WinUI manipulation events,
+    which are touch and pen only — a touchpad pinch never reaches it. Windows
+    delivers touchpad pinch as **Ctrl + wheel**, so treating
+    `e.KeyModifiers == Control` as zoom in the same handler *is* pinch support
+    there.
+  - Watch `SwapChainPanel.CompositionScaleChanged`, which a scale transform
+    raises. Nothing subscribes to it today, so the composited swapchain is simply
+    magnified — the same softness trade as Catalyst. Reacting to it by resizing
+    the swapchain is the Windows-native route to a sharper zoom, and the
+    equivalent of the blit-source-rect approach that was backed out.
+  - Keep it in its own `#if WINDOWS` file: the Windows target framework does not
+    build on macOS, so a mistake there is invisible until someone builds on
+    Windows, and an isolated file makes that failure obvious.
 
 ## Control surface
 
