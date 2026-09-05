@@ -48,12 +48,21 @@ namespace ShowControl.Host
                         // visualization is on screen: it is owned here, fed by the capture callback,
                         // and never started or stopped by an animation or shader.
                         //
-                        // The beat metadata source is the synthetic one until the native Pro DJ
-                        // Link port exists — it reports Absent until the debug panel arms a grid,
-                        // so the PLL runs locally by default. The port replaces this registration.
+                        // The beat metadata source prefers the native Pro DJ Link port
+                        // (BeatLinkNet) whenever CDJs are on the network, and falls back to the
+                        // synthetic source so the debug panel's Grid button still exercises the
+                        // PLL with no gear present. The local clock is resolved lazily through
+                        // the provider because the engine (whose sample clock it is) takes this
+                        // source in its own constructor.
                         .AddSingleton<ShowControl.AudioAnalysis.SyntheticBeatMetadataSource>()
+                        .AddSingleton(sp => new ShowControl.Devices.ProDjLink.ProDjLinkBeatMetadataSource(
+                            localClock: () => sp.GetRequiredService<ShowControl.AudioAnalysis.AudioAnalysisEngine>().Latest.Time,
+                            logger: sp.GetRequiredService<ILogger<ShowControl.Devices.ProDjLink.ProDjLinkBeatMetadataSource>>()))
                         .AddSingleton<ShowControl.AudioAnalysis.IBeatMetadataSource>(sp =>
-                            sp.GetRequiredService<ShowControl.AudioAnalysis.SyntheticBeatMetadataSource>())
+                            new ShowControl.Devices.ProDjLink.PreferringBeatMetadataSource(
+                                sp.GetRequiredService<ShowControl.Devices.ProDjLink.ProDjLinkBeatMetadataSource>(),
+                                sp.GetRequiredService<ShowControl.AudioAnalysis.SyntheticBeatMetadataSource>()))
+                        .AddHostedService<ShowControl.Devices.ProDjLink.ProDjLinkService>()
                         .AddSingleton(sp => new ShowControl.AudioAnalysis.AudioAnalysisEngine(
                             beatMetadata: sp.GetRequiredService<ShowControl.AudioAnalysis.IBeatMetadataSource>()))
                         .AddSingleton<IAudioService, AudioService>((sp) => new AudioService(

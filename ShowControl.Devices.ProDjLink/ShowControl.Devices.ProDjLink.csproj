@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('osx'))">net9.0;net9.0-maccatalyst</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">net9.0</TargetFrameworks>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
+    <Platforms>AnyCPU;x64;x86;ARM64</Platforms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The native Pro DJ Link port (BeatLinkNet, our C# port of Deep Symmetry's beat-link)
+         lives in its own repository beside this one; once it has a remote it should become a
+         submodule under external/ like the other vendored libraries. -->
+    <ProjectReference Include="..\..\Beat Link Net\src\BeatLinkNet\BeatLinkNet.csproj" />
+    <ProjectReference Include="..\ShowControl.AudioAnalysis\ShowControl.AudioAnalysis.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="9.0.0" />
+    <!-- Matches BeatLinkNet's floor; the rest of the solution's 9.0.0 packages unify upward. -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.8" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="ShowControl.Tests" />
+  </ItemGroup>
+</Project>

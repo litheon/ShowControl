@@ -37,6 +37,7 @@
     <ProjectReference Include="..\ShowControl.Devices.DMX\ShowControl.Devices.DMX.csproj" />
     <ProjectReference Include="..\ShowControl.Devices.Input\ShowControl.Devices.Input.csproj" />
     <ProjectReference Include="..\ShowControl.Devices.Output\ShowControl.Devices.Output.csproj" />
+    <ProjectReference Include="..\ShowControl.Devices.ProDjLink\ShowControl.Devices.ProDjLink.csproj" />
     <ProjectReference Include="..\ShowControl.Rendering\ShowControl.Rendering.csproj" />
   </ItemGroup>
 </Project>
