@@ -44,6 +44,35 @@ namespace ShowControl.ControlPanel.Editor
         }
 
         /// <summary>
+        /// Finds the pixel of one fixture under a point, for the per-pixel drag: the nearest within
+        /// <paramref name="threshold"/> image units, or null if none is close enough. Scoped to a
+        /// single fixture on purpose — the caller has already resolved which fixture the press is
+        /// about, and searching the whole map here would let a neighbouring run steal the grab.
+        /// </summary>
+        public static int? HitTestPixel(FixtureDefinition fixture, double imageX, double imageY, double threshold)
+        {
+            if (fixture == null) throw new ArgumentNullException(nameof(fixture));
+
+            int? best = null;
+            double bestDistanceSquared = threshold * threshold;
+
+            for (int i = 0; i < fixture.PixelCount; i++)
+            {
+                var position = PixelMapGeometry.Resolve(fixture, i);
+                double dx = position.X - imageX;
+                double dy = position.Y - imageY;
+                double distanceSquared = (dx * dx) + (dy * dy);
+                if (distanceSquared <= bestDistanceSquared)
+                {
+                    bestDistanceSquared = distanceSquared;
+                    best = i;
+                }
+            }
+
+            return best;
+        }
+
+        /// <summary>
         /// How many of a fixture's pixels fall outside the image. Off-image pixels sample black
         /// rather than clamping, so a fixture pushed past the edge goes dark from that point on and
         /// the editor says so instead of leaving it to be discovered.

@@ -25,6 +25,21 @@ namespace ShowControl.PixelMapping
             File.Move(temporary, path, overwrite: true);
         }
 
+        /// <summary>
+        /// Writes the file in place — open, truncate, write — with no sibling temporary file. For
+        /// destinations outside the sandbox container: the Mac Catalyst sandbox grants access to
+        /// the file the user picked, never to its directory, so <see cref="WriteAtomic"/>'s
+        /// <c>.tmp</c>-and-move is denied there. The safety trade is deliberate — the working copy
+        /// inside the container is the authoritative recovery source and keeps its atomic write,
+        /// so a save torn here loses an export, not the map.
+        /// </summary>
+        public static void WriteInPlace(string path, string contents)
+        {
+            if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("Path is required.", nameof(path));
+
+            File.WriteAllText(path, contents);
+        }
+
         public static bool TryRead(string? path, out string contents)
         {
             contents = string.Empty;

@@ -103,7 +103,7 @@ namespace ShowControl.Animation
             //option 2: from left to right each frequency range is graphed on the lights, with, for example the left most
             //light being off is zero while the right most light being on is 100
             //large bands will be mapped to individual colors(e.g.RGB), and those bands' amplitude will be graphed from L to R
-            using (e)
+            // The dispatch thread owns the event args' disposal; subscribers read, never dispose.
             {
                 var secondsSinceLastBassOverride = (DateTime.Now.Ticks - _lastBassOverride) / TimeSpan.TicksPerSecond;
 

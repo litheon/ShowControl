@@ -38,6 +38,7 @@ namespace ShowControl.Rendering
         private readonly IInputService _inputService;
         private readonly IAudioService _audioService;
         private readonly IGraphicsHost _graphicsHost;
+        private AudioLiteBridge _audioLiteBridge;
 
         private readonly IPixelMapSource _pixelMapSource;
         private readonly PixelTypeRegistry _pixelTypes = PixelTypeRegistry.Default;
@@ -237,9 +238,13 @@ namespace ShowControl.Rendering
             IPixelMapSource pixelMapSource,
             Action<PixelMapSummary> pixelMapSummaryAction,
             ILogger<RenderService> logger,
-            IArtNetController artNetController
+            IArtNetController artNetController,
+            ShowControl.AudioAnalysis.AudioAnalysisEngine analysisEngine
             ) : this(deviceEnumerator, inputService, graphicsHost, audioService, pixelMapSource, logger, artNetController)
         {
+            // The bridge outlives every animation: AudioLite flows to the GPU whatever is on
+            // screen, so switching shaders mid-track picks up live (not reset) audio state.
+            _audioLiteBridge = new AudioLiteBridge(analysisEngine, graphicsHost);
             pixelMapSummaryAction(_pixelMapSource.CurrentSummary);
         }
 

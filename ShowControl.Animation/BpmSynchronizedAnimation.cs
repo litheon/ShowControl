@@ -39,7 +39,7 @@ namespace ShowControl.Animation
 
         private void AudioService_OnAudioFrameProcessed(object sender, AudioFrameProcessedEventArgs e)
         {
-            using(e)
+            // The dispatch thread owns the event args' disposal; subscribers read, never dispose.
             {
                 _bpm = e.Bpm;
                 if (_bpm <= 40f)

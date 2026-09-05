@@ -302,7 +302,7 @@ namespace ShowControl.Animation
             //if there are enough lights to do so
             //support a continous animation from one color to the next color
             //add a mode that grabs a window into a large continous gradient that music/the user/a timer will automatically scroll through
-            using (e)
+            // The dispatch thread owns the event args' disposal; subscribers read, never dispose.
             {
                 lock (_modeLock)
                 {

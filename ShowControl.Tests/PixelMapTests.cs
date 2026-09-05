@@ -167,6 +167,158 @@ namespace ShowControl.Tests
             Assert.Equal(3f, fixture.OriginY);
         }
 
+        /// <summary>
+        /// The rope drag is what the per-pixel editing gesture rides on: the dragged pixel takes
+        /// the delta, neighbours are pulled after it only when their link goes taut, and no link is
+        /// ever longer than its rest length — the spacing of a physical strip is not negotiable.
+        /// </summary>
+        [Fact]
+        public void DragRope_MovesTheDraggedPixelByTheDelta_AndNeverStretchesALink()
+        {
+            var offsets = PixelLayoutTools.GenerateLine(10, spacing: 2f);
+            PixelLayoutTools.RotateSection(offsets, fromIndex: 5, turnDegrees: 90f); // a bent run, not just a line
+            var rest = (float[])offsets.Clone();
+
+            PixelLayoutTools.DragRope(offsets, pixelIndex: 4, deltaX: 3f, deltaY: -5f);
+
+            Assert.Equal(rest[8] + 3f, offsets[8], 3);
+            Assert.Equal(rest[9] - 5f, offsets[9], 3);
+            for (int i = 1; i < 10; i++)
+            {
+                float restLength = Distance(rest, i - 1, i);
+                Assert.InRange(Distance(offsets, i - 1, i), 0f, restLength + 0.001f);
+            }
+
+            // A pull this hard draws both neighbouring links taut, and taut means exactly rest
+            // length — the rope neither stretches nor bunches where it is being pulled.
+            Assert.Equal(Distance(rest, 3, 4), Distance(offsets, 3, 4), 3);
+            Assert.Equal(Distance(rest, 4, 5), Distance(offsets, 4, 5), 3);
+        }
+
+        /// <summary>
+        /// Pulling an end pixel directly away from the run leaves no slack anywhere, so the whole
+        /// rope comes along rigidly — the rope being a rope, and the degenerate case that makes the
+        /// model easy to verify.
+        /// </summary>
+        [Fact]
+        public void DragRope_PullingTheEndAwayFromTheRun_DragsTheWholeRopeTaut()
+        {
+            var offsets = PixelLayoutTools.GenerateLine(5); // along +x; pixel 0 at the origin end
+
+            PixelLayoutTools.DragRope(offsets, pixelIndex: 0, deltaX: -3f, deltaY: 0f);
+
+            for (int i = 0; i < 5; i++)
+            {
+                Assert.Equal(i - 3f, offsets[i * 2], 3);
+                Assert.Equal(0f, offsets[(i * 2) + 1], 3);
+            }
+        }
+
+        /// <summary>
+        /// The slack rule, and what keeps ordinary sculpting local: a link only pulls, never
+        /// pushes, so moving a pixel toward its neighbours moves nothing else at all.
+        /// </summary>
+        [Fact]
+        public void DragRope_PushingTowardTheRun_MovesOnlyTheGrabbedPixel()
+        {
+            var offsets = PixelLayoutTools.GenerateLine(10);
+            var rest = (float[])offsets.Clone();
+
+            PixelLayoutTools.DragRope(offsets, pixelIndex: 0, deltaX: 0.5f, deltaY: 0f);
+
+            Assert.Equal(0.5f, offsets[0]);
+            Assert.Equal(0f, offsets[1]);
+            Assert.Equal(rest.Skip(2), offsets.Skip(2));
+        }
+
+        /// <summary>
+        /// Dragging along the run is asymmetric on purpose: the arm behind the motion is pulled
+        /// taut and comes along; the arm ahead gains slack and stays exactly where it was.
+        /// </summary>
+        [Fact]
+        public void DragRope_DraggingAlongTheRun_PullsOnlyTheArmBehindTheMotion()
+        {
+            var offsets = PixelLayoutTools.GenerateLine(10);
+            var rest = (float[])offsets.Clone();
+
+            PixelLayoutTools.DragRope(offsets, pixelIndex: 5, deltaX: 2f, deltaY: 0f);
+
+            for (int i = 0; i <= 5; i++)
+            {
+                Assert.Equal(rest[i * 2] + 2f, offsets[i * 2], 3); // behind: dragged along, taut
+                Assert.Equal(0f, offsets[(i * 2) + 1], 3);
+            }
+            for (int i = 6; i < 10; i++)
+            {
+                Assert.Equal(rest[i * 2], offsets[i * 2]); // ahead: slack, untouched
+                Assert.Equal(rest[(i * 2) + 1], offsets[(i * 2) + 1]);
+            }
+        }
+
+        /// <summary>
+        /// Recomputed from rest on every pointer move rather than accumulated, so the result must be
+        /// a pure function of (rest shape, delta) — that is what anchors the gesture.
+        /// </summary>
+        [Fact]
+        public void DragRope_IsAPureFunctionOfTheRestShapeAndTheDelta()
+        {
+            var restA = PixelLayoutTools.GenerateLine(20, spacing: 1.5f);
+            var restB = (float[])restA.Clone();
+
+            PixelLayoutTools.DragRope(restA, pixelIndex: 7, deltaX: 4f, deltaY: 6f);
+            PixelLayoutTools.DragRope(restB, pixelIndex: 7, deltaX: 4f, deltaY: 6f);
+
+            Assert.Equal(restA, restB);
+        }
+
+        [Fact]
+        public void DragRope_RejectsAPixelOutsideTheFixture()
+        {
+            var offsets = PixelLayoutTools.GenerateLine(3);
+            Assert.Throws<ArgumentOutOfRangeException>(() => PixelLayoutTools.DragRope(offsets, 3, 1f, 1f));
+        }
+
+        /// <summary>
+        /// After a rope drag has carried pixel 0 off the origin, rebasing restores the convention
+        /// that the origin marks pixel 0 — without moving a single resolved position.
+        /// </summary>
+        [Fact]
+        public void Rebase_PutsPixelZeroBackOnTheOrigin_WithoutMovingAnyPixel()
+        {
+            var fixture = PixelMappingTestData.Strip("Rebase", originX: 50f, originY: 60f, pixelCount: 4);
+            PixelLayoutTools.DragRope(fixture.PixelOffsets, pixelIndex: 0, deltaX: -3f, deltaY: 2f);
+            var before = PixelMapGeometry.Resolve(fixture);
+
+            var shift = PixelLayoutTools.Rebase(fixture.PixelOffsets);
+            fixture.OriginX += shift.X;
+            fixture.OriginY += shift.Y;
+
+            Assert.Equal(new[] { 0f, 0f }, fixture.PixelOffsets.Take(2).ToArray());
+            var after = PixelMapGeometry.Resolve(fixture);
+            for (int i = 0; i < before.Length; i++)
+            {
+                Assert.Equal(before[i].X, after[i].X, 3);
+                Assert.Equal(before[i].Y, after[i].Y, 3);
+            }
+        }
+
+        [Fact]
+        public void Rebase_WhenPixelZeroIsAlreadyHome_ReturnsZeroAndChangesNothing()
+        {
+            var offsets = PixelLayoutTools.GenerateLine(4);
+            var before = (float[])offsets.Clone();
+
+            Assert.Equal(default, PixelLayoutTools.Rebase(offsets));
+            Assert.Equal(before, offsets);
+        }
+
+        private static float Distance(float[] offsets, int fromPixel, int toPixel)
+        {
+            float dx = offsets[toPixel * 2] - offsets[fromPixel * 2];
+            float dy = offsets[(toPixel * 2) + 1] - offsets[(fromPixel * 2) + 1];
+            return MathF.Sqrt((dx * dx) + (dy * dy));
+        }
+
         [Fact]
         public void ReverseDirection_OfASinglePixel_ChangesNothing()
         {

@@ -1,8 +1,16 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
-             x:Class="ShowControl.ControlPanel.Maui.MainPage">
+             xmlns:local="clr-namespace:ShowControl.ControlPanel.Maui"
+             xmlns:editor="clr-namespace:ShowControl.ControlPanel.Editor;assembly=ShowControl.ControlPanel.Editor"
+             x:Class="ShowControl.ControlPanel.Maui.MainPage"
+             x:DataType="local:MainPageViewModel">
 
+    <!-- The readouts are bound, not assigned: they are written from the audio callback and the
+         render thread, and a binding means those paths marshal to the UI thread and set a property
+         rather than reaching into a named control. The audio debug drawable below is the exception
+         — it is a per-tick redraw against the control's own size, with no bindable equivalent —
+         and stays in the code-behind (the old FFT polyline's precedent). -->
     <Grid RowDefinitions="*,Auto">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="Auto" />
@@ -10,30 +18,75 @@
         </Grid.ColumnDefinitions>
         <ScrollView Grid.Row="0" Grid.Column="0">
             <VerticalStackLayout>
-                <Label x:Name="Bpm" Width="200" Text="BPM"></Label>
-                <Label x:Name="AmplitudeRatio" Width="200" Text="Amplitude Ratio"></Label>
-                <Label x:Name="BassAmplitudeCurrent" Width="200" Text="Current Bass Amplitude"></Label>
-                <Label x:Name="BassAmplitudeAverage" Width="200" Text="Average Bass Amplitude"></Label>
-                <Label x:Name="Addresses" Width="400" Text="Devices"></Label>
+                <Label Width="200" Text="{Binding BpmText}"></Label>
+                <Label Width="200" Text="{Binding AmplitudeRatioText}"></Label>
+                <Label Width="200" Text="{Binding BassAmplitudeCurrentText}"></Label>
+                <Label Width="200" Text="{Binding BassAmplitudeAverageText}"></Label>
+
+                <!-- Capture-device picker: rows the panel draws, not a Picker (the
+                     thumb-wheel/broken-selection rule) — the ● marks what is actually
+                     capturing, re-checked after every switch. -->
+                <Label Text="Input device" FontAttributes="Bold" Margin="0,12,0,2" />
+                <VerticalStackLayout Spacing="0"
+                                     BindableLayout.ItemsSource="{Binding AudioDevices.DeviceRows}">
+                    <BindableLayout.ItemTemplate>
+                        <DataTemplate x:DataType="editor:OptionRow">
+                            <Label Text="{Binding Display}" Padding="4,3">
+                                <Label.GestureRecognizers>
+                                    <TapGestureRecognizer Command="{Binding ChooseCommand}" />
+                                </Label.GestureRecognizers>
+                            </Label>
+                        </DataTemplate>
+                    </BindableLayout.ItemTemplate>
+                </VerticalStackLayout>
+                <Label Text="{Binding AudioDevices.StatusText}" FontSize="11" TextColor="Orange" />
+
+                <Label Width="400" Text="{Binding DeviceSummaryText}" Margin="0,12,0,0"></Label>
             </VerticalStackLayout>
         </ScrollView>
-        <Border Grid.Row="0" Grid.Column="1">
-            <Polyline x:Name="polyline" Stroke="Red" StrokeThickness="3" />
-        </Border>
+
+        <!-- Audio debug view: every published analysis field, rendered ugly and complete.
+             The buttons run synthetic presets through the same engine live capture feeds. -->
+        <Grid Grid.Row="0" Grid.Column="1" RowDefinitions="Auto,*,Auto">
+            <HorizontalStackLayout Grid.Row="0" Spacing="6" Padding="6,4">
+                <Button Text="Clicks" Command="{Binding Audio.StartPresetCommand}" CommandParameter="ClickTrack"
+                        Padding="10,0" HeightRequest="30" />
+                <Button Text="Kicks" Command="{Binding Audio.StartPresetCommand}" CommandParameter="NoiseFloorWithKicks"
+                        Padding="10,0" HeightRequest="30" />
+                <Button Text="Sweep" Command="{Binding Audio.StartPresetCommand}" CommandParameter="Sweep"
+                        Padding="10,0" HeightRequest="30" />
+                <Button Text="Burst" Command="{Binding Audio.StartPresetCommand}" CommandParameter="SingleBurst"
+                        Padding="10,0" HeightRequest="30" />
+                <Button Text="Silence" Command="{Binding Audio.StartPresetCommand}" CommandParameter="Silence"
+                        Padding="10,0" HeightRequest="30" />
+                <Button Text="Stop" Command="{Binding Audio.StopSyntheticCommand}"
+                        Padding="10,0" HeightRequest="30" />
+                <Button Text="Grid" Command="{Binding Audio.ToggleSyntheticGridCommand}"
+                        Padding="10,0" HeightRequest="30" />
+                <Label Text="{Binding Audio.SourceText}" VerticalOptions="Center" FontSize="12" />
+            </HorizontalStackLayout>
+            <GraphicsView x:Name="AudioDebugView" Grid.Row="1" MinimumHeightRequest="200" />
+            <HorizontalStackLayout Grid.Row="2" Spacing="24" Padding="6,4">
+                <Label Text="{Binding Audio.LiteText}" FontFamily="Courier New" FontSize="11" />
+                <Label Text="{Binding Audio.TimingText}" FontFamily="Courier New" FontSize="11" />
+                <Label Text="{Binding Audio.FeatureText}" FontFamily="Courier New" FontSize="11" />
+            </HorizontalStackLayout>
+        </Grid>
 
         <!-- Log pane: tails the in-memory Serilog sink -->
         <Border Grid.Row="1" Grid.ColumnSpan="2" HeightRequest="240" Margin="0,4,0,0">
             <Grid RowDefinitions="Auto,*">
                 <HorizontalStackLayout Grid.Row="0" Spacing="12" Padding="6,4">
                     <Label Text="Log" FontAttributes="Bold" VerticalOptions="Center" />
-                    <CheckBox x:Name="LogAutoScroll" IsChecked="True" VerticalOptions="Center" />
+                    <CheckBox IsChecked="{Binding AutoScrollLog}" VerticalOptions="Center" />
                     <Label Text="Auto-scroll" VerticalOptions="Center" />
-                    <Button x:Name="LogClearButton" Text="Clear" Clicked="OnClearLogClicked"
+                    <Button Text="Clear" Command="{Binding ClearLogCommand}"
                             Padding="10,0" HeightRequest="30" VerticalOptions="Center" />
                 </HorizontalStackLayout>
-                <CollectionView x:Name="LogView" Grid.Row="1" Margin="6,0,6,6">
+                <CollectionView x:Name="LogView" Grid.Row="1" Margin="6,0,6,6"
+                                ItemsSource="{Binding LogRows}">
                     <CollectionView.ItemTemplate>
-                        <DataTemplate>
+                        <DataTemplate x:DataType="local:LogEntryView">
                             <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="8" Padding="0,1">
                                 <Label Grid.Column="0" Text="{Binding Timestamp}" FontSize="11" TextColor="Gray" />
                                 <Label Grid.Column="1" Text="{Binding Level}" FontSize="11"

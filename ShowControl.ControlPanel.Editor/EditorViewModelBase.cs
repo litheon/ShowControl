@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -30,6 +31,24 @@ namespace ShowControl.ControlPanel.Editor
             try
             {
                 action();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "[Editor] {What} failed.", what);
+                OnGuardedFailure(what, ex);
+            }
+        }
+
+        /// <summary>
+        /// The same for a command body that awaits. An async command's exception surfaces on the
+        /// continuation rather than at the call site, which puts it even further out of the view's
+        /// reach than a synchronous one — so the catch has to be inside the command.
+        /// </summary>
+        protected async Task GuardAsync(string what, Func<Task> action)
+        {
+            try
+            {
+                await action().ConfigureAwait(true);
             }
             catch (Exception ex)
             {

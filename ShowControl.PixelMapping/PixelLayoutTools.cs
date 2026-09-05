@@ -169,6 +169,136 @@ namespace ShowControl.PixelMapping
         }
 
         /// <summary>
+        /// Drags one pixel with the run behaving as an inextensible rope: the dragged pixel takes
+        /// the full delta, and each neighbour outward moves only when its link is pulled past its
+        /// rest length — and then only far enough to sit at rest length again, on the line toward
+        /// where it already was. Slack absorbs everything else: pushing a pixel toward its
+        /// neighbours, or any move small enough not to draw a link taut, moves nothing but the
+        /// grabbed pixel, and the first slack link stops the walk. No link ever stretches, so the
+        /// strip's physical spacing is honoured exactly on the pulled side and only ever shortened
+        /// on the slack side.
+        /// <para>
+        /// The inherent consequence of exact inextensibility: a pull that keeps links taut drags
+        /// the run for as far as it stays taut, however long that is — dragging the end of a
+        /// straight strip sideways walks the whole strip (the discrete tractrix). That is the rope
+        /// being a rope; the slack rule is what keeps ordinary sculpting local.
+        /// </para>
+        /// <para>
+        /// Pure and in-place on a copy the caller owns, which must hold the <em>rest</em> positions —
+        /// the offsets as they stood when the gesture began. Recomputing from rest on every pointer
+        /// move (rather than accumulating) is what keeps the drag anchored: the same delta always
+        /// produces the same shape, however many moves were coalesced or dropped.
+        /// </para>
+        /// </summary>
+        public static void DragRope(float[] offsets, int pixelIndex, float deltaX, float deltaY)
+        {
+            if (offsets == null) throw new ArgumentNullException(nameof(offsets));
+            if (offsets.Length % 2 != 0)
+            {
+                throw new ArgumentException("Offsets must hold an x and a y per pixel.", nameof(offsets));
+            }
+
+            int pixelCount = offsets.Length / 2;
+            if (pixelIndex < 0 || pixelIndex >= pixelCount)
+            {
+                throw new ArgumentOutOfRangeException(nameof(pixelIndex));
+            }
+            if (!float.IsFinite(deltaX) || !float.IsFinite(deltaY))
+            {
+                throw new ArgumentException("The drag delta must be finite.");
+            }
+
+            offsets[pixelIndex * 2] += deltaX;
+            offsets[(pixelIndex * 2) + 1] += deltaY;
+
+            FollowWhenTaut(offsets, pixelIndex, deltaX, deltaY, step: 1);
+            FollowWhenTaut(offsets, pixelIndex, deltaX, deltaY, step: -1);
+        }
+
+        /// <summary>
+        /// One arm of the rope, walking outward from the moved pixel. Each pixel's rest position is
+        /// read before it is overwritten, so the pass needs no scratch copy of the run.
+        /// </summary>
+        private static void FollowWhenTaut(float[] offsets, int fromIndex, float movedByX, float movedByY, int step)
+        {
+            int pixelCount = offsets.Length / 2;
+
+            // The leader's rest position is its current one un-moved: the caller has already
+            // applied the delta to the pixel the walk starts from.
+            float newLeaderX = offsets[fromIndex * 2];
+            float newLeaderY = offsets[(fromIndex * 2) + 1];
+            float leaderRestX = newLeaderX - movedByX;
+            float leaderRestY = newLeaderY - movedByY;
+
+            for (int i = fromIndex + step; i >= 0 && i < pixelCount; i += step)
+            {
+                float restX = offsets[i * 2];
+                float restY = offsets[(i * 2) + 1];
+                float linkX = restX - leaderRestX;
+                float linkY = restY - leaderRestY;
+                float restLength = MathF.Sqrt((linkX * linkX) + (linkY * linkY));
+
+                float towardRestX = restX - newLeaderX;
+                float towardRestY = restY - newLeaderY;
+                float distance = MathF.Sqrt((towardRestX * towardRestX) + (towardRestY * towardRestY));
+
+                if (distance <= restLength)
+                {
+                    // Slack: this pixel stays, so nothing beyond it can be pulled either.
+                    return;
+                }
+
+                // Taut: the minimal move — back onto the circle of rest length around the leader,
+                // along the line it is being pulled in. distance > restLength ≥ 0, so the division
+                // is safe.
+                float newX = newLeaderX + (towardRestX / distance * restLength);
+                float newY = newLeaderY + (towardRestY / distance * restLength);
+
+                offsets[i * 2] = newX;
+                offsets[(i * 2) + 1] = newY;
+
+                leaderRestX = restX;
+                leaderRestY = restY;
+                newLeaderX = newX;
+                newLeaderY = newY;
+            }
+        }
+
+        /// <summary>
+        /// Restores the convention that the origin marks pixel 0: shifts every offset so the first
+        /// is (0,0) again and returns the shift, which is what the caller must add to the origin to
+        /// leave every pixel exactly where it was. Zero when pixel 0 is already home, or the
+        /// fixture is empty.
+        /// </summary>
+        public static PointF Rebase(float[] offsets)
+        {
+            if (offsets == null) throw new ArgumentNullException(nameof(offsets));
+            if (offsets.Length % 2 != 0)
+            {
+                throw new ArgumentException("Offsets must hold an x and a y per pixel.", nameof(offsets));
+            }
+            if (offsets.Length == 0)
+            {
+                return default;
+            }
+
+            float shiftX = offsets[0];
+            float shiftY = offsets[1];
+            if (shiftX == 0f && shiftY == 0f)
+            {
+                return default;
+            }
+
+            for (int i = 0; i < offsets.Length; i += 2)
+            {
+                offsets[i] -= shiftX;
+                offsets[i + 1] -= shiftY;
+            }
+
+            return new PointF(shiftX, shiftY);
+        }
+
+        /// <summary>
         /// Rotates every pixel from <paramref name="fromIndex"/> onward about that pixel, leaving
         /// the run before it untouched — bending a strip at a point, which is what the editor's
         /// pivot gesture does. Pure and in-place on a copy the caller owns.

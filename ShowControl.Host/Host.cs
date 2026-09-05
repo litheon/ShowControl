@@ -44,7 +44,22 @@ namespace ShowControl.Host
                         .AddSingleton<IEnttecDmxUsbDeviceEnumerator, EnttecDmxUsbDeviceEnumerator>()
                         .AddSingleton<IDmxDeviceEnumerator, DmxDeviceEnumerator>()
                         .AddSingleton<IInputService, InputService>()
-                        .AddSingleton<IAudioService, AudioService>((sp) => new AudioService(sp.GetRequiredService<ILogger<AudioService>>(), audioFrameProcessedEventHandler))
+                        // The analysis engine runs for the life of the app, independent of which
+                        // visualization is on screen: it is owned here, fed by the capture callback,
+                        // and never started or stopped by an animation or shader.
+                        //
+                        // The beat metadata source is the synthetic one until the native Pro DJ
+                        // Link port exists — it reports Absent until the debug panel arms a grid,
+                        // so the PLL runs locally by default. The port replaces this registration.
+                        .AddSingleton<ShowControl.AudioAnalysis.SyntheticBeatMetadataSource>()
+                        .AddSingleton<ShowControl.AudioAnalysis.IBeatMetadataSource>(sp =>
+                            sp.GetRequiredService<ShowControl.AudioAnalysis.SyntheticBeatMetadataSource>())
+                        .AddSingleton(sp => new ShowControl.AudioAnalysis.AudioAnalysisEngine(
+                            beatMetadata: sp.GetRequiredService<ShowControl.AudioAnalysis.IBeatMetadataSource>()))
+                        .AddSingleton<IAudioService, AudioService>((sp) => new AudioService(
+                            sp.GetRequiredService<ILogger<AudioService>>(),
+                            audioFrameProcessedEventHandler,
+                            sp.GetRequiredService<ShowControl.AudioAnalysis.AudioAnalysisEngine>()))
                         .AddSingleton<IGraphicsHost, GraphicsHost>()
                         .AddSingleton<IArtNetController, ArtNetController>()
                         .AddSingleton((_) => pixelMap)

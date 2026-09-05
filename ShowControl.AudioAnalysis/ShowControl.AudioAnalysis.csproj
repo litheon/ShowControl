@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('osx'))">net9.0;net9.0-maccatalyst</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">net9.0</TargetFrameworks>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
+    <Platforms>AnyCPU;x64;x86;ARM64</Platforms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsTrimmable>true</IsTrimmable>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Analysis core: all audio temporal state (envelopes, onset/PLL, section state) lives here,
+         clock-free and platform-free, so the plain-net9.0 test project can drive it deterministically.
+         No project references on purpose — Devices.Audio, Rendering and the Editor all consume it.
+         NAudio.Core supplies only NAudio.Dsp.FastFourierTransform (same FFT the legacy path uses). -->
+    <PackageReference Include="NAudio.Core" Version="2.2.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="ShowControl.Tests" />
+  </ItemGroup>
+</Project>

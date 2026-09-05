@@ -15,8 +15,16 @@ namespace ShowControl.ControlPanel.Maui
     /// <para>
     /// The editing itself lives in <see cref="PixelMapEditorViewModel"/>, in a project the test
     /// suite can reach. What is left here is what is genuinely platform: pointer coordinates, the
-    /// transform that magnifies the video surface, the drawable, the file dialogs, and the
-    /// dispatcher timers.
+    /// drawable, the dispatcher timers, and the platform halves of the dialog interfaces.
+    /// </para>
+    /// <para>
+    /// The panel is bound rather than driven: the switch, the panel and overlay visibility, both
+    /// pickers, the file buttons, the zoom buttons and the surface's own scale and anchor are all
+    /// bindings onto the view-model, and the page sets <c>x:DataType</c> so a path that does not
+    /// exist there fails the build. What stays as a handler is what a binding cannot express — the
+    /// pointer, the fixture list's selection (assigned only when it differs, because a redundant
+    /// index-path selection crashes a list that has just changed shape), and the two pushes into
+    /// non-bindable objects: the overlay drawable's region and the log scroll.
     /// </para>
     /// </summary>
     public partial class PreviewPage : ContentPage
@@ -38,27 +46,12 @@ namespace ShowControl.ControlPanel.Maui
         private readonly IGraphicsHost _graphicsHost;
         private readonly PixelMapEditorViewModel _viewModel;
         private readonly IPixelMapEditor _pixelMapEditor;
-        private readonly IPixelMapFileDialog _fileDialog = new PixelMapFileDialog();
         private readonly PixelMapOverlayDrawable _overlayDrawable = new PixelMapOverlayDrawable();
 
         private IDispatcherTimer _paramTimer;
         private IDispatcherTimer _autosaveTimer;
 
         private bool _suppressListSelection;
-
-        // Where the zoom was when edit mode was switched off, so leaving and re-entering does not
-        // lose your place. The preview goes back to fit meanwhile: the zoom controls live in the
-        // editor, and a magnified preview with no visible way to undo it is a trap mid-show.
-        private double _stashedZoom = PreviewZoomViewModel.MinZoom;
-        private double _stashedAnchorX = 0.5d;
-        private double _stashedAnchorY = 0.5d;
-
-        // Panning: dragging the preview where there is no fixture to grab. Anchored on the region
-        // captured at the press, because the transform itself moves underneath a pan.
-        private bool _panning;
-        private PreviewRegion _panStartRegion;
-        private double _panPressImageX;
-        private double _panPressImageY;
 
 #if MACCATALYST
         /// <summary>Scroll-wheel and trackpad-scroll zoom. Held so the recognizer outlives the call.</summary>
@@ -98,7 +91,7 @@ namespace ShowControl.ControlPanel.Maui
             _paramTimer.Interval = TimeSpan.FromMilliseconds(250);
             _paramTimer.Tick += (s, e) =>
             {
-                UpdateShaderParamsLabel();
+                RefreshShaderParameters();
 
                 // The backstop, not the mechanism. The notifications below are what actually catch
                 // the window leaving; this is here to notice the states nobody announces — a view
@@ -124,27 +117,24 @@ namespace ShowControl.ControlPanel.Maui
             MapOverlay.HandlerChanged += (s, e) => RunGuarded("Scroll zoom", AttachScrollZoom);
             AttachScrollZoom();
 
-            NewInterface.ItemsSource = Enum.GetNames(typeof(OutputInterfaceType));
-            NewInterface.SelectedIndex = (int)_viewModel.NewInterface;
-            NewPixelType.ItemsSource = _viewModel.KnownPixelTypes.ToList();
-            NewPixelType.SelectedItem = _viewModel.NewPixelType;
-
             _autosaveTimer = Dispatcher.CreateTimer();
             _autosaveTimer.Interval = AutosaveInterval;
             _autosaveTimer.Tick += OnAutosaveTick;
 
             _pixelMapEditor.Changed += OnPixelMapChangedExternally;
             _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+            _viewModel.Zoom.PropertyChanged += OnZoomPropertyChanged;
             _viewModel.WorkingMapReplaced += (s, e) => RefreshOverlay();
             _viewModel.Published += OnViewModelPublished;
+            _viewModel.FlushRequested += OnFlushRequested;
 
             RefreshOverlay();
-            ApplyZoom();
+            SyncOverlayRegion();
 
             if (_viewModel.RecoveredUnsavedWork)
             {
                 // The prompt the user did not get on the way out. Deferred so the window is up.
-                Dispatcher.Dispatch(async () => await PromptForRecoveredWork());
+                Dispatcher.Dispatch(() => _viewModel.ReviewRecoveredWorkCommand.Execute(null));
             }
         }
 
@@ -234,11 +224,12 @@ namespace ShowControl.ControlPanel.Maui
 #endif
         }
 
-        /// <summary>Hands the drawable the current map and selection, and redraws.</summary>
+        /// <summary>Hands the drawable the current map, selection and grabbed pixel, and redraws.</summary>
         private void RefreshOverlay()
         {
             _overlayDrawable.Map = _viewModel.Working;
             _overlayDrawable.SelectedFixtureId = _viewModel.SelectedFixtureId;
+            _overlayDrawable.DraggedPixelIndex = _viewModel.DraggedPixelIndex;
             MapOverlay.Invalidate();
         }
 
@@ -277,6 +268,9 @@ namespace ShowControl.ControlPanel.Maui
             _viewModel.SaveWorkingCopy();
         });
 
+        private void OnFlushRequested(object sender, EventArgs e) =>
+            RunGuarded("Autosave", FlushWorkingCopy);
+
         /// <summary>Flushes pending edits immediately. Used on the paths where there is no later chance.</summary>
         public void FlushWorkingCopy()
         {
@@ -311,79 +305,40 @@ namespace ShowControl.ControlPanel.Maui
             }
         }
 
-        private void OnEditModeToggled(object sender, ToggledEventArgs e) => RunGuarded("Edit mode", () =>
-        {
-            bool editing = e.Value;
-            MapOverlay.IsVisible = editing;
-            MapOverlay.InputTransparent = !editing;
-            EditorPanel.IsVisible = editing;
-            ZoomControls.IsVisible = editing;
-
-            if (editing)
-            {
-                _viewModel.AdoptCurrentMap();
-
-                // Back to where you were looking last time.
-                _viewModel.Zoom.Zoom = _stashedZoom;
-                _viewModel.Zoom.AnchorX = _stashedAnchorX;
-                _viewModel.Zoom.AnchorY = _stashedAnchorY;
-                ApplyZoom();
-            }
-            else
-            {
-                EndPan();
-                _viewModel.EndDrag();
-
-                _stashedZoom = _viewModel.Zoom.Zoom;
-                _stashedAnchorX = _viewModel.Zoom.AnchorX;
-                _stashedAnchorY = _viewModel.Zoom.AnchorY;
-                _viewModel.Zoom.FitCommand.Execute(null);
-                ApplyZoom();
-
-                FlushWorkingCopy();
-            }
-        });
-
         // ---------------------------------------------------------------- zoom
 
         /// <summary>
-        /// The one place the zoom reaches the platform. The video is magnified by scaling the
-        /// surface view about the anchor — a compositing transform, so the view's bounds are
-        /// unchanged and no swapchain is rebuilt — and the overlay is redrawn from the equivalent
-        /// region rather than being scaled, which keeps its dots and lines vector-crisp.
+        /// The half of the zoom that bindings cannot do. The video is magnified by scaling the
+        /// surface view about the anchor, and that is bound straight to the view-model in XAML — a
+        /// compositing transform, so the view's bounds are unchanged and no swapchain is rebuilt.
+        /// The overlay is not scaled at all: it is redrawn from the equivalent region, which is what
+        /// keeps its dots and lines vector-crisp and its grab radius constant on screen. A drawable
+        /// has no bindable properties, so that push is here.
         /// <para>
         /// The two are derived independently from the same state, so an error in
         /// <see cref="PreviewRegion"/> shows up as the map drifting off the picture. That is the
         /// check to run after touching any of this.
         /// </para>
         /// </summary>
-        private void ApplyZoom()
+        private void SyncOverlayRegion()
         {
-            vulkanSurface.AnchorX = _viewModel.Zoom.AnchorX;
-            vulkanSurface.AnchorY = _viewModel.Zoom.AnchorY;
-            vulkanSurface.Scale = _viewModel.Zoom.Zoom;
-
             _overlayDrawable.Region = _viewModel.Zoom.Region;
             MapOverlay.Invalidate();
         }
 
-        private void OnZoomInClicked(object sender, EventArgs e) => RunGuarded("Zoom", () =>
-        {
-            _viewModel.Zoom.ZoomInCommand.Execute(null);
-            ApplyZoom();
-        });
-
-        private void OnZoomOutClicked(object sender, EventArgs e) => RunGuarded("Zoom", () =>
-        {
-            _viewModel.Zoom.ZoomOutCommand.Execute(null);
-            ApplyZoom();
-        });
-
-        private void OnZoomFitClicked(object sender, EventArgs e) => RunGuarded("Zoom", () =>
-        {
-            _viewModel.Zoom.FitCommand.Execute(null);
-            ApplyZoom();
-        });
+        /// <summary>
+        /// Every route to a new zoom — the buttons, scroll, pinch, a pan, edit mode resetting it —
+        /// ends at the same property change, so the overlay follows from here rather than from a
+        /// call after each one.
+        /// </summary>
+        private void OnZoomPropertyChanged(object sender, PropertyChangedEventArgs e) =>
+            RunGuarded("Zoom", () =>
+            {
+                if (e.PropertyName == nameof(PreviewZoomViewModel.Region))
+                {
+                    SyncOverlayRegion();
+                }
+            });
 
         /// <summary>
         /// Attaches scroll-to-zoom to the overlay's platform view. MAUI surfaces no wheel event, so
@@ -416,7 +371,7 @@ namespace ShowControl.ControlPanel.Maui
         /// </summary>
         private void OnScrollZoom(object sender, ScrollZoomEventArgs e) => RunGuarded("Zoom", () =>
         {
-            if (_viewModel.IsDragging || _panning)
+            if (_viewModel.IsDragging || _viewModel.IsPanning)
             {
                 return;
             }
@@ -427,7 +382,6 @@ namespace ShowControl.ControlPanel.Maui
             factor = Math.Clamp(factor, 1d / MaxZoomPerScrollEvent, MaxZoomPerScrollEvent);
 
             _viewModel.Zoom.ZoomAbout(factor, e.FocusU, e.FocusV);
-            ApplyZoom();
         });
 
         /// <summary>
@@ -444,7 +398,7 @@ namespace ShowControl.ControlPanel.Maui
 
             if (e.Status == GestureStatus.Started)
             {
-                EndPan();
+                _viewModel.EndPan();
                 return;
             }
 
@@ -454,7 +408,6 @@ namespace ShowControl.ControlPanel.Maui
             }
 
             _viewModel.Zoom.ZoomAbout(e.Scale, e.ScaleOrigin.X, e.ScaleOrigin.Y);
-            ApplyZoom();
         });
 
         // ---------------------------------------------------------------- pointer
@@ -482,17 +435,9 @@ namespace ShowControl.ControlPanel.Maui
             var (imageX, imageY) = transform.ToImage(point.Value.X, point.Value.Y);
             double threshold = HitTestRadiusInPoints * transform.ImageUnitsPerOverlayPoint;
 
-            _panning = false;
-            if (!_viewModel.TryBeginDrag(imageX, imageY, threshold))
-            {
-                // Nothing to grab here, so this drag moves the view instead. Anchored on the region
-                // as it is now: the transform moves underneath the pan, so converting later points
-                // through the live region would feed the pan its own output.
-                _panning = true;
-                _panStartRegion = _viewModel.Zoom.Region;
-                _panPressImageX = imageX;
-                _panPressImageY = imageY;
-            }
+            // Grabs the fixture under the point, or starts a pan if there is none. Which of the two
+            // is running is the view-model's to know; the view only supplies the coordinates.
+            _viewModel.BeginGesture(imageX, imageY, threshold);
 
             SyncListSelection();
             RefreshOverlay();
@@ -508,8 +453,7 @@ namespace ShowControl.ControlPanel.Maui
             {
                 // Ending both matters as much as the log line: this handler runs at pointer rate, so
                 // a fault left running would repeat until the log is useless.
-                _panning = false;
-                _viewModel.EndDrag();
+                _viewModel.EndGesture();
                 Serilog.Log.Error(ex, "[PreviewPage] Pointer drag failed.");
                 _viewModel.StatusText = "Drag failed: " + ex.Message;
             }
@@ -522,7 +466,7 @@ namespace ShowControl.ControlPanel.Maui
         /// </summary>
         private void HandlePointerMoved(PointerEventArgs e)
         {
-            if (_panning)
+            if (_viewModel.IsPanning)
             {
                 PanTo(e);
                 return;
@@ -567,16 +511,11 @@ namespace ShowControl.ControlPanel.Maui
             }
 
             var pressTransform = new PixelMapOverlayTransform(
-                _viewModel.Working, MapOverlay.Width, MapOverlay.Height, _panStartRegion);
+                _viewModel.Working, MapOverlay.Width, MapOverlay.Height, _viewModel.PanStartRegion);
             var (imageX, imageY) = pressTransform.ToImage(point.Value.X, point.Value.Y);
 
-            _viewModel.Zoom.MoveTo(
-                _panStartRegion.X + (_panPressImageX - imageX),
-                _panStartRegion.Y + (_panPressImageY - imageY));
-            ApplyZoom();
+            _viewModel.PanTo(imageX, imageY);
         }
-
-        private void EndPan() => _panning = false;
 
         private void OnOverlayPointerReleased(object sender, PointerEventArgs e) =>
             RunGuarded("Drop", EndPointerGesture);
@@ -591,11 +530,12 @@ namespace ShowControl.ControlPanel.Maui
 
         private void EndPointerGesture()
         {
-            EndPan();
-            if (_viewModel.EndDrag())
+            // The flush a finished drag needs comes back as FlushRequested; the view-model asks for
+            // it because it is the one that knows an edit happened.
+            if (_viewModel.EndGesture())
             {
-                FlushWorkingCopy();
                 SyncListSelection();
+                RefreshOverlay();
             }
         }
 
@@ -616,9 +556,8 @@ namespace ShowControl.ControlPanel.Maui
         /// </summary>
         private void OnOverlaySizeChanged(object sender, EventArgs e)
         {
-            EndPan();
-            _viewModel.EndDrag();
-            MapOverlay.Invalidate();
+            _viewModel.EndGesture();
+            RefreshOverlay();
         }
 
         // ---------------------------------------------------------------- fixtures
@@ -664,143 +603,20 @@ namespace ShowControl.ControlPanel.Maui
                 _viewModel.SelectedFixtureId = (e.CurrentSelection.FirstOrDefault() as FixtureRow)?.Id;
             });
 
-        private void OnPixelTypeSelected(object sender, EventArgs e) =>
-            RunGuarded("Pixel type", () => _viewModel.NewPixelType = NewPixelType.SelectedItem as string ?? "WS2812B");
-
-        private void OnInterfaceSelected(object sender, EventArgs e) =>
-            RunGuarded("Interface", () => _viewModel.NewInterface = NewInterface.SelectedIndex == (int)OutputInterfaceType.ArtNet
-                ? OutputInterfaceType.ArtNet
-                : OutputInterfaceType.Ddp);
-
-        // ---------------------------------------------------------------- files
-
-        private async void OnOpenClicked(object sender, EventArgs e)
-        {
-            try
-            {
-                if (_pixelMapEditor.IsDirty &&
-                    !await DisplayAlert("Unsaved changes", "Opening another map discards the current unsaved edits.", "Open anyway", "Cancel"))
-                {
-                    return;
-                }
-
-                string path = await _fileDialog.PickOpenPathAsync();
-                if (string.IsNullOrEmpty(path))
-                {
-                    return;
-                }
-
-                _viewModel.Open(path);
-            }
-            catch (Exception ex)
-            {
-                _viewModel.StatusText = ex.Message;
-                Serilog.Log.Error(ex, "[PreviewPage] Could not open a pixel map.");
-            }
-        }
-
-        private async void OnSaveClicked(object sender, EventArgs e)
-        {
-            if (string.IsNullOrEmpty(_viewModel.SavedPath))
-            {
-                await SaveAs();
-                return;
-            }
-
-            try
-            {
-                _viewModel.Save(_viewModel.SavedPath);
-            }
-            catch (Exception ex)
-            {
-                _viewModel.StatusText = ex.Message;
-                Serilog.Log.Error(ex, "[PreviewPage] Could not save the pixel map.");
-            }
-        }
-
-        private async void OnSaveAsClicked(object sender, EventArgs e) => await SaveAs();
-
-        private async System.Threading.Tasks.Task SaveAs()
-        {
-            try
-            {
-                string suggested = System.IO.Path.GetFileName(_viewModel.SavedPath) ?? "pixelmap.json";
-                string contents = _viewModel.SerializeCurrent();
-                string path = await _fileDialog.SaveAsAsync(suggested, contents);
-                if (string.IsNullOrEmpty(path))
-                {
-                    return;
-                }
-
-                // Record the chosen path so plain Save goes back to it and the map is no longer dirty.
-                _viewModel.Save(path);
-            }
-            catch (Exception ex)
-            {
-                _viewModel.StatusText = ex.Message;
-                Serilog.Log.Error(ex, "[PreviewPage] Could not export the pixel map.");
-            }
-        }
-
-        private async System.Threading.Tasks.Task PromptForRecoveredWork()
-        {
-            string action = await DisplayActionSheet(
-                "A pixel map with unsaved changes was recovered from the last session.",
-                cancel: null,
-                destruction: "Discard",
-                "Keep editing", "Save As…");
-
-            if (action == "Discard")
-            {
-                _viewModel.DiscardRecoveredWork();
-            }
-            else if (action == "Save As…")
-            {
-                _viewModel.KeepRecoveredWork();
-                await SaveAs();
-            }
-            else
-            {
-                _viewModel.KeepRecoveredWork();
-            }
-        }
-
         // ---------------------------------------------------------------- surface
 
-        private void UpdateShaderParamsLabel()
-        {
-            var shader = _graphicsHost.CurrentShader;
-            string p1Label, p2Label, p3Label, p4Label;
-
-            if (shader == Shaders.Kaleidoscope)
-            {
-                p1Label = "Spiral Twist";
-                p2Label = "Time Offset";
-                p3Label = "Ring Density";
-                p4Label = "Flow Freq";
-            }
-            else if (shader == Shaders.Clown)
-            {
-                p1Label = "Blades";
-                p2Label = "Spin Offset";
-                p3Label = "Hue Offset";
-                p4Label = "Dot Radius";
-            }
-            else
-            {
-                p1Label = "Param1";
-                p2Label = "Param2";
-                p3Label = "Param3";
-                p4Label = "Param4";
-            }
-
-            ShaderParamsLabel.Text = $"Shader: {shader}\n" +
-                $"Distortion: {_graphicsHost.DistortionStrength:F3}\n" +
-                $"{p1Label}: {_graphicsHost.ShaderParam1:F3}\n" +
-                $"{p2Label}: {_graphicsHost.ShaderParam2:F3}\n" +
-                $"{p3Label}: {_graphicsHost.ShaderParam3:F3}\n" +
-                $"{p4Label}: {_graphicsHost.ShaderParam4:F3}";
-        }
+        /// <summary>
+        /// Polls the knobs and hands them over. What each one is called depends on the running
+        /// shader, and that mapping is the view-model's — this reads the host and nothing else.
+        /// The readout only notifies when a value actually moved, so a still panel costs no layout.
+        /// </summary>
+        private void RefreshShaderParameters() => _viewModel.ShaderParameters.Update(
+            _graphicsHost.CurrentShader,
+            _graphicsHost.DistortionStrength,
+            _graphicsHost.ShaderParam1,
+            _graphicsHost.ShaderParam2,
+            _graphicsHost.ShaderParam3,
+            _graphicsHost.ShaderParam4);
 
         private void OnSurfaceReady(object sender, nint surfaceHandle)
         {
@@ -870,7 +686,9 @@ namespace ShowControl.ControlPanel.Maui
             FlushWorkingCopy();
             _pixelMapEditor.Changed -= OnPixelMapChangedExternally;
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            _viewModel.Zoom.PropertyChanged -= OnZoomPropertyChanged;
             _viewModel.Published -= OnViewModelPublished;
+            _viewModel.FlushRequested -= OnFlushRequested;
 
 #if MACCATALYST
             _scrollZoom?.Dispose();

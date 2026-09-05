@@ -13,6 +13,7 @@
          (which PixelLayoutTools already uses) or plain tuples instead. Everything here has to build
          for net9.0 or it stops being testable, which is the whole reason the project exists. -->
     <ProjectReference Include="..\ShowControl.PixelMapping\ShowControl.PixelMapping.csproj" />
+    <ProjectReference Include="..\ShowControl.AudioAnalysis\ShowControl.AudioAnalysis.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />

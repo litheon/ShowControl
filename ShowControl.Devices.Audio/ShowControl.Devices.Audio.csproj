@@ -11,6 +11,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\external\PortAudioSharp2\PortAudioSharp\PortAudioSharp.csproj" />
+    <ProjectReference Include="..\ShowControl.AudioAnalysis\ShowControl.AudioAnalysis.csproj" />
     <ProjectReference Include="..\external\soundtouch.net\src\SoundTouch.Net\SoundTouch.Net.csproj" />
     <ProjectReference Include="..\ShowControl.Utilities\ShowControl.Utilities.csproj" />
   </ItemGroup>

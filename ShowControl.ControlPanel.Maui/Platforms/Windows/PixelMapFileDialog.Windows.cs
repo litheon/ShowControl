@@ -12,7 +12,7 @@ namespace ShowControl.ControlPanel.Maui
         /// rather than the main one: initializing with the main window's handle from a secondary
         /// window is the usual reason a WinUI picker never appears.
         /// </summary>
-        private partial async Task<string> SaveAsPlatformAsync(string suggestedFileName, string contents)
+        private partial async Task<string?> SaveAsPlatformAsync(string suggestedFileName, string contents)
         {
             var picker = new FileSavePicker
             {

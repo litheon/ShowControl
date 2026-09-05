@@ -80,8 +80,34 @@ namespace ShowControl.Graphics
             public float   Param1;             //  4
             public float   Param2;             //  4
             public float   Param3;             //  4
-            public float   Param4;             //  4  = 40 bytes total
+            public float   Param4;             //  4  = 40 bytes
+            // AudioLite v1 — append-only from here (version bumps add to the end; never
+            // reorder, never repurpose). Well under the 128-byte guaranteed push budget.
+            // Shaders may declare only a prefix of this block; audiolite.frag carries the
+            // canonical GLSL mirror.
+            public float   AudioEnergy;        //  4
+            public float   AudioImpulse;       //  4
+            public float   AudioTension;       //  4
+            public float   AudioPhase;         //  4  bar phase, pre-advanced to display time
+            public float   AudioHue;           //  4
+            public float   AudioGrain;         //  4
+            public float   AudioMotion;        //  4
+            public float   AudioSpread;        //  4  = 72 bytes total
         }
+
+        // Immutable holder + one volatile reference: the SetSampleMap idiom. Any thread
+        // publishes; the render thread reads the latest exactly once per frame.
+        private sealed class AudioLiteHolder
+        {
+            public readonly AudioLitePush Value;
+            public AudioLiteHolder(in AudioLitePush value) { Value = value; }
+        }
+
+        private AudioLiteHolder _audioLite = new(AudioLitePush.Silence);
+
+        /// <inheritdoc />
+        public void SetAudio(in AudioLitePush audio) =>
+            Volatile.Write(ref _audioLite, new AudioLiteHolder(audio));
 
         private Vk _vk;
         private Instance _instance;
@@ -2478,6 +2504,7 @@ namespace ShowControl.Graphics
                 _vk.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _pipelineLayout,
                     0, 1, pSet, 0, null);
 
+            var audio = Volatile.Read(ref _audioLite).Value;
             PushData pc = new()
             {
                 Resolution = new System.Numerics.Vector2(_offscreenExtent.Width, _offscreenExtent.Height),
@@ -2489,6 +2516,14 @@ namespace ShowControl.Graphics
                 Param2 = ShaderParam2,
                 Param3 = ShaderParam3,
                 Param4 = ShaderParam4,
+                AudioEnergy = audio.Energy,
+                AudioImpulse = audio.Impulse,
+                AudioTension = audio.Tension,
+                AudioPhase = audio.Phase,
+                AudioHue = audio.Hue,
+                AudioGrain = audio.Grain,
+                AudioMotion = audio.Motion,
+                AudioSpread = audio.Spread,
             };
             _vk.CmdPushConstants(cmd, _pipelineLayout, ShaderStageFlags.FragmentBit,
                 0, (uint)Unsafe.SizeOf<PushData>(), &pc);

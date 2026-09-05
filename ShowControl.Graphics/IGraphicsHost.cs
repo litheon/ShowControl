@@ -11,6 +11,29 @@ namespace ShowControl.Graphics
         public const string Kaleidoscope = "kaleidoscope";
         public const string Geometry = "geometry";
         public const string Clown = "clown";
+        public const string AudioLite = "audiolite";
+    }
+
+    /// <summary>
+    /// The 8-float AudioLite contract as the graphics host receives it: appended to the
+    /// push-constant block, so every fragment shader may read it (or declare only the
+    /// prefix and ignore it). Append-only — new fields go on the end, never reorder.
+    /// Values arrive already bounded and NaN-free from the analysis side; Graphics does
+    /// not reference the analysis project (the Graphics ↛ PixelMapping precedent), which
+    /// is why this mirror type exists.
+    /// </summary>
+    public readonly record struct AudioLitePush(
+        float Energy,
+        float Impulse,
+        float Tension,
+        float Phase,
+        float Hue,
+        float Grain,
+        float Motion,
+        float Spread)
+    {
+        /// <summary>What shaders see before the first publish or with audio off.</summary>
+        public static readonly AudioLitePush Silence = new(0f, 0f, 0f, 0f, 0f, 0f, 1f, 0.5f);
     }
     
     public enum Shader
@@ -89,6 +112,14 @@ namespace ShowControl.Graphics
 
         /// <summary>Name of the currently active shader.</summary>
         public string CurrentShader { get; }
+
+        /// <summary>
+        /// Publishes the current AudioLite frame for the render loop to fold into the next
+        /// frame's push constants. Callable from any thread at any rate (the analysis engine
+        /// publishes at ~94Hz); the render thread reads the latest value once per frame.
+        /// Independent of the active shader — audio state flows whatever is on screen.
+        /// </summary>
+        void SetAudio(in AudioLitePush audio);
 
         /// <summary>
         /// Event raised when the graphics host wants a preview window to be opened.

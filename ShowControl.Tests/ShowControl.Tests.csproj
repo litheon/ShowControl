@@ -14,6 +14,7 @@
     <ProjectReference Include="..\ShowControl.Devices.DMX\ShowControl.Devices.DMX.csproj" />
     <ProjectReference Include="..\ShowControl.Devices.Output\ShowControl.Devices.Output.csproj" />
     <ProjectReference Include="..\ShowControl.PixelMapping\ShowControl.PixelMapping.csproj" />
+    <ProjectReference Include="..\ShowControl.AudioAnalysis\ShowControl.AudioAnalysis.csproj" />
     <ProjectReference Include="..\ShowControl.Utilities\ShowControl.Utilities.csproj" />
     <ProjectReference Include="..\ShowControl.ControlPanel.Editor\ShowControl.ControlPanel.Editor.csproj" />
   </ItemGroup>

@@ -3,11 +3,7 @@ using ShowControl.Devices.Audio;
 using ShowControl.Devices.DMX;
 using ShowControl.Host;
 using System;
-using System.Collections.ObjectModel;
 using System.Runtime.InteropServices;
-using System.Text;
-using Point = ShowControl.Devices.Audio.Point;
-using GraphicsPoint = Microsoft.Maui.Graphics.Point;
 using ShowControl.Devices.Input;
 using ShowControl.Graphics;
 using ShowControl.PixelMapping;
@@ -17,22 +13,22 @@ namespace ShowControl.ControlPanel.Maui
 {
     public partial class MainPage : ContentPage
     {
-        private static readonly double Limit = 1;
-        Point[] fftChartPoints;
-        PointCollection points1;
-        PointCollection points2;
-        PointCollection activePoints;
         private readonly Task<IHost> _hostTask;
         private IHost _host;
-        int x = 10;
 
         // Log pane: polls the in-memory sink rather than being called back per event,
         // so logging from the render/audio threads never touches the UI directly.
-        private const int MaxLogRowsShown = 500;
         private static readonly TimeSpan LogPollInterval = TimeSpan.FromMilliseconds(250);
-        private readonly ObservableCollection<LogEntryView> _logRows = new ObservableCollection<LogEntryView>();
-        private long _lastLogSequence = -1;
+        private readonly MainPageViewModel _viewModel = new MainPageViewModel();
         private IDispatcherTimer _logTimer;
+
+        // Audio debug view: same poll-don't-push shape as the log pane — the analysis engine
+        // publishes at ~94Hz on its own thread, and the timer pulls the latest snapshot at a
+        // rate the UI can afford.
+        private static readonly TimeSpan AudioDebugInterval = TimeSpan.FromMilliseconds(66);
+        private readonly AudioDebugDrawable _audioDebugDrawable = new AudioDebugDrawable();
+        private IDispatcherTimer _audioDebugTimer;
+        private bool _loggedAudioDebugFailure;
 
         private static MainPage _instance;
         public MainPage()
@@ -44,6 +40,7 @@ namespace ShowControl.ControlPanel.Maui
             }
 
             InitializeComponent();
+            BindingContext = _viewModel;
             //Thread.Sleep(20000);
             _hostTask = Host.Host.Main(new string[] { }, OnAudioFrameProcessed, HandlePixelMap);
             Initialize();
@@ -52,23 +49,10 @@ namespace ShowControl.ControlPanel.Maui
             //Task.Run(() => new GraphicsHost().Run());
         }
 
-        // One line per fixture from the pixel map. This used to summarize an IDmxDevice[] that
-        // held one device per pixel — ~11.5k lines, ~450 KB — because the pixel surface had no
-        // notion of a fixture to group by.
-        private void HandlePixelMap(PixelMapSummary summary)
-        {
-            var addressOutput = new StringBuilder();
-            addressOutput.AppendLine(string.Format("{0} pixels · {1} channels · {2} output device(s)",
-                summary.TotalPixelCount, summary.TotalChannelCount, summary.OutputCount));
-            foreach (var line in summary.Lines)
-            {
-                addressOutput.AppendLine(line.ToString());
-            }
-            MainThread.BeginInvokeOnMainThread(() =>
-            {
-                Addresses.Text = addressOutput.ToString();
-            });
-        }
+        // Raised from the render thread when the map is published, so it marshals; the formatting
+        // itself is the view-model's.
+        private void HandlePixelMap(PixelMapSummary summary) =>
+            MainThread.BeginInvokeOnMainThread(() => _viewModel.SetPixelMapSummary(summary));
 
         private void Initialize()
         {
@@ -83,7 +67,7 @@ namespace ShowControl.ControlPanel.Maui
                 // escaping here aborts the process before there is a window to read the error in.
                 // Come up without the host instead and put the failure on screen.
                 Serilog.Log.Error(ex, "[MainPage] The host failed to start; the management UI is running without it.");
-                Addresses.Text = "Startup failed: " + ex.Message;
+                _viewModel.ReportStartupFailure(ex);
                 StartLogPane();
                 return;
             }
@@ -101,12 +85,55 @@ namespace ShowControl.ControlPanel.Maui
             graphicsHost.PreviewWindowRequested += OnPreviewWindowRequested;
 #endif
 
+            StartAudioDebugView(result);
             StartLogPane();
+        }
+
+        // The engine runs for the life of the app whatever is on screen; this view is just
+        // one more consumer of it. Built here rather than in the constructor because the
+        // engine lives in the host's services.
+        private void StartAudioDebugView(IHost host)
+        {
+            var engine = host.Services.GetRequiredService<ShowControl.AudioAnalysis.AudioAnalysisEngine>();
+            engine.Start();
+
+            var audioViewModel = new ShowControl.ControlPanel.Editor.AudioDebugViewModel(
+                engine,
+                host.Services.GetService<ILogger<ShowControl.ControlPanel.Editor.AudioDebugViewModel>>(),
+                host.Services.GetService<ShowControl.AudioAnalysis.SyntheticBeatMetadataSource>());
+            _viewModel.Audio = audioViewModel;
+
+            _viewModel.AudioDevices = new ShowControl.ControlPanel.Editor.AudioDeviceListViewModel(
+                new AudioDeviceSelector(host.Services.GetRequiredService<ShowControl.Devices.Audio.IAudioService>()),
+                host.Services.GetService<ILogger<ShowControl.ControlPanel.Editor.AudioDeviceListViewModel>>());
+
+            _audioDebugDrawable.SnapshotProvider = () => audioViewModel.Snapshot;
+            AudioDebugView.Drawable = _audioDebugDrawable;
+
+            _audioDebugTimer = Dispatcher.CreateTimer();
+            _audioDebugTimer.Interval = AudioDebugInterval;
+            _audioDebugTimer.Tick += (sender, e) =>
+            {
+                try
+                {
+                    audioViewModel.Refresh();
+                    AudioDebugView.Invalidate();
+                }
+                catch (Exception ex)
+                {
+                    // A UI-callback exception aborts the process on Catalyst; log once, not per tick.
+                    if (!_loggedAudioDebugFailure)
+                    {
+                        _loggedAudioDebugFailure = true;
+                        Serilog.Log.Error(ex, "[MainPage] Audio debug tick failed; further failures suppressed.");
+                    }
+                }
+            };
+            _audioDebugTimer.Start();
         }
 
         private void StartLogPane()
         {
-            LogView.ItemsSource = _logRows;
             PumpLogRows(); // show whatever was logged during startup
 
             _logTimer = Dispatcher.CreateTimer();
@@ -115,35 +142,16 @@ namespace ShowControl.ControlPanel.Maui
             _logTimer.Start();
         }
 
+        // The rows themselves are bound; what is left here is the scroll, which is a control
+        // operation with no bindable equivalent.
         private void PumpLogRows()
         {
-            var newLines = UiLogSink.Instance.ReadSince(_lastLogSequence);
-            if (newLines.Count == 0)
+            if (!_viewModel.PumpLogRows() || !_viewModel.AutoScrollLog || _viewModel.LogRows.Count == 0)
             {
                 return;
             }
 
-            foreach (var line in newLines)
-            {
-                _logRows.Add(new LogEntryView(line));
-                _lastLogSequence = line.Sequence;
-            }
-
-            while (_logRows.Count > MaxLogRowsShown)
-            {
-                _logRows.RemoveAt(0);
-            }
-
-            if (LogAutoScroll.IsChecked && _logRows.Count > 0)
-            {
-                LogView.ScrollTo(_logRows.Count - 1, position: ScrollToPosition.End, animate: false);
-            }
-        }
-
-        // Clears the on-screen rows only; the rolling log file is untouched.
-        private void OnClearLogClicked(object sender, EventArgs e)
-        {
-            _logRows.Clear();
+            LogView.ScrollTo(_viewModel.LogRows.Count - 1, position: ScrollToPosition.End, animate: false);
         }
 
 #if MACCATALYST || WINDOWS
@@ -172,11 +180,17 @@ namespace ShowControl.ControlPanel.Maui
 
                 Serilog.Log.Debug("[MainPage] Creating PreviewPage...");
                 var pixelMapEditor = _host.Services.GetRequiredService<IPixelMapEditor>();
+
+                // The page is built from the view-model, so the dialogs resolve it lazily rather
+                // than being handed it: by the time a command can ask a question the page is up.
+                PreviewPage? previewPage = null;
                 var editorViewModel = new ShowControl.ControlPanel.Editor.PixelMapEditorViewModel(
                     pixelMapEditor,
                     _host.Services.GetRequiredService<IPixelTypeResolver>(),
-                    _host.Services.GetService<ILogger<ShowControl.ControlPanel.Editor.PixelMapEditorViewModel>>());
-                var previewPage = new PreviewPage(graphicsHost, editorViewModel, pixelMapEditor);
+                    _host.Services.GetService<ILogger<ShowControl.ControlPanel.Editor.PixelMapEditorViewModel>>(),
+                    new PixelMapFileDialog(),
+                    new MauiEditorDialogs(() => previewPage));
+                previewPage = new PreviewPage(graphicsHost, editorViewModel, pixelMapEditor);
 
                 Serilog.Log.Debug("[MainPage] Creating Window...");
                 var window = new Window(previewPage)
@@ -213,74 +227,18 @@ namespace ShowControl.ControlPanel.Maui
         // is reached on a normal quit. The old MainWindow_Closing here was never subscribed to
         // anything, so StopAsync never ran.
 
+        // The FFT polyline this used to drive is gone — the spectrum lives on the audio debug
+        // drawable now, fed by the analysis engine. What remains of the legacy event is the
+        // text readouts. Only scalars are copied before the marshal: the spectrum array is
+        // pooled and owned by the event's dispatcher, so nothing here may retain it.
         private void OnAudioFrameProcessed(object sender, AudioFrameProcessedEventArgs e)
         {
-            if (fftChartPoints == null || fftChartPoints.Length != e.AudioSpectrum.Points.Length)
-            {
-                Array.Resize(ref fftChartPoints, e.AudioSpectrum.Points.Length);
-            }
-
-            Array.Copy(e.AudioSpectrum.Points, fftChartPoints, fftChartPoints.Length);
-
-            MainThread.BeginInvokeOnMainThread(() => {
-                Bpm.Text = string.Format("BPM: {0}", e.Bpm);
-                BassAmplitudeAverage.Text = string.Format("Bass Amplitude Average: {0}", e.AverageLevel);
-                BassAmplitudeCurrent.Text = string.Format("Bass Amplitude Current: {0}", e.CurrentLevel);
-                AmplitudeRatio.Text = string.Format("Amplitude Ratio: {0}", e.AmplitudeRatio);
-                double previous = 0;
-                GraphicsPoint point1 = default;
-                GraphicsPoint point2 = default;
-
-                if (points1 == null)
-                {
-                    points1 = new PointCollection();
-                    points2 = new PointCollection();
-                    activePoints = points1;
-                }
-
-                if (polyline.Points == points1)
-                {
-                    activePoints = points2;
-                }
-                else if (activePoints == points2)
-                {
-                    activePoints = points1;
-                }
-
-                activePoints.Clear();
-                for (int i = 0; i < fftChartPoints.Length; i++)
-                {
-                    var X = fftChartPoints[i].X * polyline.Width;
-                    var Y = fftChartPoints[i].Y > double.NegativeInfinity ? (fftChartPoints[i].Y / -140.0d) * polyline.Height : 0;
-
-                    if (fftChartPoints[i].X <= Limit)
-                    {
-                        point1.X = previous;
-                        point1.Y = Y;
-
-                        point2.X = X;
-                        point2.Y = Y;
-
-                        if (activePoints.Count < fftChartPoints.Length * 2 + 1)
-                        {
-                            activePoints.Add(point1);
-                            activePoints.Add(point2);
-                        }
-                        else
-                        {
-                            activePoints[2 * i] = point1;
-                            activePoints[2 * i + 1] = point2;
-                        }
-
-                        previous = X;
-                    }
-                    else if (fftChartPoints[i].X > Limit)
-                    {
-                        break;
-                    }
-                }
-                polyline.Points = activePoints;
-            });
+            var bpm = e.Bpm;
+            var averageLevel = e.AverageLevel;
+            var currentLevel = e.CurrentLevel;
+            var amplitudeRatio = e.AmplitudeRatio;
+            MainThread.BeginInvokeOnMainThread(() =>
+                _viewModel.UpdateAudioReadout(bpm, averageLevel, currentLevel, amplitudeRatio));
         }
     }
 }

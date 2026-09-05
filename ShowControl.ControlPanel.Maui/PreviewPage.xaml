@@ -2,21 +2,60 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:graphics="clr-namespace:ShowControl.Graphics;assembly=ShowControl.Graphics"
+             xmlns:editor="clr-namespace:ShowControl.ControlPanel.Editor;assembly=ShowControl.ControlPanel.Editor"
              x:Class="ShowControl.ControlPanel.Maui.PreviewPage"
+             x:DataType="editor:PixelMapEditorViewModel"
              Title="Graphics Preview"
              >
 
+    <ContentPage.Resources>
+        <!-- Caption above an editor field. Dimmer and smaller than the value it names, so a column
+             of them reads as labels rather than as more content. -->
+        <Style x:Key="FieldLabel" TargetType="Label">
+            <Setter Property="TextColor" Value="#FFBBBBBB" />
+            <Setter Property="FontSize" Value="10" />
+        </Style>
+
+        <!-- One row of a value list. A clickable Label rather than a Button so the text is
+             left-aligned under its caption like every other field's value, and the rows read as a
+             list instead of a stack of controls. -->
+        <Style x:Key="OptionRow" TargetType="Label">
+            <Setter Property="TextColor" Value="White" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Padding" Value="6,3" />
+        </Style>
+
+        <!-- The box a value list sits in, so it reads as one field rather than loose rows. -->
+        <Style x:Key="OptionList" TargetType="Border">
+            <Setter Property="Stroke" Value="#30FFFFFF" />
+            <Setter Property="BackgroundColor" Value="#20FFFFFF" />
+            <Setter Property="Padding" Value="0,2" />
+        </Style>
+    </ContentPage.Resources>
+
     <!-- Single-cell grid: every child fills it and stacks in declaration order. The surface has no
-         size request, so the overlay's bounds are identical to it and no offset term is needed. -->
+         size request, so the overlay's bounds are identical to it and no offset term is needed.
+
+         x:DataType is set on the page and on every template: it makes the bindings compiled, so a
+         path that does not exist on the view-model is a build error rather than a control that
+         silently shows nothing. That check is the point of moving this much state into bindings. -->
     <Grid BackgroundColor="Transparent">
-        <graphics:VulkanSurfaceView x:Name="vulkanSurface" />
+        <!-- The zoom is a compositing transform on the surface — scale about an anchor — and never
+             a change to the render path: the view's bounds do not move, so no swapchain is rebuilt
+             and the LEDs are unaffected. Bound rather than assigned so there is one place the zoom
+             state lives; the overlay is redrawn from the equivalent PreviewRegion in code-behind,
+             which is what keeps it vector-crisp instead of magnified. -->
+        <graphics:VulkanSurfaceView x:Name="vulkanSurface"
+                                    Scale="{Binding Zoom.Zoom}"
+                                    AnchorX="{Binding Zoom.AnchorX}"
+                                    AnchorY="{Binding Zoom.AnchorY}" />
 
         <!-- Pixel map overlay. Hidden and input-transparent unless edit mode is on, so the preview
              stays clean during a show. The near-transparent background is deliberate: a fully
              transparent element is not reliably hit-testable over a SwapChainPanel on Windows. -->
         <GraphicsView x:Name="MapOverlay"
-                      IsVisible="False"
-                      InputTransparent="True"
+                      IsVisible="{Binding IsEditing}"
+                      InputTransparent="{Binding IsNotEditing}"
                       BackgroundColor="#01000000">
             <GraphicsView.GestureRecognizers>
                 <!-- PointerExited ends the drag too: on Mac Catalyst a drag that leaves the view
@@ -31,7 +70,7 @@
 
         <!-- Editor panel -->
         <Border x:Name="EditorPanel"
-                IsVisible="False"
+                IsVisible="{Binding IsEditing}"
                 HorizontalOptions="End"
                 VerticalOptions="Fill"
                 WidthRequest="300"
@@ -43,10 +82,13 @@
                     <Label Text="Pixel Map" TextColor="White" FontSize="16" FontAttributes="Bold" />
                     <Label Text="{Binding DirtyText}" TextColor="Orange" FontSize="11" />
 
+                    <!-- Commands, not Clicked handlers: the dialog these raise is the platform's,
+                         but deciding whether to ask, what to suggest as a filename and what to do
+                         with the answer is editor logic and lives in the view-model. -->
                     <HorizontalStackLayout Spacing="6">
-                        <Button Text="Open" FontSize="11" Padding="8,2" Clicked="OnOpenClicked" />
-                        <Button Text="Save" FontSize="11" Padding="8,2" Clicked="OnSaveClicked" />
-                        <Button Text="Save As…" FontSize="11" Padding="8,2" Clicked="OnSaveAsClicked" />
+                        <Button Text="Open" FontSize="11" Padding="8,2" Command="{Binding OpenCommand}" />
+                        <Button Text="Save" FontSize="11" Padding="8,2" Command="{Binding SaveCommand}" />
+                        <Button Text="Save As…" FontSize="11" Padding="8,2" Command="{Binding SaveAsCommand}" />
                     </HorizontalStackLayout>
 
                     <BoxView HeightRequest="1" Color="#40FFFFFF" />
@@ -64,9 +106,12 @@
                                     ItemsSource="{Binding Rows}"
                                     SelectionChanged="OnFixtureSelected">
                         <CollectionView.ItemTemplate>
-                            <DataTemplate>
+                            <DataTemplate x:DataType="editor:FixtureRow">
                                 <Grid ColumnDefinitions="Auto,*" Padding="0,2" HeightRequest="28">
-                                    <CheckBox IsChecked="{Binding Enabled}" Color="White" />
+                                    <!-- OneWay: FixtureRow is an immutable record, and the enabled
+                                         flag is changed through the button below so the edit goes
+                                         through validation and publishing like any other. -->
+                                    <CheckBox IsChecked="{Binding Enabled, Mode=OneWay}" Color="White" />
                                     <Label Grid.Column="1" Text="{Binding Description}" TextColor="White"
                                            FontSize="11" VerticalOptions="Center" LineBreakMode="TailTruncation" />
                                 </Grid>
@@ -98,21 +143,98 @@
                     <BoxView HeightRequest="1" Color="#40FFFFFF" />
 
                     <Label Text="Add fixture" TextColor="White" FontSize="13" FontAttributes="Bold" />
-                    <Entry Text="{Binding NewName}" Placeholder="Name" FontSize="11" />
-                    <Picker x:Name="NewInterface" Title="Interface" FontSize="11" TextColor="White"
-                            SelectedIndexChanged="OnInterfaceSelected" />
-                    <Entry Text="{Binding NewIpAddress}" Placeholder="IP address" FontSize="11" />
-                    <Entry Text="{Binding NewPort}" Placeholder="Port (DDP)" Keyboard="Numeric" FontSize="11" />
-                    <Entry Text="{Binding NewUniverse}" Placeholder="Universe (ArtNet)" Keyboard="Numeric" FontSize="11" />
-                    <Entry Text="{Binding NewStartChannel}" Placeholder="Start channel" Keyboard="Numeric" FontSize="11" />
-                    <Picker x:Name="NewPixelType" Title="Pixel type" FontSize="11" TextColor="White"
-                            SelectedIndexChanged="OnPixelTypeSelected" />
-                    <Entry Text="{Binding NewPixelCount}" Placeholder="Pixel count" Keyboard="Numeric" FontSize="11" />
+
+                    <!-- Each field is a caption over its editor, paired in its own tight stack so
+                         the 6pt spacing of the panel separates fields rather than splitting a label
+                         from what it names. The captions replace the placeholders: a placeholder
+                         disappears the moment a value is typed, which is exactly when a column of
+                         numbers stops being self-explanatory. -->
+                    <VerticalStackLayout Spacing="1">
+                        <Label Text="Name" Style="{StaticResource FieldLabel}" />
+                        <Entry Text="{Binding NewName}" FontSize="11" />
+                    </VerticalStackLayout>
+
+                    <!-- Not a Picker: MAUI renders one as a UIPickerView on Mac Catalyst, which is
+                         a phone thumb-wheel in a popover. Two choices fit as a list, so the panel
+                         draws the list. Each row carries its own command, so nothing here has to
+                         reach back up to the page's binding context. -->
+                    <VerticalStackLayout Spacing="1">
+                        <Label Text="Interface" Style="{StaticResource FieldLabel}" />
+                        <Border Style="{StaticResource OptionList}">
+                            <VerticalStackLayout Spacing="0"
+                                                 BindableLayout.ItemsSource="{Binding InterfaceOptionRows}">
+                                <BindableLayout.ItemTemplate>
+                                    <DataTemplate x:DataType="editor:OptionRow">
+                                        <Label Text="{Binding Display}" Style="{StaticResource OptionRow}">
+                                            <Label.GestureRecognizers>
+                                                <TapGestureRecognizer Command="{Binding ChooseCommand}" />
+                                            </Label.GestureRecognizers>
+                                        </Label>
+                                    </DataTemplate>
+                                </BindableLayout.ItemTemplate>
+                            </VerticalStackLayout>
+                        </Border>
+                    </VerticalStackLayout>
+
+                    <VerticalStackLayout Spacing="1">
+                        <Label Text="IP address" Style="{StaticResource FieldLabel}" />
+                        <Entry Text="{Binding NewIpAddress}" FontSize="11" />
+                    </VerticalStackLayout>
+
+                    <VerticalStackLayout Spacing="1">
+                        <Label Text="Port (DDP)" Style="{StaticResource FieldLabel}" />
+                        <Entry Text="{Binding NewPort}" Keyboard="Numeric" FontSize="11" />
+                    </VerticalStackLayout>
+
+                    <VerticalStackLayout Spacing="1">
+                        <Label Text="Universe (ArtNet)" Style="{StaticResource FieldLabel}" />
+                        <Entry Text="{Binding NewUniverse}" Keyboard="Numeric" FontSize="11" />
+                    </VerticalStackLayout>
+
+                    <VerticalStackLayout Spacing="1">
+                        <Label Text="Start channel" Style="{StaticResource FieldLabel}" />
+                        <Entry Text="{Binding NewStartChannel}" Keyboard="Numeric" FontSize="11" />
+                    </VerticalStackLayout>
+
+                    <!-- The whole catalogue, listed. Nine short rows are cheaper to read than any
+                         popup, and the panel already scrolls — a nested scroller here would fight
+                         the outer one for the gesture. -->
+                    <VerticalStackLayout Spacing="1">
+                        <Label Text="Pixel type" Style="{StaticResource FieldLabel}" />
+                        <Border Style="{StaticResource OptionList}">
+                            <VerticalStackLayout Spacing="0"
+                                                 BindableLayout.ItemsSource="{Binding PixelTypeOptionRows}">
+                                <BindableLayout.ItemTemplate>
+                                    <DataTemplate x:DataType="editor:OptionRow">
+                                        <Label Text="{Binding Display}" Style="{StaticResource OptionRow}">
+                                            <Label.GestureRecognizers>
+                                                <TapGestureRecognizer Command="{Binding ChooseCommand}" />
+                                            </Label.GestureRecognizers>
+                                        </Label>
+                                    </DataTemplate>
+                                </BindableLayout.ItemTemplate>
+                            </VerticalStackLayout>
+                        </Border>
+                    </VerticalStackLayout>
+
+                    <VerticalStackLayout Spacing="1">
+                        <Label Text="Pixel count" Style="{StaticResource FieldLabel}" />
+                        <Entry Text="{Binding NewPixelCount}" Keyboard="Numeric" FontSize="11" />
+                    </VerticalStackLayout>
+
                     <!-- Spacing and angle lay the run out at creation; neither is stored in the map.
                          1.25 is the shipped rig's spacing: one LED per image pixel at the render
                          target's previous size, scaled with it. -->
-                    <Entry Text="{Binding NewSpacing}" Placeholder="Spacing (image px)" Keyboard="Numeric" FontSize="11" />
-                    <Entry Text="{Binding NewAngle}" Placeholder="Angle (degrees)" Keyboard="Numeric" FontSize="11" />
+                    <VerticalStackLayout Spacing="1">
+                        <Label Text="Spacing (image px)" Style="{StaticResource FieldLabel}" />
+                        <Entry Text="{Binding NewSpacing}" Keyboard="Numeric" FontSize="11" />
+                    </VerticalStackLayout>
+
+                    <VerticalStackLayout Spacing="1">
+                        <Label Text="Angle (degrees)" Style="{StaticResource FieldLabel}" />
+                        <Entry Text="{Binding NewAngle}" Keyboard="Numeric" FontSize="11" />
+                    </VerticalStackLayout>
+
                     <Button Text="Add" FontSize="11" Padding="8,2" Command="{Binding AddFixtureCommand}" />
 
                     <Label Text="{Binding StatusText}" TextColor="#FFAAAAAA" FontSize="10" LineBreakMode="WordWrap" />
@@ -122,20 +244,27 @@
 
         <!-- Edit mode switch, zoom controls and shader parameters.
              The zoom controls sit here rather than in EditorPanel so they stay put when the panel
-             is scrolled, and are hidden with edit mode because that is when the zoom resets. -->
+             is scrolled, and are hidden with edit mode because that is when the zoom resets.
+
+             The switch is bound rather than handled: everything switching it on and off has to do —
+             adopting the live map, stashing and restoring the zoom, dropping a gesture in flight,
+             flushing the working copy — hangs off IsEditing in the view-model, so it happens
+             whatever moved it. -->
         <HorizontalStackLayout VerticalOptions="Start" HorizontalOptions="Start" Margin="8,8,0,0" Spacing="6">
-            <Switch x:Name="EditModeSwitch" Toggled="OnEditModeToggled" />
+            <Switch x:Name="EditModeSwitch" IsToggled="{Binding IsEditing}" />
             <Label Text="Edit pixel map" TextColor="Red" FontSize="12" VerticalOptions="Center" />
 
-            <HorizontalStackLayout x:Name="ZoomControls" IsVisible="False" Spacing="4" Margin="12,0,0,0">
-                <Button Text="−" FontSize="12" Padding="10,2" Clicked="OnZoomOutClicked" />
-                <Button Text="+" FontSize="12" Padding="10,2" Clicked="OnZoomInClicked" />
-                <Button Text="Fit" FontSize="11" Padding="8,2" Clicked="OnZoomFitClicked" />
+            <HorizontalStackLayout x:Name="ZoomControls" IsVisible="{Binding IsEditing}" Spacing="4" Margin="12,0,0,0">
+                <Button Text="−" FontSize="12" Padding="10,2" Command="{Binding Zoom.ZoomOutCommand}" />
+                <Button Text="+" FontSize="12" Padding="10,2" Command="{Binding Zoom.ZoomInCommand}" />
+                <Button Text="Fit" FontSize="11" Padding="8,2" Command="{Binding Zoom.FitCommand}" />
                 <Label Text="{Binding Zoom.Label}" TextColor="Red" FontSize="12"
                        WidthRequest="46" VerticalOptions="Center" />
             </HorizontalStackLayout>
         </HorizontalStackLayout>
 
+        <!-- The knob readout. The page polls the graphics host and hands the numbers to the
+             view-model, which decides what each knob is called for the running shader. -->
         <Label x:Name="ShaderParamsLabel"
                TextColor="Red"
                FontFamily="Courier New"
@@ -143,7 +272,7 @@
                VerticalOptions="Start"
                HorizontalOptions="Start"
                Margin="8,40,0,0"
-               Text="Shader Params" />
+               Text="{Binding ShaderParameters.Text}" />
     </Grid>
 
 </ContentPage>

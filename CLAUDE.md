@@ -140,7 +140,56 @@ MacCatalyst app (`ShowControl.ControlPanel.Maui`), published from a Mac via
   cannot reference MAUI and a view-model there would be untestable. Keep MAUI
   types out of it — `System.Drawing` or tuples — or it stops building for net9.0
   and the tests go with it. `PreviewPage` keeps only what is genuinely platform:
-  pointer coordinates, the surface transform, the drawable, dialogs and timers.
+  pointer coordinates, the drawable, the dispatcher timers, and the platform
+  halves of `IPixelMapFileDialog`/`IEditorDialogs`.
+- **The panel is bound, not driven.** The edit switch, the overlay's and panel's
+  visibility, both pickers, the file buttons, the zoom buttons, and the surface
+  view's own `Scale`/`AnchorX`/`AnchorY` are all bindings onto
+  `PixelMapEditorViewModel`; `PreviewPage.xaml` and `MainPage.xaml` set
+  `x:DataType`, so every binding is compiled and a path that does not exist on the
+  view-model is a **build error**. That check is the point — do not drop the
+  `x:DataType` to silence a binding problem, fix the path. What is still a handler
+  is what a binding cannot express: the pointer, the fixture list's selection (see
+  below), and the two pushes into objects with no bindable properties —
+  `PixelMapOverlayDrawable.Region` and the log pane's `ScrollTo`.
+- **Interface and pixel type are lists the panel draws, not `Picker`s.** MAUI
+  renders a `Picker` as a `UIPickerView` on Mac Catalyst — a phone thumb-wheel in a
+  popover, wrong for a desktop panel — and its two-way `SelectedItem` binding hands
+  back `null` every time `ItemsSource` is assigned, which unboxes into an exception
+  against the non-nullable `OutputInterfaceType` and leaves the binding dead, so the
+  wheel opens and then changes nothing. Both are now
+  `BindableLayout` over `InterfaceOptionRows`/`PixelTypeOptionRows`: each
+  `OptionRow` is a clickable label carrying its own command, already wrapped in
+  `Guard` by the view-model that built it. The rows *show* the current choice
+  (`IsSelected` → the `●`/`○` in `Display`) rather than holding it, so setting
+  `NewInterface`/`NewPixelType` from anywhere moves the mark —
+  `SyncInterfaceSelection`/`SyncPixelTypeSelection` off the generated
+  `OnNewInterfaceChanged`/`OnNewPixelTypeChanged` hooks. Do not put a nested
+  `ScrollView` around the nine pixel-type rows: the panel already scrolls and the
+  two scrollers fight for the gesture on Catalyst.
+- Every field in the Add-fixture form is a caption over its editor in its own
+  `Spacing="1"` stack, so the panel's 6pt spacing separates fields instead of
+  splitting a label from what it names. The captions replaced the placeholders —
+  a placeholder vanishes as soon as a value is typed, which is exactly when a
+  column of numbers stops being self-explanatory.
+- Turning edit mode on and off is `IsEditing` on the view-model, not a `Toggled`
+  handler. Adopting the live map, restoring the stashed zoom on the way in, and
+  dropping any gesture, resetting to fit and flushing on the way out all hang off
+  `OnIsEditingChanged`, so they happen whatever moved the property. The zoom stash
+  and the pan anchor live there too — a pan is arithmetic on image coordinates,
+  and only the pointer-to-image conversion needs the view.
+- `IEditorDialogs` is the editor's questions (confirm before discarding, what to
+  do with recovered work) reduced to their answers, so Open/Save/Save As are async
+  commands on the view-model with the wording and the platform picker behind
+  `MauiEditorDialogs`/`PixelMapFileDialog`. The view-model is built before the page
+  exists — the page is constructed *with* it — so `MauiEditorDialogs` takes a
+  `Func<Page?>` and resolves it per call. A view-model given no dialogs (a test)
+  says so on the status line rather than throwing out of a command body.
+- `MainPageViewModel` is in the MAUI project rather than the editor one on
+  purpose: it reads audio, host and pixel-mapping types, and pulling those into the
+  plain-net9.0 editor project would drag MAUI in behind them and take the test
+  project's reference with it. The FFT polyline stays in the code-behind — it is a
+  per-frame rebuild of a point collection against the control's own size.
 - **Presentation is gated on the window, from `PreviewPage`.** A window that is
   not being composited withholds its drawable, and the frame that waits on it
   carries the rig's pixels — so `UpdatePresentationVisibility` calling
@@ -165,8 +214,9 @@ MacCatalyst app (`ShowControl.ControlPanel.Maui`), published from a Mac via
 - **Command bindings bypass the view's try/catch.** `RunGuarded` in the page is
   what stops a UI-callback exception aborting the process on Catalyst, and a
   `Command=` binding does not go through it — so every command body runs inside
-  `EditorViewModelBase.Guard` instead. Anything new on the panel needs one or the
-  other.
+  `EditorViewModelBase.Guard`, or `GuardAsync` for the async ones, whose exception
+  surfaces on a continuation the view cannot see at all. Anything new on the panel
+  needs one or the other.
 - Scroll-to-zoom is native: MAUI surfaces no wheel event, so
   `Platforms/MacCatalyst/ScrollZoomGesture` attaches a `UIPanGestureRecognizer`
   with `AllowedScrollTypesMask` set and **no allowed touch types** — the empty
@@ -174,11 +224,15 @@ MacCatalyst app (`ShowControl.ControlPanel.Maui`), published from a Mac via
   fixture drag. It is reattached on `HandlerChanged`, since the platform view is
   recreated with the handler.
 - Preview zoom is a compositing transform on the surface view (`Scale` +
-  `AnchorX/AnchorY`), never a change to the render path: `MetalBackedView` only
+  `AnchorX/AnchorY`, bound in XAML to `PreviewZoomViewModel`), never a change to
+  the render path: `MetalBackedView` only
   resizes its drawable from `Bounds`, which a transform does not touch, so no
   swapchain is rebuilt and the LEDs are unaffected. The overlay is *not* scaled —
   it is redrawn from the equivalent `PreviewRegion` so it stays vector-crisp and
-  the grab radius stays constant on screen. Anchor and region are two views of one
+  the grab radius stays constant on screen; `PreviewPage` follows the zoom by
+  watching `PreviewZoomViewModel.Region` change, so every route to a new
+  magnification (buttons, scroll, pinch, pan, edit mode resetting it) redraws it
+  without each one having to remember to. Anchor and region are two views of one
   state (`PreviewRegion.ForZoom`/`AnchorFor`); the anchor's own [0,1] range is
   exactly the range in which the region stays inside the image, which is why
   clamping the anchor is the only clamp. If they ever disagree the map visibly
@@ -209,6 +263,70 @@ MacCatalyst app (`ShowControl.ControlPanel.Maui`), published from a Mac via
   - Keep it in its own `#if WINDOWS` file: the Windows target framework does not
     build on macOS, so a mistake there is invisible until someone builds on
     Windows, and an isolated file makes that failure obvious.
+
+## Audio analysis
+
+- `ShowControl.AudioAnalysis` is the analysis core: a plain-net9.0 leaf project (the
+  PixelMapping precedent) holding all audio temporal state — envelopes, flux statistics,
+  onset detection, the tempo PLL, the AudioLite composer. Components are clock-free
+  (time arrives with the samples, constants are in seconds, sample rate is a constructor
+  parameter), so `ShowControl.Tests` drives everything deterministically via
+  `AudioAnalysisEngine.ProcessPending()` with no threads. Keep new analysis logic here,
+  not in Devices.Audio or Rendering.
+- **The engine runs unconditionally.** It is registered in `Host.cs`, fed from the
+  PortAudio capture callback, and started by `AudioLiteBridge` at RenderService
+  construction. Nothing audio hangs off `ShaderAnimation` or any animation lifecycle;
+  switching shaders never resets or pauses analysis state. The only off-switch is the
+  capture venue toggle.
+- Capture is live again: `AudioService.CaptureEnabled` is the venue toggle (one token,
+  not nine commented lines), the rate is 48kHz, and startup is resilient — no matching
+  interface falls back to the default input device, no device at all (or a stream
+  failure) degrades to "no audio", never "no app". The callback does one copy, one
+  engine submit, one enqueue; no logging there.
+- `AudioFrameProcessedEventArgs` disposal contract: the dispatch thread invokes the
+  multicast event and then disposes exactly once. Subscribers copy what they keep and
+  **never dispose** — a subscriber `using(e)` hands later subscribers a pooled array
+  that has been returned.
+- AudioLite reaches shaders as an **append-only extension of the push-constant block**:
+  `PushData` is 72 bytes (40 legacy + 8 audio floats), the canonical GLSL mirror lives
+  in `audiolite.frag`, and shaders may declare any prefix of it. New fields go on the
+  end with a contract-version bump — never reorder, never repurpose. The flow is
+  engine → `AudioLiteBridge` → `IGraphicsHost.SetAudio` (immutable holder +
+  `Volatile.Write`) → one `Volatile.Read` per frame in `OnRender`. Publishes at ~94Hz
+  (STFT hop 512 @ 48k); flux/peak are max-over-interval and impulse holds ≥3 render
+  frames (65ms), so the 46fps consumer cannot miss a transient. Keep the hold in step
+  with the two 21739µs pacing literals.
+- The reference visualizer (`audiolite.frag`) consumes **only** the push block — that is
+  the proof the contract suffices. If an effect needs more, add it to the contract; do
+  not reach into analysis internals from the built-in renderer. Its `u_param1 > 0.5`
+  mode is the latency-measurement flash (white on beat-phase zero and strong impulse)
+  for the camera procedure documented in `LatencyModel.cs` — `PipelineSeconds` there is
+  still the unmeasured placeholder, and bar phase is pre-advanced by it (the pre-advance
+  applies only in `AudioAnalysisEngine.PublishFrame`; shaders never see latency).
+- Beat tracking is a fusion per the design doc: `IBeatMetadataSource` (Pro DJ Link's
+  capability envelope — presence Absent/BeatsOnly/FullGrid, full-track `BeatGrid`,
+  `SectionMarker`s, a shape-only `TrackAnalysis`) acts as a **prior correcting the local
+  onset PLL, never a direct visual trigger**. With a grid, the grid drives phase/tempo/
+  downbeats and local onsets trim a bounded residual (`MaxGridTrimSeconds` — garbage
+  metadata cannot drag phase off the audible beat); grid loss hands over to the local
+  PLL without a phase jump (the PLL mirrors grid state every hop for exactly this).
+  The registered source is `SyntheticBeatMetadataSource` (armed from the debug panel's
+  Grid button) until the native C# Pro DJ Link port replaces that one registration.
+- `SectionTracker` drives tension/motion/spread. Two tiers, announced-first: confident
+  `SectionMarker`s schedule builds and drops exactly (the hit fires early by
+  `LeadSeconds` = the measured pipeline latency, so the light lands with the sound);
+  otherwise builds are inferred — confidence accumulated over bars from rising
+  level/centroid/onset-density/high-band trends (never threshold-triggered), gap
+  committed on instantaneous-RMS collapse after a confident build (instantaneous on
+  purpose: the fast trend lags and the falling trends bleed confidence away first),
+  tension held at 1.0 through the gap with all decay frozen, the drop fired by the
+  energy returning (the scheduled downbeat only gates the failure path), and a missed
+  drop leaking tension gracefully — a snap there reads as a bug because it is one. The
+  trend EMAs are seeded on the first frame so a cold start doesn't fake a build.
+- The MainPage audio debug view replaced the FFT polyline: `AudioDebugViewModel`
+  (Editor project, testable, Guard-wrapped commands) plus `AudioDebugDrawable` and a
+  poll timer in the MAUI page, same shape as the log pane. Synthetic presets
+  (`SyntheticAudioSource`) exercise every published field without live capture.
 
 ## Control surface
 

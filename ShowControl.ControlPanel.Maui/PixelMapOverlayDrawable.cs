@@ -30,6 +30,9 @@ namespace ShowControl.ControlPanel.Maui
 
         public Guid? SelectedFixtureId { get; set; }
 
+        /// <summary>The pixel a drag is holding, ringed so the grab point is visible. Null between gestures.</summary>
+        public int? DraggedPixelIndex { get; set; }
+
         /// <summary>
         /// Part of the image the preview is showing. Set by the page's zoom; must be the same
         /// rectangle the graphics host was given, or the map drifts off the picture.
@@ -115,6 +118,16 @@ namespace ShowControl.ControlPanel.Maui
                     canvas.FillColor = color;
                     canvas.FillCircle(point.X, point.Y, radius);
                 }
+            }
+
+            // Ring the pixel a drag is holding: the dot thinning above may have skipped its dot,
+            // and the grab point should read at a glance.
+            if (selected && DraggedPixelIndex is int draggedIndex && draggedIndex >= 0 && draggedIndex < pixelCount)
+            {
+                var grabbed = transform.ToOverlay(fixture, draggedIndex);
+                canvas.StrokeColor = color;
+                canvas.StrokeSize = 2f;
+                canvas.DrawCircle(grabbed.X, grabbed.Y, 6f);
             }
 
             // Mark the first pixel so a fixture's direction is readable at a glance.

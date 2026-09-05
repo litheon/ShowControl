@@ -62,8 +62,12 @@ namespace ShowControl.PixelMapping
 
         /// <summary>
         /// Resolves which map to run with, preferring unsaved work the user was never given a
-        /// chance to keep. Each fallback is logged, and a corrupt file at any tier falls through to
-        /// the next so the app still starts at a venue.
+        /// chance to keep. Each fallback is logged, and a corrupt, missing or unreadable file at
+        /// any tier falls through to the next so the app still starts at a venue. Unreadable
+        /// matters as much as corrupt on Mac Catalyst: the sandbox grant for a user-picked save
+        /// location dies with the session that picked it, so the saved file is routinely
+        /// inaccessible on the next launch — the working copy inside the container, which every
+        /// save also writes, is where the same content is still readable.
         /// </summary>
         public static PixelMapSession LoadAtStartup(IPixelTypeResolver pixelTypes, ILogger? logger = null)
         {
@@ -72,35 +76,79 @@ namespace ShowControl.PixelMapping
 
             PixelMapState state = ReadState(logger);
 
-            if (state.IsDirty && PixelMapFile.TryRead(PixelMapPaths.WorkingCopy, out string workingJson))
+            if (state.IsDirty &&
+                TryReadTier(PixelMapPaths.WorkingCopy, logger, out string workingJson) &&
+                WorkingCopyHashMatches(workingJson, state, logger) &&
+                TryDeserialize(workingJson, PixelMapPaths.WorkingCopy, pixelTypes, logger, out var recovered))
             {
-                string hash = PixelMapSerializer.ComputeHash(workingJson);
-                if (!string.Equals(hash, state.WorkingContentHash, StringComparison.Ordinal))
-                {
-                    logger.LogWarning(
-                        "[PixelMap] Working copy at {Path} does not match the hash recorded when it was written; ignoring it.",
-                        PixelMapPaths.WorkingCopy);
-                }
-                else if (TryDeserialize(workingJson, PixelMapPaths.WorkingCopy, pixelTypes, logger, out var recovered))
-                {
-                    logger.LogInformation(
-                        "[PixelMap] Recovered unsaved edits from {Path}. The user was never asked whether to keep them.",
-                        PixelMapPaths.WorkingCopy);
-                    return new PixelMapSession(pixelTypes, logger, recovered!, state, recoveredUnsavedWork: true);
-                }
+                logger.LogInformation(
+                    "[PixelMap] Recovered unsaved edits from {Path}. The user was never asked whether to keep them.",
+                    PixelMapPaths.WorkingCopy);
+                return new PixelMapSession(pixelTypes, logger, recovered!, state, recoveredUnsavedWork: true);
             }
 
-            if (!string.IsNullOrWhiteSpace(state.SavedPath) &&
-                PixelMapFile.TryRead(state.SavedPath, out string savedJson) &&
-                TryDeserialize(savedJson, state.SavedPath!, pixelTypes, logger, out var saved))
+            if (!string.IsNullOrWhiteSpace(state.SavedPath))
             {
-                logger.LogInformation("[PixelMap] Loaded {Path}.", state.SavedPath);
-                state.IsDirty = false;
-                return new PixelMapSession(pixelTypes, logger, saved!, state, recoveredUnsavedWork: false);
+                if (TryReadTier(state.SavedPath, logger, out string savedJson) &&
+                    TryDeserialize(savedJson, state.SavedPath!, pixelTypes, logger, out var saved))
+                {
+                    logger.LogInformation("[PixelMap] Loaded {Path}.", state.SavedPath);
+                    state.IsDirty = false;
+                    return new PixelMapSession(pixelTypes, logger, saved!, state, recoveredUnsavedWork: false);
+                }
+
+                // The saved file is gone or, on Catalyst, simply not readable this session. Every
+                // save also wrote the working copy, so the same content is still in the container;
+                // running with it keeps the rig on the venue's map instead of the built-in default.
+                // SavedPath is kept so the status line stays honest — a plain Save back to it may
+                // still be denied, and Save As is the recovery.
+                if (TryReadTier(PixelMapPaths.WorkingCopy, logger, out string fallbackJson) &&
+                    WorkingCopyHashMatches(fallbackJson, state, logger) &&
+                    TryDeserialize(fallbackJson, PixelMapPaths.WorkingCopy, pixelTypes, logger, out var fallback))
+                {
+                    logger.LogWarning(
+                        "[PixelMap] {Path} could not be loaded; running with the working copy, which holds the same content.",
+                        state.SavedPath);
+                    return new PixelMapSession(pixelTypes, logger, fallback!, state, recoveredUnsavedWork: false);
+                }
             }
 
             logger.LogInformation("[PixelMap] Using the built-in default map.");
             return new PixelMapSession(pixelTypes, logger, DefaultPixelMap.Load(), new PixelMapState(), recoveredUnsavedWork: false);
+        }
+
+        /// <summary>
+        /// A tier's read: false rather than a throw for a file that is missing or unreadable, so
+        /// startup falls through to the next tier. A read denied by the sandbox lands here — an
+        /// exception escaping this method would take down not just the map but the whole host,
+        /// because it is thrown inside a DI factory.
+        /// </summary>
+        private static bool TryReadTier(string? path, ILogger logger, out string contents)
+        {
+            try
+            {
+                return PixelMapFile.TryRead(path, out contents);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "[PixelMap] Could not read {Path}; trying the next fallback.", path);
+                contents = string.Empty;
+                return false;
+            }
+        }
+
+        private static bool WorkingCopyHashMatches(string workingJson, PixelMapState state, ILogger logger)
+        {
+            string hash = PixelMapSerializer.ComputeHash(workingJson);
+            if (string.Equals(hash, state.WorkingContentHash, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            logger.LogWarning(
+                "[PixelMap] Working copy at {Path} does not match the hash recorded when it was written; ignoring it.",
+                PixelMapPaths.WorkingCopy);
+            return false;
         }
 
         /// <summary>Builds a session around a map already in hand. For tests and for the console shell.</summary>
@@ -159,7 +207,10 @@ namespace ShowControl.PixelMapping
             lock (_saveLock)
             {
                 string json = PixelMapSerializer.Serialize(Current);
-                PixelMapFile.WriteAtomic(path, json);
+                // In place, not atomic: the destination is wherever the user chose, and under the
+                // Mac Catalyst sandbox the grant covers that file only — creating a sibling .tmp
+                // next to it is denied. The working copy below keeps the atomic write.
+                PixelMapFile.WriteInPlace(path, json);
 
                 string hash = PixelMapSerializer.ComputeHash(json);
                 _state.SavedPath = path;

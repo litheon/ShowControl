@@ -17,7 +17,7 @@ namespace ShowControl.ControlPanel.Maui
         /// so there is no plist change.
         /// </para>
         /// </summary>
-        private partial async Task<string> SaveAsPlatformAsync(string suggestedFileName, string contents)
+        private partial async Task<string?> SaveAsPlatformAsync(string suggestedFileName, string contents)
         {
             string staged = Path.Combine(FileSystem.CacheDirectory, suggestedFileName);
             File.WriteAllText(staged, contents);

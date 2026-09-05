@@ -69,6 +69,24 @@ namespace ShowControl.Tests
             Assert.Equal("good contents", File.ReadAllText(path));
         }
 
+        /// <summary>
+        /// Saving to a user-chosen destination must not touch anything beside the file itself: the
+        /// Mac Catalyst sandbox grants access to the picked file only, so WriteAtomic's sibling
+        /// <c>.tmp</c> is denied there — which is exactly what "access denied" on save was. The
+        /// unusable sibling path here stands in for the sandbox refusing it.
+        /// </summary>
+        [Fact]
+        public void WriteInPlace_NeverTouchesTheSiblingTemporaryPath()
+        {
+            string path = PathFor("map.json");
+            PixelMapFile.WriteInPlace(path, "first");
+            Directory.CreateDirectory(path + ".tmp");
+
+            PixelMapFile.WriteInPlace(path, "second");
+
+            Assert.Equal("second", File.ReadAllText(path));
+        }
+
         [Fact]
         public void TryRead_ReportsAMissingFile_RatherThanThrowing()
         {
