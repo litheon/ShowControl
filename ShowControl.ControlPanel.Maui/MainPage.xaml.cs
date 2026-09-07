@@ -58,29 +58,14 @@ namespace ShowControl.ControlPanel.Maui
         private void HandlePixelMap(PixelMapSummary summary) =>
             MainThread.BeginInvokeOnMainThread(() => _viewModel.SetPixelMapSummary(summary));
 
-        // The poll timers only pause on page lifecycle (navigation), which Catalyst reports
-        // reliably. They deliberately do NOT pause on window activation: scene
-        // activate/deactivate notifications flap on Catalyst (the PreviewPage needs a poll
-        // fallback for the same reason), and a missed re-activation once froze the log pane
-        // permanently. Ticking while unfocused is affordable now that the log is a plain text
-        // tail — the expensive per-row list churn that motivated aggressive pausing is gone.
-        protected override void OnAppearing()
-        {
-            base.OnAppearing();
-            if (_logTimer != null)
-            {
-                PumpLogRows();  // Catch up immediately instead of waiting for the next tick.
-                _logTimer.Start();
-            }
-            _audioDebugTimer?.Start();
-        }
-
-        protected override void OnDisappearing()
-        {
-            base.OnDisappearing();
-            _logTimer?.Stop();
-            _audioDebugTimer?.Stop();
-        }
+        // The poll timers deliberately run for the life of the page, with NO pause mechanism.
+        // Two were tried and both froze the log pane permanently on Catalyst multi-window:
+        // Window Activated/Deactivated flaps (the PreviewPage polls for the same reason), and
+        // page OnAppearing/OnDisappearing is wired to viewWillAppear/viewDidDisappear, which
+        // the preview window's arrival triggers without any navigation — OnDisappearing fired,
+        // OnAppearing never followed, and the timers died seconds after launch. Always-on is
+        // affordable: the log is a plain text tail, so a tick is one string join and one text
+        // layout, and the audio debug tick is a snapshot read and a small canvas invalidate.
 
         private void Initialize()
         {
