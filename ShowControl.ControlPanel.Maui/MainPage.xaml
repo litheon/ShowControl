@@ -83,20 +83,15 @@
                     <Button Text="Clear" Command="{Binding ClearLogCommand}"
                             Padding="10,0" HeightRequest="30" VerticalOptions="Center" />
                 </HorizontalStackLayout>
-                <CollectionView x:Name="LogView" Grid.Row="1" Margin="6,0,6,6"
-                                ItemsSource="{Binding LogRows}">
-                    <CollectionView.ItemTemplate>
-                        <DataTemplate x:DataType="local:LogEntryView">
-                            <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="8" Padding="0,1">
-                                <Label Grid.Column="0" Text="{Binding Timestamp}" FontSize="11" TextColor="Gray" />
-                                <Label Grid.Column="1" Text="{Binding Level}" FontSize="11"
-                                       FontAttributes="Bold" TextColor="{Binding LevelColor}" />
-                                <Label Grid.Column="2" Text="{Binding Message}" FontSize="11"
-                                       LineBreakMode="TailTruncation" />
-                            </Grid>
-                        </DataTemplate>
-                    </CollectionView.ItemTemplate>
-                </CollectionView>
+                <!-- A plain text tail, not a CollectionView: virtualized-list row churn (inserts,
+                     trims, scroll-to-end) is O(row count) native work on Catalyst and stalled the
+                     main thread whenever the pane was full and logs flowed. One Label text
+                     assignment per pump is a single native text layout, no per-row cost. The
+                     colored history lives in the log file. -->
+                <ScrollView x:Name="LogScroll" Grid.Row="1" Margin="6,0,6,6">
+                    <Label x:Name="LogLabel" Text="{Binding LogText}" FontSize="11"
+                           FontFamily="Menlo" LineBreakMode="NoWrap" />
+                </ScrollView>
             </Grid>
         </Border>
     </Grid>

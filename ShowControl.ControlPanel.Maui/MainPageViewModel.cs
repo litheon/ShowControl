@@ -45,7 +45,15 @@ namespace ShowControl.ControlPanel.Maui
         /// <summary>The capture-device picker. Set alongside <see cref="Audio"/>.</summary>
         [ObservableProperty] private ShowControl.ControlPanel.Editor.AudioDeviceListViewModel? _audioDevices;
 
-        public ObservableCollection<LogEntryView> LogRows { get; } = new ObservableCollection<LogEntryView>();
+        /// <summary>The formatted lines behind <see cref="LogText"/>; a plain list, so trimming
+        /// costs nothing on the UI beyond the single text reassignment.</summary>
+        private readonly System.Collections.Generic.List<string> _logLines = new();
+
+        /// <summary>The log tail as one text block. Rebuilt (a single property change and one
+        /// native text layout) whenever new lines arrive — deliberately not a row collection,
+        /// whose per-row native churn stalled the main thread once the pane filled.</summary>
+        [ObservableProperty]
+        private string _logText = string.Empty;
 
         // Scalars rather than the event args: the args own a pooled spectrum array and are
         // disposed by their dispatcher, so nothing that marshals may hold them.
@@ -91,23 +99,41 @@ namespace ShowControl.ControlPanel.Maui
             {
                 return false;
             }
+            _lastLogSequence = newLines[newLines.Count - 1].Sequence;
 
             foreach (var line in newLines)
             {
-                LogRows.Add(new LogEntryView(line));
-                _lastLogSequence = line.Sequence;
+                _logLines.Add(FormatLine(line));
             }
-
-            while (LogRows.Count > MaxLogRowsShown)
+            if (_logLines.Count > MaxLogRowsShown)
             {
-                LogRows.RemoveAt(0);
+                _logLines.RemoveRange(0, _logLines.Count - MaxLogRowsShown);
             }
-
+            LogText = string.Join('\n', _logLines);
             return true;
+        }
+
+        private static string FormatLine(UiLogSink.LogLine line)
+        {
+            var level = line.Level switch
+            {
+                Serilog.Events.LogEventLevel.Verbose => "VRB",
+                Serilog.Events.LogEventLevel.Debug => "DBG",
+                Serilog.Events.LogEventLevel.Information => "INF",
+                Serilog.Events.LogEventLevel.Warning => "WRN",
+                Serilog.Events.LogEventLevel.Error => "ERR",
+                Serilog.Events.LogEventLevel.Fatal => "FTL",
+                _ => "???",
+            };
+            return $"{line.Timestamp:HH:mm:ss.fff} {level} {line.Message}";
         }
 
         /// <summary>Clears the on-screen rows only; the rolling log file is untouched.</summary>
         [RelayCommand]
-        private void ClearLog() => LogRows.Clear();
+        private void ClearLog()
+        {
+            _logLines.Clear();
+            LogText = string.Empty;
+        }
     }
 }

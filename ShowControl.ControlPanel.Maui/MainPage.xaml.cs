@@ -29,6 +29,7 @@ namespace ShowControl.ControlPanel.Maui
         private readonly AudioDebugDrawable _audioDebugDrawable = new AudioDebugDrawable();
         private IDispatcherTimer _audioDebugTimer;
         private bool _loggedAudioDebugFailure;
+        private bool _loggedLogPumpFailure;
 
         private static MainPage _instance;
         public MainPage()
@@ -41,6 +42,9 @@ namespace ShowControl.ControlPanel.Maui
 
             InitializeComponent();
             BindingContext = _viewModel;
+            // Turns "the UI felt frozen" into logged durations, so main-thread stalls can be
+            // correlated with whatever else the log says was happening at that moment.
+            MainThreadWatchdog.Start();
             //Thread.Sleep(20000);
             _hostTask = Host.Host.Main(new string[] { }, OnAudioFrameProcessed, HandlePixelMap);
             Initialize();
@@ -53,6 +57,30 @@ namespace ShowControl.ControlPanel.Maui
         // itself is the view-model's.
         private void HandlePixelMap(PixelMapSummary summary) =>
             MainThread.BeginInvokeOnMainThread(() => _viewModel.SetPixelMapSummary(summary));
+
+        // The poll timers only pause on page lifecycle (navigation), which Catalyst reports
+        // reliably. They deliberately do NOT pause on window activation: scene
+        // activate/deactivate notifications flap on Catalyst (the PreviewPage needs a poll
+        // fallback for the same reason), and a missed re-activation once froze the log pane
+        // permanently. Ticking while unfocused is affordable now that the log is a plain text
+        // tail — the expensive per-row list churn that motivated aggressive pausing is gone.
+        protected override void OnAppearing()
+        {
+            base.OnAppearing();
+            if (_logTimer != null)
+            {
+                PumpLogRows();  // Catch up immediately instead of waiting for the next tick.
+                _logTimer.Start();
+            }
+            _audioDebugTimer?.Start();
+        }
+
+        protected override void OnDisappearing()
+        {
+            base.OnDisappearing();
+            _logTimer?.Stop();
+            _audioDebugTimer?.Stop();
+        }
 
         private void Initialize()
         {
@@ -100,7 +128,8 @@ namespace ShowControl.ControlPanel.Maui
             var audioViewModel = new ShowControl.ControlPanel.Editor.AudioDebugViewModel(
                 engine,
                 host.Services.GetService<ILogger<ShowControl.ControlPanel.Editor.AudioDebugViewModel>>(),
-                host.Services.GetService<ShowControl.AudioAnalysis.SyntheticBeatMetadataSource>());
+                host.Services.GetService<ShowControl.AudioAnalysis.SyntheticBeatMetadataSource>(),
+                host.Services.GetService<ShowControl.AudioAnalysis.IBeatMetadataSource>());
             _viewModel.Audio = audioViewModel;
 
             _viewModel.AudioDevices = new ShowControl.ControlPanel.Editor.AudioDeviceListViewModel(
@@ -138,20 +167,35 @@ namespace ShowControl.ControlPanel.Maui
 
             _logTimer = Dispatcher.CreateTimer();
             _logTimer.Interval = LogPollInterval;
-            _logTimer.Tick += (sender, e) => PumpLogRows();
+            _logTimer.Tick += (sender, e) =>
+            {
+                try
+                {
+                    PumpLogRows();
+                }
+                catch (Exception ex)
+                {
+                    // A UI-callback exception aborts the process on Catalyst; log once, not per tick.
+                    if (!_loggedLogPumpFailure)
+                    {
+                        _loggedLogPumpFailure = true;
+                        Serilog.Log.Error(ex, "[MainPage] Log pump tick failed; further failures suppressed.");
+                    }
+                }
+            };
             _logTimer.Start();
         }
 
-        // The rows themselves are bound; what is left here is the scroll, which is a control
-        // operation with no bindable equivalent.
+        // The log is one text block in a ScrollView, so following the tail is a scroll of
+        // already-measured content — constant cost, unlike the CollectionView row churn (and
+        // its end-of-list scrolls) whose O(row count) native work used to stall the main
+        // thread whenever the pane was full and logs flowed.
         private void PumpLogRows()
         {
-            if (!_viewModel.PumpLogRows() || !_viewModel.AutoScrollLog || _viewModel.LogRows.Count == 0)
+            if (_viewModel.PumpLogRows() && _viewModel.AutoScrollLog)
             {
-                return;
+                _ = LogScroll.ScrollToAsync(LogLabel, ScrollToPosition.End, animated: false);
             }
-
-            LogView.ScrollTo(_viewModel.LogRows.Count - 1, position: ScrollToPosition.End, animate: false);
         }
 
 #if MACCATALYST || WINDOWS

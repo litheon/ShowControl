@@ -31,6 +31,11 @@ namespace ShowControl.Host
                 Log.Logger = new LoggerConfiguration()
                     .MinimumLevel.Debug()
                     .MinimumLevel.Override("Microsoft", LogEventLevel.Information)
+                    // The Pro DJ Link port narrates packet-level detail at Debug; at that level
+                    // it produces a steady stream that keeps the UI log pane permanently busy
+                    // (every pump finds rows, every pump scrolls). Information keeps the story
+                    // (joins, mounts, deck follows, warnings) without the chatter.
+                    .MinimumLevel.Override("BeatLink", LogEventLevel.Information)
                     .WriteTo.Debug()
                     .WriteTo.Console()
                     .WriteTo.Sink(UiLogSink.Instance)
