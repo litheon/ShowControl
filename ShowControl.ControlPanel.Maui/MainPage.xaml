@@ -89,8 +89,11 @@
                      assignment per pump is a single native text layout, no per-row cost. The
                      colored history lives in the log file. -->
                 <ScrollView x:Name="LogScroll" Grid.Row="1" Margin="6,0,6,6">
+                    <!-- No LineBreakMode here: on Catalyst, NoWrap (and the truncation modes)
+                         map to a single-line native label, which rendered exactly one line of
+                         the whole tail. Default word wrap shows everything; long lines wrap. -->
                     <Label x:Name="LogLabel" Text="{Binding LogText}" FontSize="11"
-                           FontFamily="Menlo" LineBreakMode="NoWrap" />
+                           FontFamily="Menlo" />
                 </ScrollView>
             </Grid>
         </Border>
