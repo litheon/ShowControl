@@ -10,21 +10,26 @@ public sealed class SyntheticBeatMetadataSource : IBeatMetadataSource
 {
     private volatile BeatGrid? _grid;
     private volatile IReadOnlyList<SectionMarker> _sections = Array.Empty<SectionMarker>();
+    private volatile IReadOnlyList<SectionMarker> _derivedMarkers = Array.Empty<SectionMarker>();
     private volatile TrackAnalysis? _trackAnalysis;
     private BeatMetadataPresence _presence = BeatMetadataPresence.Absent;
 
     public BeatMetadataPresence Presence => _presence;
     public BeatGrid? CurrentGrid => _grid;
     public IReadOnlyList<SectionMarker> Sections => _sections;
+    public IReadOnlyList<SectionMarker> DerivedMarkers => _derivedMarkers;
     public TrackAnalysis? TrackAnalysis => _trackAnalysis;
     public event Action<BeatObservation>? BeatObserved;
 
-    /// <summary>Publish a full-track grid (with optional sections), as a track load would.</summary>
-    public void SetGrid(BeatGrid grid, IReadOnlyList<SectionMarker>? sections = null, TrackAnalysis? trackAnalysis = null)
+    /// <summary>Publish a full-track grid (with optional sections, derived markers, and track
+    /// analysis), as a track load would.</summary>
+    public void SetGrid(BeatGrid grid, IReadOnlyList<SectionMarker>? sections = null, TrackAnalysis? trackAnalysis = null,
+        IReadOnlyList<SectionMarker>? derivedMarkers = null)
     {
         _grid = grid;
         _sections = sections ?? Array.Empty<SectionMarker>();
         _trackAnalysis = trackAnalysis;
+        _derivedMarkers = derivedMarkers ?? Array.Empty<SectionMarker>();
         _presence = BeatMetadataPresence.FullGrid;
     }
 
@@ -34,6 +39,7 @@ public sealed class SyntheticBeatMetadataSource : IBeatMetadataSource
         _grid = null;
         _sections = Array.Empty<SectionMarker>();
         _trackAnalysis = null;
+        _derivedMarkers = Array.Empty<SectionMarker>();
         _presence = BeatMetadataPresence.BeatsOnly;
     }
 
@@ -43,6 +49,7 @@ public sealed class SyntheticBeatMetadataSource : IBeatMetadataSource
         _grid = null;
         _sections = Array.Empty<SectionMarker>();
         _trackAnalysis = null;
+        _derivedMarkers = Array.Empty<SectionMarker>();
         _presence = BeatMetadataPresence.Absent;
     }
 

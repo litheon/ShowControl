@@ -34,10 +34,18 @@ public sealed class ProDjLinkBeatMetadataSource : IBeatMetadataSource
         int Player,
         BeatGrid Grid,
         IReadOnlyList<SectionMarker> Sections,
+        IReadOnlyList<SectionMarker> DerivedMarkers,
         LinkBeatGrid LinkGrid,
         double AnchorLocalSeconds,
         double TrackSecondsAtAnchor,
         double PlaybackRate);
+
+    /// <summary>The bass profile and drop predictions extracted from the followed deck's
+    /// waveform detail, cached by the waveform and grid they were computed from so re-anchors
+    /// reuse them.</summary>
+    private (BeatLink.Data.WaveformDetail Detail, LinkBeatGrid Grid,
+        WaveformBassProfile.Profile Profile, IReadOnlyList<double> DropStartsTrackSeconds)? _profileCache;
+    private volatile TrackAnalysis? _trackAnalysis;
 
     private volatile PublishedState? _published;
     private volatile int _deviceCount;
@@ -64,6 +72,7 @@ public sealed class ProDjLinkBeatMetadataSource : IBeatMetadataSource
         VirtualCdj.Instance.DeviceUpdateReceived += OnDeviceUpdate;
         BeatLink.Data.BeatGridFinder.Instance.BeatGridChanged += (_, update) => OnTrackDataChanged(update.Player);
         BeatLink.Data.MetadataFinder.Instance.TrackMetadataChanged += (_, update) => OnTrackDataChanged(update.Player);
+        BeatLink.Data.WaveformFinder.Instance.WaveformDetailChanged += (_, update) => OnTrackDataChanged(update.Player);
         BeatLink.Data.AnalysisTagFinder.Instance.AddAnalysisTagListener(OnSongStructure, ".EXT", "PSSI");
     }
 
@@ -83,9 +92,12 @@ public sealed class ProDjLinkBeatMetadataSource : IBeatMetadataSource
 
     public IReadOnlyList<SectionMarker> Sections => _published?.Sections ?? Array.Empty<SectionMarker>();
 
-    /// <summary>Shape-only in the contract and consumed by nothing yet, so not populated;
-    /// rekordbox waveform data is available from the port when something wants it.</summary>
-    public TrackAnalysis? TrackAnalysis => null;
+    public IReadOnlyList<SectionMarker> DerivedMarkers => _published?.DerivedMarkers ?? Array.Empty<SectionMarker>();
+
+    /// <summary>Whole-track feature frames read from the followed deck's rekordbox waveform
+    /// detail (RMS-like level, plus a low band for RGB and three-band waveforms), on the
+    /// track's own timeline per the contract.</summary>
+    public TrackAnalysis? TrackAnalysis => _trackAnalysis;
 
     public event Action<BeatObservation>? BeatObserved;
 
@@ -112,7 +124,11 @@ public sealed class ProDjLinkBeatMetadataSource : IBeatMetadataSource
         {
             return;
         }
-        var beatWithinBar = beat.IsBeatWithinBarMeaningful ? beat.BeatWithinBar : 0;
+        // The raw field is used directly: CDJ beat packets always carry a meaningful 1-4 value,
+        // and Beat.IsBeatWithinBarMeaningful consults the VirtualCdj, which throws when it is
+        // not running (or has no status yet for this player) — an exception here would be
+        // swallowed by the BeatFinder's handler isolation and silently kill the beat path.
+        var beatWithinBar = beat.BeatWithinBar is >= 1 and <= 4 ? beat.BeatWithinBar : 0;
         BeatObserved?.Invoke(new BeatObservation(
             LocalTimeOf(beat.Timestamp), (float)beat.EffectiveTempo, beatWithinBar, 0.9f));
         MaybeReanchor();
@@ -267,9 +283,90 @@ public sealed class ProDjLinkBeatMetadataSource : IBeatMetadataSource
                 sections = MapSections(structure, linkGrid, anchorLocal, trackSecondsAtAnchor, rate);
             }
 
-            _published = new PublishedState(player, grid, sections, linkGrid,
+            var derived = RefreshBassProfile(player, linkGrid, anchorLocal, trackSecondsAtAnchor, rate);
+
+            _published = new PublishedState(player, grid, sections, derived, linkGrid,
                 anchorLocal, trackSecondsAtAnchor, rate);
         }
+    }
+
+    /// <summary>
+    /// Extracts (or reuses) the bass profile and waveform drop predictions of the followed
+    /// deck's waveform detail, publishes the resulting <see cref="TrackAnalysis"/>, and maps
+    /// the bass-heavy region starts and predicted drops onto the local clock as derived
+    /// markers. Called under the rebuild lock.
+    /// </summary>
+    private IReadOnlyList<SectionMarker> RefreshBassProfile(
+        int player, LinkBeatGrid linkGrid, double anchorLocalSeconds, double trackSecondsAtAnchor,
+        double playbackRate)
+    {
+        var detail = BeatLink.Data.WaveformFinder.Instance.IsRunning
+            ? BeatLink.Data.WaveformFinder.Instance.GetLatestDetailFor(player)
+            : null;
+        if (detail == null)
+        {
+            _profileCache = null;
+            _trackAnalysis = null;
+            return Array.Empty<SectionMarker>();
+        }
+
+        var cache = _profileCache;
+        if (cache == null || !ReferenceEquals(cache.Value.Detail, detail) ||
+            !ReferenceEquals(cache.Value.Grid, linkGrid))
+        {
+            var profile = WaveformBassProfile.Extract(detail);
+            if (profile == null)
+            {
+                _profileCache = null;
+                _trackAnalysis = null;
+                return Array.Empty<SectionMarker>();
+            }
+            IReadOnlyList<double> dropStarts;
+            if (profile.Analysis.LowBand != null)
+            {
+                dropStarts = WaveformBassProfile.DetectDrops(
+                    profile.Analysis.LowBand, profile.Analysis.HopSeconds, linkGrid, out var dropReport);
+                // Once per track: everything needed to diagnose missing or wrong predictions —
+                // whether the low band can even dip below the suction threshold, the fate of
+                // every candidate gap, and where the bass-heavy regions were found.
+                var bassRegions = profile.BassStartsTrackSeconds.Count == 0
+                    ? "none"
+                    : string.Join(", ", profile.BassStartsTrackSeconds.Select(s => s.ToString("F1"))) + "s";
+                _logger.LogInformation(
+                    "Drop detection for player {Player} ({Style} waveform, {Frames} frames, grid {Beats} beats): " +
+                    "{Count} drop(s) predicted. Bass regions start at: {BassRegions}. {Report}",
+                    player, detail.Style, detail.FrameCount, linkGrid.BeatCount, dropStarts.Count,
+                    bassRegions, dropReport);
+            }
+            else
+            {
+                dropStarts = Array.Empty<double>();
+                _logger.LogInformation(
+                    "Drop detection for player {Player}: {Style} waveform carries no frequency information, no predictions possible.",
+                    player, detail.Style);
+            }
+            cache = (detail, linkGrid, profile, dropStarts);
+            _profileCache = cache;
+        }
+        _trackAnalysis = cache.Value.Profile.Analysis;
+
+        // Waveform predictions are emitted unconditionally: this channel is a fully parallel
+        // strategy, and consumers can compare it against the announced PSSI drops themselves.
+        var markers = new List<SectionMarker>();
+        foreach (var trackSeconds in cache.Value.Profile.BassStartsTrackSeconds)
+        {
+            markers.Add(new SectionMarker(
+                LocalTimeOfTrackSeconds(trackSeconds), SectionKind.BassHeavy, 0.6f));
+        }
+        foreach (var trackSeconds in cache.Value.DropStartsTrackSeconds)
+        {
+            markers.Add(new SectionMarker(
+                LocalTimeOfTrackSeconds(trackSeconds), SectionKind.Drop, 0.7f));
+        }
+        return markers;
+
+        double LocalTimeOfTrackSeconds(double trackSeconds) =>
+            anchorLocalSeconds + (trackSeconds - trackSecondsAtAnchor) / playbackRate;
     }
 
     /// <summary>

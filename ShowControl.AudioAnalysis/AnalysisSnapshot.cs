@@ -75,6 +75,45 @@ public sealed class AnalysisSnapshot
     /// <summary>0..1 confidence in the section call (build confidence while building).</summary>
     public float SectionConfidence { get; init; }
 
+    /// <summary>What the attached beat metadata source (Pro DJ Link or synthetic) is providing
+    /// this frame — the debug surface for "is the wire feeding us anything".</summary>
+    public BeatMetadataPresence MetadataPresence { get; init; }
+
+    /// <summary>True while the PLL's phase/tempo are being driven by a metadata beat grid
+    /// rather than running locally — distinct from <see cref="MetadataPresence"/>, since a
+    /// grid can be present for one hop before the PLL adopts it and vice versa.</summary>
+    public bool MetadataGridActive { get; init; }
+
+    /// <summary>Seconds since the last real-time beat packet from the metadata source, or -1
+    /// when none has ever arrived. Bounded to a day so the field stays finite.</summary>
+    public float BeatPacketAge { get; init; } = -1f;
+
+    /// <summary>The kind of the next announced section boundary ahead of this frame, from the
+    /// metadata source's phrase analysis; <see cref="SectionKind.Unknown"/> when there is none
+    /// (no grid, no sections, or the track's last announced section has begun).</summary>
+    public SectionKind NextSectionKind { get; init; } = SectionKind.Unknown;
+
+    /// <summary>Seconds until <see cref="NextSectionKind"/> begins, or -1 when unknown.
+    /// Bounded to a day so the field stays finite.</summary>
+    public float NextSectionIn { get; init; } = -1f;
+
+    /// <summary>Seconds until the next announced <see cref="SectionKind.Drop"/>, or -1 when no
+    /// drop is known to lie ahead. Bounded to a day so the field stays finite.</summary>
+    public float NextDropIn { get; init; } = -1f;
+
+    /// <summary>Seconds until the next derived bass-heavy region begins (read from the loaded
+    /// track's waveform by the metadata source), or -1 when unknown. A rough prediction, not
+    /// phrase analysis. Bounded to a day so the field stays finite.</summary>
+    public float NextBassIn { get; init; } = -1f;
+
+    /// <summary>Seconds until the next WAVEFORM-PREDICTED drop (a sustained low-frequency
+    /// suction resolving into a beat-snapped, sustained bass restoration), or -1 when none is
+    /// predicted ahead. A fully parallel heuristic, always emitted independently of the
+    /// announced <see cref="NextDropIn"/> — the two can agree (a confidence signal) or
+    /// disagree, and consumers choose which to trust. Bounded to a day so the field stays
+    /// finite.</summary>
+    public float NextPredictedDropIn { get; init; } = -1f;
+
     /// <summary>The composed 8-parameter shader contract for this frame.</summary>
     public AudioLiteFrame Lite { get; init; } = AudioLiteFrame.Silence;
 

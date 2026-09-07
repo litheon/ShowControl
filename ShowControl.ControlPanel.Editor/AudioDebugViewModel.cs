@@ -22,6 +22,7 @@ namespace ShowControl.ControlPanel.Editor
         private readonly AudioAnalysisEngine _engine;
         private readonly SyntheticAudioSource _synthetic;
         private readonly SyntheticBeatMetadataSource? _beatMetadata;
+        private readonly IBeatMetadataSource? _effectiveMetadata;
 
         [ObservableProperty] private string _liteText = "AudioLite";
         [ObservableProperty] private string _timingText = "Timing";
@@ -31,12 +32,16 @@ namespace ShowControl.ControlPanel.Editor
         public AudioDebugViewModel(
             AudioAnalysisEngine engine,
             ILogger<AudioDebugViewModel>? logger,
-            SyntheticBeatMetadataSource? beatMetadata = null)
+            SyntheticBeatMetadataSource? beatMetadata = null,
+            IBeatMetadataSource? effectiveMetadata = null)
             : base(logger)
         {
             _engine = engine;
             _synthetic = new SyntheticAudioSource(engine);
             _beatMetadata = beatMetadata;
+            // The synthetic source powers the Grid button; the effective source (the Pro DJ
+            // Link/synthetic composite the engine actually consumes) powers the grid readout.
+            _effectiveMetadata = effectiveMetadata ?? beatMetadata;
         }
 
         /// <summary>The frame the drawable renders. Immutable; swapped by <see cref="Refresh"/>.</summary>
@@ -63,13 +68,52 @@ namespace ShowControl.ControlPanel.Editor
                 $"grain   {lite.Grain:F3}\n" +
                 $"motion  {lite.Motion:F3}\n" +
                 $"spread  {lite.Spread:F3}";
-            string presence = _beatMetadata?.Presence.ToString() ?? "no source";
+            // Metadata state comes from the snapshot — the engine's own view of whatever
+            // source it was built with (the Pro DJ Link/synthetic composite in the app) —
+            // not from the synthetic source this view model holds for its Grid button.
+            string meta = snapshot.MetadataPresence.ToString();
+            if (snapshot.MetadataGridActive)
+            {
+                meta += " · grid driving";
+            }
+            if (snapshot.BeatPacketAge >= 0)
+            {
+                meta += $" · beat {snapshot.BeatPacketAge:F1}s ago";
+            }
+            // The grid readout comes from the source the engine actually consumes, evaluated
+            // at the snapshot's own time so the beat position matches the numerals beside it.
+            string gridLine = "grid  none";
+            var grid = _effectiveMetadata?.CurrentGrid;
+            if (grid != null)
+            {
+                gridLine = $"grid  beat {grid.BeatPositionAt(snapshot.Time):F1}/{grid.BeatCount}" +
+                    $" · conf {grid.Confidence:F2}";
+            }
+            string nextLine = snapshot.NextSectionIn >= 0
+                ? $"next  {snapshot.NextSectionKind} in {snapshot.NextSectionIn:F1}s"
+                : "next  —";
+            string dropLine = snapshot.NextDropIn >= 0
+                ? $"drop  in {snapshot.NextDropIn:F1}s"
+                : "drop  —";
+            string bassLine = snapshot.NextBassIn >= 0
+                ? $"bass  in {snapshot.NextBassIn:F1}s"
+                : "bass  —";
+            // The waveform-predicted drop (suction → restoration heuristic), distinct from the
+            // announced phrase-analysis drop above it.
+            string predictedDropLine = snapshot.NextPredictedDropIn >= 0
+                ? $"pdrop in {snapshot.NextPredictedDropIn:F1}s"
+                : "pdrop —";
             TimingText =
                 $"bpm {snapshot.Bpm:F1} (conf {snapshot.TempoConfidence:F2})\n" +
                 $"beat  {snapshot.BeatPhase:F3}\n" +
                 $"bar   {snapshot.BarPhase:F3}\n" +
                 $"sect  {snapshot.Section} ({snapshot.SectionConfidence:F2})\n" +
-                $"meta  {presence}\n" +
+                $"{nextLine}\n" +
+                $"{dropLine}\n" +
+                $"{predictedDropLine}\n" +
+                $"{bassLine}\n" +
+                $"{gridLine}\n" +
+                $"meta  {meta}\n" +
                 $"frame {snapshot.FrameIndex}";
             FeatureText =
                 $"rms  {snapshot.Rms:F4}  peak {snapshot.Peak:F4}\n" +

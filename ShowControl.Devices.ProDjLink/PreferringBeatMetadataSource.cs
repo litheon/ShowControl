@@ -43,6 +43,8 @@ public sealed class PreferringBeatMetadataSource : IBeatMetadataSource
 
     public IReadOnlyList<SectionMarker> Sections => Active.Sections;
 
+    public IReadOnlyList<SectionMarker> DerivedMarkers => Active.DerivedMarkers;
+
     public TrackAnalysis? TrackAnalysis => Active.TrackAnalysis;
 
     public event Action<BeatObservation>? BeatObserved;

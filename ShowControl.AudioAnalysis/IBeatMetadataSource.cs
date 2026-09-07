@@ -30,6 +30,11 @@ public enum SectionKind
     Drop,
     Breakdown,
     Outro,
+
+    /// <summary>A derived landmark (not phrase analysis): the onset of a sustained
+    /// bass-heavy region, computed from a pre-known track waveform. Appears only in
+    /// <see cref="IBeatMetadataSource.DerivedMarkers"/>, never in announced sections.</summary>
+    BassHeavy,
 }
 
 /// <summary>A phrase/song-structure marker (rekordbox phrase analysis, via the future
@@ -43,8 +48,11 @@ public readonly record struct SectionMarker(double LocalTime, SectionKind Kind, 
 /// defined now; nothing consumes it yet.
 /// </summary>
 /// <param name="HopSeconds">Spacing of the frames on the track's own timeline.</param>
-/// <param name="Rms">One value per hop from track start.</param>
-public sealed record TrackAnalysis(double HopSeconds, IReadOnlyList<float> Rms);
+/// <param name="Rms">One value per hop from track start, normalized 0..1.</param>
+/// <param name="LowBand">Optional low-frequency energy per hop, normalized 0..1 — from a
+/// three-band waveform's low layer, or a spectral proxy for other waveform styles; null when
+/// the source has no frequency-resolved data.</param>
+public sealed record TrackAnalysis(double HopSeconds, IReadOnlyList<float> Rms, IReadOnlyList<float>? LowBand = null);
 
 /// <summary>
 /// The ahead-of-time knowledge contract: everything a networked beat source (Pro DJ Link
@@ -72,6 +80,16 @@ public interface IBeatMetadataSource
     /// <summary>Pre-computed analysis of the loaded track, when the source has it. Shape
     /// defined now, consumed later.</summary>
     TrackAnalysis? TrackAnalysis { get; }
+
+    /// <summary>Landmarks the source has DERIVED from pre-known audio (for example bass-heavy
+    /// region onsets and waveform-predicted drops read from the track waveform), on the local
+    /// capture clock, republished (reference swap) with the grid. Kept separate from
+    /// <see cref="Sections"/> so announced phrase analysis stays authoritative for the section
+    /// tracker; consumers treating these as predictions, not truth, is the point.
+    /// Deliberately NOT default-implemented: a wrapper that forgets to forward this must fail
+    /// to compile rather than silently serve an empty list (which is exactly the bug a default
+    /// here once caused).</summary>
+    IReadOnlyList<SectionMarker> DerivedMarkers { get; }
 
     /// <summary>Real-time beat packets. May fire in any presence state.</summary>
     event Action<BeatObservation>? BeatObserved;

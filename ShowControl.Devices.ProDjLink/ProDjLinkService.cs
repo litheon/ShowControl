@@ -68,6 +68,7 @@ public sealed class ProDjLinkService : IHostedService
                     BeatLink.Data.MetadataFinder.Instance.Start();
                     BeatLink.Data.BeatGridFinder.Instance.Start();
                     BeatLink.Data.AnalysisTagFinder.Instance.Start();
+                    BeatLink.Data.WaveformFinder.Instance.Start();
                     BeatLink.Data.TimeFinder.Instance.Start();
                     BeatLink.Data.CrateDigger.Instance.Start();
                 }
@@ -117,6 +118,7 @@ public sealed class ProDjLinkService : IHostedService
         }
         BeatLink.Data.CrateDigger.Instance.Stop();
         BeatLink.Data.TimeFinder.Instance.Stop();
+        BeatLink.Data.WaveformFinder.Instance.Stop();
         BeatLink.Data.AnalysisTagFinder.Instance.Stop();
         BeatLink.Data.BeatGridFinder.Instance.Stop();
         BeatLink.Data.MetadataFinder.Instance.Stop();

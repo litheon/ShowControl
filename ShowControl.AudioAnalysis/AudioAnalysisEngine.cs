@@ -44,6 +44,7 @@ public sealed class AudioAnalysisEngine : IDisposable
     private long _frameIndex;
     private long _onsetSampleCursor;     // samples already fed to the transient path
     private double _lastLoudTime = double.NegativeInfinity;
+    private double _lastBeatPacketTime = double.NegativeInfinity;
 
     public AudioAnalysisEngine(AnalysisSettings? settings = null, IBeatMetadataSource? beatMetadata = null)
     {
@@ -60,6 +61,8 @@ public sealed class AudioAnalysisEngine : IDisposable
         if (beatMetadata != null)
         {
             _pll.AttachMetadata(beatMetadata);
+            beatMetadata.BeatObserved += beat =>
+                Interlocked.Exchange(ref _lastBeatPacketTime, beat.LocalTime);
         }
         _beatMetadata = beatMetadata;
         // Scheduled hits (predicted downbeats, announced drops) fire early by the measured
@@ -221,6 +224,8 @@ public sealed class AudioAnalysisEngine : IDisposable
         AudioLiteFrame lite = _composer.Compose(features, time, dt, displayBarPhase,
             _sections.Tension, _sections.Motion, _sections.Spread);
 
+        var predictions = SectionPredictionsAt(time);
+        var derivedPredictions = DerivedPredictionsAt(time);
         var snapshot = new AnalysisSnapshot
         {
             Time = time,
@@ -240,11 +245,103 @@ public sealed class AudioAnalysisEngine : IDisposable
             BandFlux = bandFlux,
             Section = _sections.Section,
             SectionConfidence = AudioMath.Sanitize(_sections.SectionConfidence, 0f, 1f),
+            MetadataPresence = _beatMetadata?.Presence ?? BeatMetadataPresence.Absent,
+            MetadataGridActive = _pll.UsingGrid,
+            BeatPacketAge = BeatPacketAgeAt(time),
+            NextSectionKind = predictions.NextSectionKind,
+            NextSectionIn = predictions.NextSectionIn,
+            NextDropIn = predictions.NextDropIn,
+            NextBassIn = derivedPredictions.NextBassIn,
+            NextPredictedDropIn = derivedPredictions.NextPredictedDropIn,
             Lite = lite,
         };
 
         Volatile.Write(ref _latest, snapshot);
         SnapshotPublished?.Invoke(snapshot);
+    }
+
+    /// <summary>Scans the metadata source's announced sections for the next boundary and the
+    /// next drop ahead of <paramref name="time"/>, yielding the countdowns the snapshot
+    /// publishes. The list is a few dozen immutable markers at most, so a per-hop scan is
+    /// cheap.</summary>
+    private (SectionKind NextSectionKind, float NextSectionIn, float NextDropIn) SectionPredictionsAt(double time)
+    {
+        var markers = _beatMetadata?.Presence == BeatMetadataPresence.FullGrid
+            ? _beatMetadata.Sections
+            : null;
+        if (markers == null || markers.Count == 0)
+        {
+            return (SectionKind.Unknown, -1f, -1f);
+        }
+        var nextSectionTime = double.PositiveInfinity;
+        var nextSectionKind = SectionKind.Unknown;
+        var nextDropTime = double.PositiveInfinity;
+        foreach (var marker in markers)
+        {
+            if (marker.LocalTime <= time)
+            {
+                continue;
+            }
+            if (marker.LocalTime < nextSectionTime)
+            {
+                nextSectionTime = marker.LocalTime;
+                nextSectionKind = marker.Kind;
+            }
+            if (marker.Kind == SectionKind.Drop && marker.LocalTime < nextDropTime)
+            {
+                nextDropTime = marker.LocalTime;
+            }
+        }
+        return (nextSectionKind,
+            double.IsPositiveInfinity(nextSectionTime)
+                ? -1f : AudioMath.Sanitize((float)(nextSectionTime - time), 0f, 86_400f),
+            double.IsPositiveInfinity(nextDropTime)
+                ? -1f : AudioMath.Sanitize((float)(nextDropTime - time), 0f, 86_400f));
+    }
+
+    /// <summary>Seconds until the next derived bass-heavy landmark and the next
+    /// waveform-predicted drop ahead of <paramref name="time"/>; -1 for whichever the source
+    /// has none of.</summary>
+    private (float NextBassIn, float NextPredictedDropIn) DerivedPredictionsAt(double time)
+    {
+        var markers = _beatMetadata?.DerivedMarkers;
+        if (markers == null || markers.Count == 0)
+        {
+            return (-1f, -1f);
+        }
+        var nextBass = double.PositiveInfinity;
+        var nextDrop = double.PositiveInfinity;
+        foreach (var marker in markers)
+        {
+            if (marker.LocalTime <= time)
+            {
+                continue;
+            }
+            if (marker.Kind == SectionKind.BassHeavy && marker.LocalTime < nextBass)
+            {
+                nextBass = marker.LocalTime;
+            }
+            else if (marker.Kind == SectionKind.Drop && marker.LocalTime < nextDrop)
+            {
+                nextDrop = marker.LocalTime;
+            }
+        }
+        return (Countdown(nextBass), Countdown(nextDrop));
+
+        float Countdown(double at) => double.IsPositiveInfinity(at)
+            ? -1f : AudioMath.Sanitize((float)(at - time), 0f, 86_400f);
+    }
+
+    /// <summary>Age of the last metadata beat packet relative to <paramref name="time"/>,
+    /// clamped to a day; -1 when no packet has ever arrived.</summary>
+    private float BeatPacketAgeAt(double time)
+    {
+        var lastBeat = Interlocked.CompareExchange(ref _lastBeatPacketTime, 0, 0);
+        if (double.IsNegativeInfinity(lastBeat))
+        {
+            return -1f;
+        }
+        return AudioMath.Sanitize((float)(time - lastBeat), 0f, 86_400f);
     }
 
     private void WorkerLoop()

@@ -90,6 +90,7 @@ public class ProDjLinkAdapterTests
         public BeatMetadataPresence Presence { get; set; } = BeatMetadataPresence.Absent;
         public AudioAnalysis.BeatGrid? CurrentGrid { get; set; }
         public IReadOnlyList<SectionMarker> Sections { get; set; } = Array.Empty<SectionMarker>();
+        public IReadOnlyList<SectionMarker> DerivedMarkers { get; set; } = Array.Empty<SectionMarker>();
         public TrackAnalysis? TrackAnalysis { get; set; }
         public event Action<BeatObservation>? BeatObserved;
         public void Emit(BeatObservation beat) => BeatObserved?.Invoke(beat);
@@ -114,6 +115,28 @@ public class ProDjLinkAdapterTests
         preferred.Presence = BeatMetadataPresence.BeatsOnly;
         Assert.Equal(BeatMetadataPresence.BeatsOnly, composite.Presence);
         Assert.Null(composite.CurrentGrid);
+    }
+
+    [Fact]
+    public void PreferringSourceForwardsDerivedMarkersFromActiveSource()
+    {
+        // Regression: DerivedMarkers was once a default interface member, and the composite
+        // silently served the empty default instead of the adapter's predictions — pdrop and
+        // bass froze on screen. Every surface of the contract must forward.
+        var preferred = new StubSource
+        {
+            DerivedMarkers = new[] { new SectionMarker(10.0, SectionKind.Drop, 0.7f) },
+        };
+        var fallback = new StubSource
+        {
+            Presence = BeatMetadataPresence.FullGrid,
+            DerivedMarkers = new[] { new SectionMarker(20.0, SectionKind.BassHeavy, 0.6f) },
+        };
+        var composite = new PreferringBeatMetadataSource(preferred, fallback);
+
+        Assert.Same(fallback.DerivedMarkers, composite.DerivedMarkers);   // Preferred dark.
+        preferred.Presence = BeatMetadataPresence.FullGrid;               // Gear appears.
+        Assert.Same(preferred.DerivedMarkers, composite.DerivedMarkers);
     }
 
     [Fact]
