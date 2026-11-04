@@ -6,6 +6,7 @@ using ShowControl.PixelMapping;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Linq;
 using System.Threading;
 
 namespace ShowControl.Animation
@@ -183,6 +184,7 @@ namespace ShowControl.Animation
             AssignPadStates(padStates);
             _graphicsHost.SetShader(_shader);
             ResetShaderParams();
+            _graphicsHost.ColorRegions = PadColorRegions;
             return new DeviceState(padStates, new ButtonLightState[0]);
         }
 
@@ -202,6 +204,16 @@ namespace ShowControl.Animation
             }
         }
 
+        /// <summary>
+        /// Venue toggle: whether the pressed pads' colours are painted by the shaders as
+        /// sector/ring regions — the kaleidoscope's spiral-twisted regional bias, the fluid's
+        /// pad overlay (which grades and amplifies the dye under each region), the clown's.
+        /// Off for now. The colours still go to the host whatever this says, because the
+        /// fluid's injection takes its hue from them while pads are held: a flood (the press
+        /// goes through the audio analysis) comes out predominantly in the pressed colours.
+        /// </summary>
+        private static readonly bool PadColorRegions = false;
+
         public override void PadPressed(ButtonDirection direction, byte padNumber, int padCount)
         {
             if (direction == ButtonDirection.Press)
@@ -217,7 +229,18 @@ namespace ShowControl.Animation
             {
                 graphicsColors[i] = _shaderColors[_pressedPads[i] % _shaderColors.Length];
             }
+            // Each pad on its own injection disc, in press order (so of two pads sharing a
+            // disc the newer is listed last and wins), for the fluid's injection; the plain
+            // colour list is for the regions.
+            var padColors = new PadColor[_pressedPads.Count];
+            for (int i = 0; i < padColors.Length; i++)
+            {
+                padColors[i] = new PadColor(InjectionDiscs.Of(_pressedPads[i]), _shaderColors[_pressedPads[i] % _shaderColors.Length]);
+            }
             _graphicsHost.Colors = graphicsColors;
+            _graphicsHost.PadColors = padColors;
+            _logger.LogDebug("[Pads] {Shader}: {Count} pad(s) down, colours {Colors}.", _shader, _pressedPads.Count,
+                string.Join(",", padColors.Select(p => $"disc{p.Disc}=#{p.Color.R:X2}{p.Color.G:X2}{p.Color.B:X2}")));
         }
 
         /// <summary>
@@ -234,6 +257,10 @@ namespace ShowControl.Animation
             else if (_shader == ShowControl.Graphics.Shaders.Clown)
             {
                 s1 = 0.00017f; s2 = 0.000125f; s3 = 0.00008f; s4 = 0.00003f;
+            }
+            else if (_shader == ShowControl.Graphics.Shaders.Fluid)
+            {
+                s1 = 0.0002f; s2 = 0.0002f; s3 = 0.0002f; s4 = 0.0002f;
             }
             else return;
 
@@ -268,6 +295,15 @@ namespace ShowControl.Animation
                 _defaultParam3 = 0.0f;   // blade hue offset
                 _defaultParam4 = 0.29f;  // dot radius
             }
+            else if (_shader == ShowControl.Graphics.Shaders.Fluid)
+            {
+                _defaultParam1 = 0.2f;   // dye decay rate (1/s) — history length
+                _defaultParam2 = 3.0f;   // injection drive (how hard the spectrum pushes);
+                                         // the knob's floor, so the default is reachable
+                _defaultParam3 = 0.213f; // injection depth (0 = top edge only, 1 = whole plane)
+                _defaultParam4 = 0.35f;  // velocity damping multiplier — low so momentum carries
+                                         // dye across the scene instead of dying at the discs
+            }
 
             _graphicsHost.DistortionStrength = _defaultDistortionStrength;
             _graphicsHost.ShaderParam1 = _defaultParam1;
@@ -298,6 +334,17 @@ namespace ShowControl.Animation
                     1 => (0.0125f, -500.0f, 500.0f), // spin angle offset
                     2 => (0.008f, -500.0f, 500.0f), // blade hue offset
                     3 => (0.003f, 0.05f, 0.45f),  // dot radius
+                    _ => (0f, 0f, 0f)
+                };
+            }
+            else if (_shader == ShowControl.Graphics.Shaders.Fluid)
+            {
+                (step, min, max) = paramIndex switch
+                {
+                    0 => (0.01f, 0.05f, 1.0f),    // dye decay rate (1/s)
+                    1 => (0.01f, 3.0f, 4.0f),     // injection drive
+                    2 => (0.005f, 0.0f, 0.27f),   // injection depth from the top
+                    3 => (0.01f, 0.0f, 2.0f),     // velocity damping
                     _ => (0f, 0f, 0f)
                 };
             }

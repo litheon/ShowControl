@@ -39,6 +39,44 @@
                         </DataTemplate>
                     </BindableLayout.ItemTemplate>
                 </VerticalStackLayout>
+
+                <!-- Channel pair on the active device: the same row lists as the devices,
+                     one column per side. Not a FlexLayout — in this Auto-width column it
+                     measured against unbounded width and laid its rows out over the debug
+                     view to the right. The service averages the pair to mono; pick the same
+                     input twice for a single channel. -->
+                <Grid ColumnDefinitions="Auto,Auto" ColumnSpacing="16" Margin="0,8,0,0">
+                    <VerticalStackLayout Grid.Column="0" Spacing="0">
+                        <Label Text="Left input" FontAttributes="Bold" Margin="0,0,0,2" />
+                        <VerticalStackLayout Spacing="0"
+                                             BindableLayout.ItemsSource="{Binding AudioDevices.LeftChannelRows}">
+                            <BindableLayout.ItemTemplate>
+                                <DataTemplate x:DataType="editor:OptionRow">
+                                    <Label Text="{Binding Display}" Padding="4,3">
+                                        <Label.GestureRecognizers>
+                                            <TapGestureRecognizer Command="{Binding ChooseCommand}" />
+                                        </Label.GestureRecognizers>
+                                    </Label>
+                                </DataTemplate>
+                            </BindableLayout.ItemTemplate>
+                        </VerticalStackLayout>
+                    </VerticalStackLayout>
+                    <VerticalStackLayout Grid.Column="1" Spacing="0">
+                        <Label Text="Right input" FontAttributes="Bold" Margin="0,0,0,2" />
+                        <VerticalStackLayout Spacing="0"
+                                             BindableLayout.ItemsSource="{Binding AudioDevices.RightChannelRows}">
+                            <BindableLayout.ItemTemplate>
+                                <DataTemplate x:DataType="editor:OptionRow">
+                                    <Label Text="{Binding Display}" Padding="4,3">
+                                        <Label.GestureRecognizers>
+                                            <TapGestureRecognizer Command="{Binding ChooseCommand}" />
+                                        </Label.GestureRecognizers>
+                                    </Label>
+                                </DataTemplate>
+                            </BindableLayout.ItemTemplate>
+                        </VerticalStackLayout>
+                    </VerticalStackLayout>
+                </Grid>
                 <Label Text="{Binding AudioDevices.StatusText}" FontSize="11" TextColor="Orange" />
 
                 <Label Width="400" Text="{Binding DeviceSummaryText}" Margin="0,12,0,0"></Label>

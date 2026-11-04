@@ -41,11 +41,25 @@ namespace ShowControl.ControlPanel.Editor
         private float _dragStartOriginY;
 
         // A pixel drag: set when the press landed on the fixture that was already selected, so the
-        // grab is one pixel rather than the whole run. The rest offsets are the shape as it stood
-        // at the press; every move recomputes from them, which is what anchors the gesture the same
-        // way the whole-fixture drag is anchored on its press point.
+        // grab is one pixel rather than the whole run. The grabbed pixel is the handle of a hinge
+        // at the pixel before it — the rest of the run swings to point at the cursor — and the rest
+        // offsets are the shape as it stood at the press; every move recomputes from them, which is
+        // what anchors the gesture the same way the whole-fixture drag is anchored on its press
+        // point. The heading is the last one the gesture set, for the status line.
         private int? _dragPixelIndex;
         private float[]? _dragRestOffsets;
+        private float? _dragHeading;
+
+        /// <summary>
+        /// How close to a multiple of 45° a bend has to land to snap to it. Wide enough to hit a
+        /// right angle by eye at any zoom, narrow enough that a deliberate 40° is still 40°.
+        /// </summary>
+        private const float BendSnapToleranceDegrees = 4f;
+
+        // The start channel the form last suggested. While the box still holds it the operator has
+        // not typed their own, so a change of controller or a newly added strip moves the box too;
+        // once it differs the box is theirs and only the hint beside it follows.
+        private string _lastSuggestedStartChannel = "0";
 
         // Panning: a drag on the preview where there was no fixture to grab. Anchored on the region
         // as it was at the press, because the transform moves underneath a pan and converting later
@@ -81,11 +95,39 @@ namespace ShowControl.ControlPanel.Editor
         [ObservableProperty]
         private string _spacingText = string.Empty;
 
+        /// <summary>Total turn of the selected run in degrees, measured off its offsets; zero when straight.</summary>
+        [ObservableProperty]
+        private string _bendText = string.Empty;
+
+        /// <summary>
+        /// The selected fixture's blanked pixels in the editor's notation (<c>12-15, 40</c>, zero-based,
+        /// inclusive). Read back from the fixture on selection; applied through <see cref="ApplyBlankedCommand"/>.
+        /// </summary>
+        [ObservableProperty]
+        private string _blankedText = string.Empty;
+
+        /// <summary>
+        /// Every field of the selected fixture, one per line, including the channel range it
+        /// occupies. The list row is a single truncating line; this is where the whole record is
+        /// readable, which is what wiring the next strip needs.
+        /// </summary>
+        [ObservableProperty]
+        private string _selectedFixtureDetail = string.Empty;
+
+        /// <summary>Where the suggested start channel came from, shown beside the box.</summary>
+        [ObservableProperty]
+        private string _startChannelHint = string.Empty;
+
         [ObservableProperty]
         private Guid? _selectedFixtureId;
 
-        // Add-fixture form. Plain strings so the same validation runs whether the values came from
-        // an entry box or a test.
+        /// <summary>What the rig is showing instead of the animation, for the panel's readout.</summary>
+        [ObservableProperty]
+        private string _outputOverrideText = string.Empty;
+
+        // Fixture form: what Add builds a fixture from, and what Apply-to-selected writes onto one
+        // (Load-selected fills it from the selection). Plain strings so the same validation runs
+        // whether the values came from an entry box or a test.
         [ObservableProperty] private string _newName = string.Empty;
         [ObservableProperty] private string _newIpAddress = "192.168.3.207";
         [ObservableProperty] private string _newPort = "4048";
@@ -136,7 +178,17 @@ namespace ShowControl.ControlPanel.Editor
             Zoom.SetImageSize(Working.ImageWidth, Working.ImageHeight);
             RefreshRows();
             RefreshDirtyText();
+            RefreshOutputOverrideText();
         }
+
+        /// <summary>The wiring-check override the rig is showing: a test pattern, a soloed fixture, or nothing.</summary>
+        public PixelOutputOverrideRequest OutputOverride => _editor.CurrentOutputOverride;
+
+        /// <summary>
+        /// The pixel-type catalogue the editor resolves channel counts through, for the readouts
+        /// that need channels per pixel.
+        /// </summary>
+        public IPixelTypeResolver PixelTypes => _pixelTypes;
 
         /// <summary>Where the preview is looking. Presentation only; the rig samples the whole image.</summary>
         public PreviewZoomViewModel Zoom { get; }
@@ -246,6 +298,10 @@ namespace ShowControl.ControlPanel.Editor
 
             EndPan();
             EndDrag();
+
+            // A test pattern or a solo left on after the editor closes would be a show with one
+            // strip lit, and nothing on screen to say why. Leaving edit mode is the off switch.
+            SetOutputOverride(PixelOutputOverrideRequest.Nothing);
 
             _stashedZoom = Zoom.Zoom;
             _stashedAnchorX = Zoom.AnchorX;
@@ -371,7 +427,7 @@ namespace ShowControl.ControlPanel.Editor
         {
             for (int i = 0; i < Working.Fixtures.Count; i++)
             {
-                var row = FixtureRow.From(Working.Fixtures[i]);
+                var row = FixtureRow.From(Working.Fixtures[i], _pixelTypes);
                 if (i >= Rows.Count)
                 {
                     Rows.Add(row);
@@ -387,7 +443,9 @@ namespace ShowControl.ControlPanel.Editor
                 Rows.RemoveAt(Rows.Count - 1);
             }
 
-            RefreshSpacingText();
+            RefreshSelectionReadout();
+            RefreshStartChannelSuggestion();
+            RefreshOutputOverrideText();
         }
 
         public void RefreshDirtyText() => DirtyText = _editor.IsDirty
@@ -402,11 +460,23 @@ namespace ShowControl.ControlPanel.Editor
             SelectedFixtureId = hit?.Id;
         }
 
-        partial void OnSelectedFixtureIdChanged(Guid? value) => RefreshSpacingText();
+        partial void OnSelectedFixtureIdChanged(Guid? value) => RefreshSelectionReadout();
 
         // The rows are the only place the current choice is shown, so they follow the value rather
         // than being what holds it — setting NewInterface or NewPixelType from anywhere moves the mark.
-        partial void OnNewInterfaceChanged(OutputInterfaceType value) => SyncInterfaceSelection();
+        partial void OnNewInterfaceChanged(OutputInterfaceType value)
+        {
+            SyncInterfaceSelection();
+            RefreshStartChannelSuggestion();
+        }
+
+        // The suggested start channel is a property of the target, so it follows every field that
+        // identifies one.
+        partial void OnNewIpAddressChanged(string value) => RefreshStartChannelSuggestion();
+
+        partial void OnNewPortChanged(string value) => RefreshStartChannelSuggestion();
+
+        partial void OnNewUniverseChanged(string value) => RefreshStartChannelSuggestion();
 
         partial void OnNewPixelTypeChanged(string value) => SyncPixelTypeSelection();
 
@@ -430,15 +500,103 @@ namespace ShowControl.ControlPanel.Editor
         }
 
         /// <summary>
-        /// Spacing is not stored — the map keeps positions — so the box shows what the offsets
-        /// measure out to rather than something recalled.
+        /// Spacing and bend are not stored — the map keeps positions — so the boxes show what the
+        /// offsets measure out to rather than something recalled. The detail block is rebuilt with
+        /// them: it is derived from the same fixture and goes stale at the same moments.
         /// </summary>
-        private void RefreshSpacingText()
+        private void RefreshSelectionReadout()
         {
             var fixture = SelectedFixture;
-            SpacingText = fixture == null
-                ? string.Empty
-                : FormatSpacing(PixelLayoutTools.MeasureSpacing(fixture.PixelOffsets));
+            if (fixture == null)
+            {
+                SpacingText = string.Empty;
+                BendText = string.Empty;
+                BlankedText = string.Empty;
+                SelectedFixtureDetail = "Nothing selected. Click a fixture in the list or on the preview.";
+                return;
+            }
+
+            SpacingText = FormatSpacing(PixelLayoutTools.MeasureSpacing(fixture.PixelOffsets));
+            BendText = FormatDegrees(PixelLayoutTools.MeasureBend(fixture.PixelOffsets));
+            BlankedText = PixelRange.Format(fixture.BlankedPixels);
+            SelectedFixtureDetail = DescribeFixture(fixture);
+        }
+
+        /// <summary>
+        /// The whole record, one field per line, in the order the add form asks for them so the two
+        /// read against each other. Channels are the zero-based offsets the file stores: the end
+        /// channel here is the number the next strip on the same controller starts after.
+        /// </summary>
+        private string DescribeFixture(FixtureDefinition fixture)
+        {
+            var output = fixture.Output;
+            bool knownType = _pixelTypes.TryGetChannelCount(fixture.PixelType, out int channelsPerPixel);
+            int channelCount = knownType ? fixture.PixelCount * channelsPerPixel : 0;
+            int outside = FixtureHitTester.CountPixelsOutsideImage(fixture, Working.ImageWidth, Working.ImageHeight);
+
+            var lines = new List<string>
+            {
+                $"{fixture.Name}" + (fixture.Enabled ? string.Empty : "  (disabled)"),
+                output.Interface == OutputInterfaceType.ArtNet
+                    ? $"ArtNet {output.IpAddress} · universe {output.Universe}"
+                    : $"DDP {output.IpAddress} · port {output.Port}",
+                knownType
+                    ? $"{fixture.PixelType} · {channelsPerPixel} ch/px · {fixture.PixelCount} px · {channelCount} ch"
+                    : $"{fixture.PixelType} (unknown type) · {fixture.PixelCount} px",
+                knownType && channelCount > 0
+                    ? $"Channels {output.StartChannel}–{output.StartChannel + channelCount - 1} (next free {output.StartChannel + channelCount})"
+                    : $"Start channel {output.StartChannel}",
+                $"Origin {fixture.OriginX:F1}, {fixture.OriginY:F1} · spacing {SpacingText} · bend {BendText}°",
+                fixture.BlankedPixels.Count == 0
+                    ? "No blanked pixels"
+                    : $"Blanked {PixelRange.Format(fixture.BlankedPixels)} ({fixture.BlankedPixels.Sum(r => r.Count)} px dark)"
+            };
+
+            if (outside > 0)
+            {
+                lines.Add($"{outside} of {fixture.PixelCount} px outside the {Working.ImageWidth}x{Working.ImageHeight} image (dark)");
+            }
+
+            return string.Join(Environment.NewLine, lines);
+        }
+
+        /// <summary>
+        /// Recomputes the start channel the add form suggests: the first free channel on the target
+        /// the form currently describes. The box follows the suggestion until the operator types
+        /// something else, and the hint says which strip the number comes after so it can be checked
+        /// against the list.
+        /// </summary>
+        private void RefreshStartChannelSuggestion()
+        {
+            var key = NewTargetKey();
+            int next = ChannelPlanner.NextFreeChannel(Working, key, _pixelTypes, out var after);
+            string suggested = next.ToString(CultureInfo.InvariantCulture);
+
+            StartChannelHint = after == null
+                ? $"Nothing on {key} yet, so 0."
+                : $"Next free on {key} is {suggested}, after '{after.Name}'.";
+
+            bool following = string.Equals(NewStartChannel?.Trim(), _lastSuggestedStartChannel, StringComparison.Ordinal);
+            _lastSuggestedStartChannel = suggested;
+            if (following)
+            {
+                NewStartChannel = suggested;
+            }
+        }
+
+        /// <summary>The output target the add form currently describes, with the same fallbacks AddFixture uses.</summary>
+        private OutputTargetKey NewTargetKey()
+        {
+            if (!TryReadInt(NewPort, out int port))
+            {
+                port = OutputTarget.DefaultDdpPort;
+            }
+            if (!TryReadInt(NewUniverse, out int universe) || universe < 0 || universe > 255)
+            {
+                universe = 0;
+            }
+
+            return new OutputTargetKey(NewInterface, (NewIpAddress ?? string.Empty).Trim(), port, (byte)universe);
         }
 
         // ------------------------------------------------------------------ dragging
@@ -486,10 +644,12 @@ namespace ShowControl.ControlPanel.Editor
             _dragStartImageY = imageY;
             _dragStartOriginX = hit.OriginX;
             _dragStartOriginY = hit.OriginY;
+            _dragHeading = null;
 
             // Scoped press: the first drag on a fixture selects it and moves the whole run; a press
-            // on the fixture that is already selected grabs the pixel under the cursor instead.
-            // Pressing empty space deselects, so a whole-fixture move is always one click away.
+            // on the fixture that is already selected grabs the pixel under the cursor instead, as
+            // the handle of a hinge at the pixel before it. Pressing empty space deselects, so a
+            // whole-fixture move is always one click away.
             if (previousSelection.HasValue && previousSelection.Value == hit.Id)
             {
                 int? pixelIndex = FixtureHitTester.HitTestPixel(hit, imageX, imageY, thresholdImageUnits);
@@ -497,7 +657,9 @@ namespace ShowControl.ControlPanel.Editor
                 {
                     _dragPixelIndex = pixelIndex;
                     _dragRestOffsets = (float[])hit.PixelOffsets.Clone();
-                    StatusText = $"Dragging pixel {pixelIndex.Value} of '{hit.Name}'.";
+                    StatusText = pixelIndex.Value == 0
+                        ? $"Dragging pixel 0 of '{hit.Name}': rotating the run about its first pixel."
+                        : $"Dragging pixel {pixelIndex.Value} of '{hit.Name}': bending at pixel {pixelIndex.Value - 1}, the rest of the run follows the cursor. Snaps to 45°.";
                     return true;
                 }
             }
@@ -558,10 +720,10 @@ namespace ShowControl.ControlPanel.Editor
         }
 
         /// <summary>
-        /// Moves one pixel and lets the run follow it as an inextensible rope — neighbours come
-        /// along only when their link is pulled taut, slack absorbs everything else — recomputed on
-        /// every move from the offsets stashed at the press. Publishes each move exactly as the
-        /// whole-fixture drag does — that is what makes the lights follow the pull — and touches
+        /// Bends the run: the grabbed pixel and everything after it swing about the pixel before it
+        /// to point at the cursor, recomputed on every move from the offsets stashed at the press.
+        /// Pixel 0 rotates the whole run about the origin instead. Publishes each move exactly as the
+        /// whole-fixture drag does — that is what makes the lights follow the bend — and touches
         /// nothing the panel is bound to; <see cref="EndDrag"/> has the last word.
         /// </summary>
         private void DragPixelTo(FixtureDefinition fixture, double imageX, double imageY)
@@ -576,21 +738,28 @@ namespace ShowControl.ControlPanel.Editor
                 return;
             }
 
-            float deltaX = (float)(imageX - _dragStartImageX);
-            float deltaY = (float)(imageY - _dragStartImageY);
+            // The target is the cursor in offset space: the hinge is a stored offset, and the
+            // heading is measured from it.
+            float targetX = (float)(imageX - fixture.OriginX);
+            float targetY = (float)(imageY - fixture.OriginY);
 
-            // The whole shape is a function of the dragged pixel's position, so an unmoved target
-            // is an unmoved run — the same no-op skip the origin drag makes.
+            var updated = (float[])rest.Clone();
+            float? heading = PixelLayoutTools.PointSectionAt(updated, pixelIndex, targetX, targetY, BendSnapToleranceDegrees);
+            if (!heading.HasValue)
+            {
+                // Too close to the hinge to have a direction, or a single pixel: nothing to do.
+                return;
+            }
+
+            // The whole shape is a function of the heading, so an unchanged heading is an unchanged
+            // run — the same no-op skip the origin drag makes.
             var previous = fixture.PixelOffsets;
-            float targetX = rest[pixelIndex * 2] + deltaX;
-            float targetY = rest[(pixelIndex * 2) + 1] + deltaY;
-            if (previous[pixelIndex * 2] == targetX && previous[(pixelIndex * 2) + 1] == targetY)
+            if (heading == _dragHeading && previous.AsSpan().SequenceEqual(updated))
             {
                 return;
             }
 
-            var updated = (float[])rest.Clone();
-            PixelLayoutTools.DragRope(updated, pixelIndex, deltaX, deltaY);
+            _dragHeading = heading;
             fixture.PixelOffsets = updated;
 
             if (!TryApplyWorking())
@@ -605,6 +774,7 @@ namespace ShowControl.ControlPanel.Editor
             _dragFixtureId = null;
             _dragPixelIndex = null;
             _dragRestOffsets = null;
+            _dragHeading = null;
         }
 
         /// <summary>Ends the drag and lets the panel catch up. Returns true if a drag was running.</summary>
@@ -617,6 +787,7 @@ namespace ShowControl.ControlPanel.Editor
 
             var dragged = Working.Fixtures.FirstOrDefault(f => f.Id == _dragFixtureId.Value);
             int? pixelIndex = _dragPixelIndex;
+            float? heading = _dragHeading;
             bool wasDragStatus = StatusText.StartsWith("Dragging", StringComparison.Ordinal);
             CancelDrag();
 
@@ -639,12 +810,16 @@ namespace ShowControl.ControlPanel.Editor
             {
                 if (pixelIndex.HasValue)
                 {
-                    var position = PixelMapGeometry.Resolve(dragged, pixelIndex.Value);
                     int outside = FixtureHitTester.CountPixelsOutsideImage(dragged, Working.ImageWidth, Working.ImageHeight);
                     string outsideNote = outside == 0
                         ? string.Empty
                         : $" {outside} of {dragged.PixelCount} pixels fall outside the {Working.ImageWidth}x{Working.ImageHeight} image and stay dark.";
-                    StatusText = $"'{dragged.Name}' pixel {pixelIndex.Value} moved to {position.X:F0}, {position.Y:F0}.{outsideNote}";
+                    string what = !heading.HasValue
+                        ? $"'{dragged.Name}' pixel {pixelIndex.Value} was not moved."
+                        : pixelIndex.Value == 0
+                            ? $"'{dragged.Name}' rotated to {FormatDegrees(heading.Value)}°."
+                            : $"'{dragged.Name}' bent at pixel {pixelIndex.Value - 1}: the run from pixel {pixelIndex.Value} now heads {FormatDegrees(heading.Value)}°, {FormatDegrees(PixelLayoutTools.MeasureBend(dragged.PixelOffsets))}° of bend in all. Straighten undoes it.";
+                    StatusText = what + outsideNote;
                 }
                 else
                 {
@@ -689,6 +864,69 @@ namespace ShowControl.ControlPanel.Editor
         }
 
         public void EndPan() => _panning = false;
+
+        // ------------------------------------------------------------------ wiring checks
+
+        private void SetOutputOverride(PixelOutputOverrideRequest request)
+        {
+            _editor.SetOutputOverride(request);
+            RefreshOutputOverrideText();
+        }
+
+        private void RefreshOutputOverrideText()
+        {
+            var request = _editor.CurrentOutputOverride;
+            string solo = request.SoloFixtureId is Guid id
+                ? Working.Fixtures.FirstOrDefault(f => f.Id == id)?.Name is string name
+                    ? $"Solo '{name}'"
+                    : "Solo (fixture gone — everything dark)"
+                : null;
+            string pattern = request.Pattern == PixelTestPattern.None ? null : $"Pattern: {DescribePattern(request.Pattern)}";
+            OutputOverrideText = solo == null && pattern == null
+                ? "Showing the animation."
+                : string.Join(" · ", new[] { pattern, solo }.Where(s => s != null)) + " — the rig is not showing the animation.";
+        }
+
+        private static string DescribePattern(PixelTestPattern pattern) => pattern switch
+        {
+            PixelTestPattern.Chase => "chase (direction, length, dead pixels)",
+            PixelTestPattern.Rainbow => "rainbow (order along each strip)",
+            PixelTestPattern.FixtureColors => "a colour per fixture",
+            PixelTestPattern.White => "white",
+            PixelTestPattern.Diagonals => "diagonals (lines across strips; a break is a strip out of place)",
+            _ => "none"
+        };
+
+        /// <summary>Puts a test pattern on the rig, or takes it off with <see cref="PixelTestPattern.None"/>. Any solo stays.</summary>
+        [RelayCommand]
+        private void SetTestPattern(PixelTestPattern pattern) => Guard("Test pattern", () =>
+            SetOutputOverride(_editor.CurrentOutputOverride with { Pattern = pattern }));
+
+        /// <summary>Solos the selected fixture — every other strip goes dark — or, pressed again on the same one, un-solos it.</summary>
+        [RelayCommand]
+        private void SoloSelected() => Guard("Solo", () =>
+        {
+            var fixture = SelectedFixture;
+            if (fixture == null)
+            {
+                StatusText = "Select a fixture first.";
+                return;
+            }
+            var current = _editor.CurrentOutputOverride;
+            bool unsolo = current.SoloFixtureId == fixture.Id;
+            SetOutputOverride(current with { SoloFixtureId = unsolo ? null : fixture.Id });
+            StatusText = unsolo
+                ? $"'{fixture.Name}' is no longer soloed."
+                : $"Soloed '{fixture.Name}': every other strip is dark until you un-solo or leave edit mode.";
+        });
+
+        /// <summary>Everything back to the animation.</summary>
+        [RelayCommand]
+        private void ClearOutputOverride() => Guard("Clear wiring check", () =>
+        {
+            SetOutputOverride(PixelOutputOverrideRequest.Nothing);
+            StatusText = "The rig is showing the animation again.";
+        });
 
         // ------------------------------------------------------------------ commands
 
@@ -773,6 +1011,92 @@ namespace ShowControl.ControlPanel.Editor
             StatusText = $"'{fixture.Name}' now runs from the opposite end.{blanked}";
         });
 
+        /// <summary>
+        /// The way back from any bend: a straight, evenly spaced run from the first pixel toward
+        /// where the last one was. Pixel 0 stays put, so the fixture does not move.
+        /// </summary>
+        [RelayCommand]
+        private void Straighten() => Guard("Straighten", () =>
+        {
+            var fixture = SelectedFixture;
+            if (fixture == null)
+            {
+                StatusText = "Select a fixture first.";
+                return;
+            }
+
+            if (fixture.PixelCount < 2)
+            {
+                StatusText = $"'{fixture.Name}' is a single pixel; there is nothing to straighten.";
+                return;
+            }
+
+            var previous = fixture.PixelOffsets;
+            var updated = (float[])previous.Clone();
+            PixelLayoutTools.Straighten(updated);
+            fixture.PixelOffsets = updated;
+
+            if (!PublishWorking())
+            {
+                fixture.PixelOffsets = previous;
+                return;
+            }
+
+            StatusText = $"'{fixture.Name}' is straight again, heading {FormatDegrees(HeadingOf(fixture))}°.";
+        });
+
+        /// <summary>
+        /// Lays the selected run out as an even arc with the typed total turn: 0 is straight, 90 a
+        /// quarter turn, 360 a ring. The first link keeps its heading, so the arc starts off in the
+        /// direction the strip already leaves its first pixel.
+        /// </summary>
+        [RelayCommand]
+        private void ApplyBend() => Guard("Bend", () =>
+        {
+            var fixture = SelectedFixture;
+            if (fixture == null)
+            {
+                StatusText = "Select a fixture first.";
+                return;
+            }
+
+            if (!TryReadFloat(BendText, out float degrees) || !float.IsFinite(degrees))
+            {
+                StatusText = "Bend must be a number of degrees.";
+                return;
+            }
+
+            if (fixture.PixelCount < 3)
+            {
+                StatusText = $"'{fixture.Name}' has fewer than three pixels; it cannot bend.";
+                return;
+            }
+
+            var previous = fixture.PixelOffsets;
+            var updated = (float[])previous.Clone();
+            PixelLayoutTools.SetBend(updated, degrees);
+            fixture.PixelOffsets = updated;
+
+            if (!PublishWorking())
+            {
+                fixture.PixelOffsets = previous;
+                return;
+            }
+
+            int outside = FixtureHitTester.CountPixelsOutsideImage(fixture, Working.ImageWidth, Working.ImageHeight);
+            StatusText = outside == 0
+                ? $"'{fixture.Name}' bent {FormatDegrees(degrees)}° in all."
+                : $"'{fixture.Name}' bent {FormatDegrees(degrees)}° in all — {outside} of {fixture.PixelCount} pixels now fall outside the {Working.ImageWidth}x{Working.ImageHeight} image and stay dark.";
+        });
+
+        /// <summary>Puts the suggested start channel in the box, for an operator who typed over it.</summary>
+        [RelayCommand]
+        private void UseNextFreeChannel() => Guard("Start channel", () =>
+        {
+            RefreshStartChannelSuggestion();
+            NewStartChannel = _lastSuggestedStartChannel;
+        });
+
         [RelayCommand]
         private void ApplySpacing() => Guard("Pixel spacing", () =>
         {
@@ -812,28 +1136,65 @@ namespace ShowControl.ControlPanel.Editor
                 : $"'{fixture.Name}' spacing {FormatSpacing(spacing)} — {outside} of {fixture.PixelCount} pixels now fall outside the {Working.ImageWidth}x{Working.ImageHeight} image and stay dark.";
         });
 
+        /// <summary>
+        /// Blanks the pixels typed in the box — a dead tail, a gap where a segment was cut out —
+        /// and un-blanks the rest. They still occupy their channels, since addressing is positional
+        /// on the wire; they sample as black and the overlay draws them hollow. A change to the
+        /// sample map, so the lights pick it up at once.
+        /// </summary>
         [RelayCommand]
-        private void AddFixture() => Guard("Add fixture", () =>
+        private void ApplyBlanked() => Guard("Blanked pixels", () =>
+        {
+            var fixture = SelectedFixture;
+            if (fixture == null)
+            {
+                StatusText = "Select a fixture first.";
+                return;
+            }
+
+            if (!PixelRange.TryParseList(BlankedText, fixture.PixelCount, out var ranges, out string? error))
+            {
+                StatusText = error!;
+                return;
+            }
+
+            var previous = fixture.BlankedPixels;
+            fixture.BlankedPixels = ranges;
+
+            if (!PublishWorking())
+            {
+                fixture.BlankedPixels = previous;
+                return;
+            }
+
+            int dark = ranges.Sum(r => r.Count);
+            StatusText = dark == 0
+                ? $"'{fixture.Name}' has no blanked pixels."
+                : $"'{fixture.Name}' blanks {dark} of {fixture.PixelCount} pixels ({PixelRange.Format(ranges)}); they keep their channels and show black.";
+        });
+
+        /// <summary>The form's fields, validated as a fixture, or null with the status line saying what is wrong.</summary>
+        private FormValues? ReadForm()
         {
             if (!TryReadInt(NewPixelCount, out int pixelCount) || pixelCount <= 0)
             {
                 StatusText = "Pixel count must be a positive whole number.";
-                return;
+                return null;
             }
             if (!TryReadFloat(NewSpacing, out float spacing) || spacing <= 0f)
             {
                 StatusText = "Spacing must be a positive number.";
-                return;
+                return null;
             }
             if (!TryReadFloat(NewAngle, out float angle))
             {
                 StatusText = "Angle must be a number.";
-                return;
+                return null;
             }
             if (!TryReadInt(NewStartChannel, out int startChannel) || startChannel < 0)
             {
                 StatusText = "Start channel must be zero or greater.";
-                return;
+                return null;
             }
             if (!TryReadInt(NewPort, out int port))
             {
@@ -844,10 +1205,9 @@ namespace ShowControl.ControlPanel.Editor
                 universe = 0;
             }
 
-            var fixture = new FixtureDefinition
-            {
-                Name = string.IsNullOrWhiteSpace(NewName) ? $"Fixture {Working.Fixtures.Count + 1}" : NewName.Trim(),
-                Output = new OutputTarget
+            return new FormValues(
+                (NewName ?? string.Empty).Trim(),
+                new OutputTarget
                 {
                     Interface = NewInterface,
                     IpAddress = (NewIpAddress ?? string.Empty).Trim(),
@@ -855,20 +1215,139 @@ namespace ShowControl.ControlPanel.Editor
                     Universe = (byte)universe,
                     StartChannel = startChannel
                 },
-                PixelType = string.IsNullOrWhiteSpace(NewPixelType) ? "WS2812B" : NewPixelType,
+                string.IsNullOrWhiteSpace(NewPixelType) ? "WS2812B" : NewPixelType,
+                pixelCount,
+                spacing,
+                angle);
+        }
+
+        private readonly record struct FormValues(
+            string Name, OutputTarget Output, string PixelType, int PixelCount, float Spacing, float Angle);
+
+        /// <summary>
+        /// Fills the form from the selected fixture, so it can be edited and written back with
+        /// <see cref="ApplyFormToSelectedCommand"/>. Spacing and angle are measured off the run,
+        /// since the map does not store them.
+        /// </summary>
+        [RelayCommand]
+        private void LoadSelectedIntoForm() => Guard("Load fixture", () =>
+        {
+            var fixture = SelectedFixture;
+            if (fixture == null)
+            {
+                StatusText = "Select a fixture first.";
+                return;
+            }
+
+            NewName = fixture.Name;
+            NewInterface = fixture.Output.Interface;
+            NewIpAddress = fixture.Output.IpAddress;
+            NewPort = fixture.Output.Port.ToString(CultureInfo.InvariantCulture);
+            NewUniverse = fixture.Output.Universe.ToString(CultureInfo.InvariantCulture);
+            NewStartChannel = fixture.Output.StartChannel.ToString(CultureInfo.InvariantCulture);
+            NewPixelType = fixture.PixelType;
+            NewPixelCount = fixture.PixelCount.ToString(CultureInfo.InvariantCulture);
+            float spacing = PixelLayoutTools.MeasureSpacing(fixture.PixelOffsets);
+            NewSpacing = FormatSpacing(spacing > 0f ? spacing : 1.25f);
+            NewAngle = FormatDegrees(HeadingOf(fixture));
+            StatusText = $"Form holds '{fixture.Name}'. Edit it and press Apply to selected, or Add to make a copy.";
+        });
+
+        /// <summary>
+        /// Writes the form onto the selected fixture: name, controller, start channel, pixel type
+        /// and pixel count. The run stays where it is — a shorter count cuts it, a longer one
+        /// carries it on past its last pixel — so spacing and angle here only lay out the pixels
+        /// that are added; the Spacing and Bend boxes above change an existing run. Blanked
+        /// pixels beyond a shorter run are dropped.
+        /// </summary>
+        [RelayCommand]
+        private void ApplyFormToSelected() => Guard("Apply to fixture", () =>
+        {
+            var fixture = SelectedFixture;
+            if (fixture == null)
+            {
+                StatusText = "Select a fixture first.";
+                return;
+            }
+
+            var form = ReadForm();
+            if (form == null)
+            {
+                return;
+            }
+            var values = form.Value;
+
+            string previousName = fixture.Name;
+            var previousOutput = fixture.Output;
+            string previousType = fixture.PixelType;
+            var previousOffsets = fixture.PixelOffsets;
+            var previousBlanked = fixture.BlankedPixels;
+            int previousCount = fixture.PixelCount;
+
+            fixture.Name = string.IsNullOrWhiteSpace(values.Name) ? previousName : values.Name;
+            fixture.Output = values.Output;
+            fixture.PixelType = values.PixelType;
+            if (values.PixelCount != previousCount)
+            {
+                fixture.PixelOffsets = PixelLayoutTools.SetPixelCount(previousOffsets, values.PixelCount, values.Spacing, values.Angle);
+                fixture.BlankedPixels = PixelRange.ClipTo(previousBlanked, values.PixelCount);
+            }
+
+            if (!PublishWorking())
+            {
+                fixture.Name = previousName;
+                fixture.Output = previousOutput;
+                fixture.PixelType = previousType;
+                fixture.PixelOffsets = previousOffsets;
+                fixture.BlankedPixels = previousBlanked;
+                return;
+            }
+
+            int channels = ChannelPlanner.ChannelCount(fixture, _pixelTypes);
+            string range = channels > 0
+                ? $" on channels {values.Output.StartChannel}–{values.Output.StartChannel + channels - 1} of {fixture.Output.Key}"
+                : string.Empty;
+            string resized = values.PixelCount == previousCount
+                ? string.Empty
+                : values.PixelCount > previousCount
+                    ? $", extended from {previousCount} to {values.PixelCount} px"
+                    : $", cut from {previousCount} to {values.PixelCount} px";
+            StatusText = $"Updated '{fixture.Name}'{range}{resized}.";
+        });
+
+        [RelayCommand]
+        private void AddFixture() => Guard("Add fixture", () =>
+        {
+            var form = ReadForm();
+            if (form == null)
+            {
+                return;
+            }
+            var values = form.Value;
+
+            var fixture = new FixtureDefinition
+            {
+                Name = string.IsNullOrWhiteSpace(values.Name) ? $"Fixture {Working.Fixtures.Count + 1}" : values.Name,
+                Output = values.Output,
+                PixelType = values.PixelType,
                 // Spacing and angle are consumed here and not stored: the map keeps the resulting
                 // positions, so editor tooling can grow without a schema change.
-                PixelOffsets = PixelLayoutTools.GenerateLine(pixelCount, spacing, angle),
+                PixelOffsets = PixelLayoutTools.GenerateLine(values.PixelCount, values.Spacing, values.Angle),
                 OriginX = Working.ImageWidth / 4f,
                 OriginY = Working.ImageHeight / 2f
             };
+            int startChannel = values.Output.StartChannel;
 
             Working.Fixtures.Add(fixture);
             SelectedFixtureId = fixture.Id;
 
             if (PublishWorking())
             {
-                StatusText = $"Added '{fixture.Name}'. Drag it into place.";
+                int channels = ChannelPlanner.ChannelCount(fixture, _pixelTypes);
+                string range = channels > 0
+                    ? $" on channels {startChannel}–{startChannel + channels - 1} of {fixture.Output.Key}"
+                    : string.Empty;
+                StatusText = $"Added '{fixture.Name}'{range}. Drag it into place.";
             }
             else
             {
@@ -991,6 +1470,26 @@ namespace ShowControl.ControlPanel.Editor
 
         private static string FormatSpacing(float spacing) =>
             spacing.ToString("0.###", CultureInfo.InvariantCulture);
+
+        /// <summary>One decimal, and never "-0": a straightened run measures a hair under zero as often as over.</summary>
+        private static string FormatDegrees(float degrees)
+        {
+            float rounded = MathF.Round(degrees, 1);
+            if (rounded == 0f)
+            {
+                rounded = 0f;
+            }
+            return rounded.ToString("0.#", CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>Heading of a fixture's first link in image space, for the status line.</summary>
+        private static float HeadingOf(FixtureDefinition fixture)
+        {
+            var offsets = fixture.PixelOffsets;
+            return offsets.Length >= 4
+                ? PixelLayoutTools.HeadingDegrees(offsets[2] - offsets[0], offsets[3] - offsets[1])
+                : 0f;
+        }
 
         private static bool TryReadInt(string text, out int value) =>
             int.TryParse((text ?? string.Empty).Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out value);

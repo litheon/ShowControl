@@ -230,6 +230,7 @@ namespace ShowControl.ControlPanel.Maui
             _overlayDrawable.Map = _viewModel.Working;
             _overlayDrawable.SelectedFixtureId = _viewModel.SelectedFixtureId;
             _overlayDrawable.DraggedPixelIndex = _viewModel.DraggedPixelIndex;
+            _overlayDrawable.OutputOverride = _viewModel.OutputOverride;
             MapOverlay.Invalidate();
         }
 
@@ -240,6 +241,12 @@ namespace ShowControl.ControlPanel.Maui
                 {
                     _overlayDrawable.SelectedFixtureId = _viewModel.SelectedFixtureId;
                     SyncListSelection();
+                    MapOverlay.Invalidate();
+                }
+                else if (e.PropertyName == nameof(PixelMapEditorViewModel.OutputOverrideText))
+                {
+                    // The readout changes exactly when the override does.
+                    _overlayDrawable.OutputOverride = _viewModel.OutputOverride;
                     MapOverlay.Invalidate();
                 }
             });

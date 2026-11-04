@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:graphics="clr-namespace:ShowControl.Graphics;assembly=ShowControl.Graphics"
              xmlns:editor="clr-namespace:ShowControl.ControlPanel.Editor;assembly=ShowControl.ControlPanel.Editor"
+             xmlns:mapping="clr-namespace:ShowControl.PixelMapping;assembly=ShowControl.PixelMapping"
              x:Class="ShowControl.ControlPanel.Maui.PreviewPage"
              x:DataType="editor:PixelMapEditorViewModel"
              Title="Graphics Preview"
@@ -30,6 +31,26 @@
             <Setter Property="Stroke" Value="#30FFFFFF" />
             <Setter Property="BackgroundColor" Value="#20FFFFFF" />
             <Setter Property="Padding" Value="0,2" />
+        </Style>
+
+        <!-- A text box on the panel. The colours are explicit, not themed: the app-wide Entry style
+             follows the system theme (black text in light mode), but this panel is dark whatever
+             the theme, and black on near-black was unreadable the moment macOS was in light mode.
+             The background is a shade lighter than the panel so the box itself is visible. -->
+        <Style x:Key="FieldEntry" TargetType="Entry">
+            <Setter Property="TextColor" Value="White" />
+            <Setter Property="PlaceholderColor" Value="#80FFFFFF" />
+            <Setter Property="BackgroundColor" Value="#FF2A2A2A" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="MinimumHeightRequest" Value="28" />
+        </Style>
+
+        <!-- A multi-line readout: monospaced so the columns of numbers line up. -->
+        <Style x:Key="Readout" TargetType="Label">
+            <Setter Property="TextColor" Value="White" />
+            <Setter Property="FontFamily" Value="Courier New" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="LineBreakMode" Value="WordWrap" />
         </Style>
     </ContentPage.Resources>
 
@@ -73,7 +94,7 @@
                 IsVisible="{Binding IsEditing}"
                 HorizontalOptions="End"
                 VerticalOptions="Fill"
-                WidthRequest="300"
+                WidthRequest="340"
                 BackgroundColor="#DD101010"
                 Stroke="#40FFFFFF"
                 Padding="10">
@@ -119,30 +140,100 @@
                         </CollectionView.ItemTemplate>
                     </CollectionView>
 
+                    <!-- How the preview is driven. Written down because none of it is discoverable:
+                         the second press on a fixture does something different from the first. -->
+                    <Label Style="{StaticResource FieldLabel}" LineBreakMode="WordWrap"
+                           Text="Drag a fixture to move it. Drag a pixel of the selected fixture to bend the run there (the rest follows the cursor, snapping to 45°); drag its ringed first pixel to rotate it. Drag empty space to pan, scroll to zoom." />
+
+                    <!-- Every field of the selected fixture. The list row is one truncating line,
+                         and the channel range in particular has to be readable in full to wire the
+                         next strip after it. -->
+                    <Label Text="Selected fixture" TextColor="White" FontSize="13" FontAttributes="Bold" />
+                    <Border Style="{StaticResource OptionList}" Padding="6,4">
+                        <Label Style="{StaticResource Readout}" Text="{Binding SelectedFixtureDetail}" />
+                    </Border>
+
                     <HorizontalStackLayout Spacing="6">
                         <Button Text="Remove" FontSize="11" Padding="8,2" Command="{Binding RemoveFixtureCommand}" />
                         <Button Text="Toggle enabled" FontSize="11" Padding="8,2" Command="{Binding ToggleEnabledCommand}" />
                     </HorizontalStackLayout>
 
-                    <!-- For a strip whose data-in end is the opposite one to what the map assumes:
-                         the run stays where it is, the pixel order reverses. The overlay's ring
-                         marks the first pixel, so the result is visible at a glance. -->
-                    <Button Text="Flip direction" FontSize="11" Padding="8,2"
-                            HorizontalOptions="Start" Command="{Binding FlipDirectionCommand}" />
+                    <!-- Flip: for a strip whose data-in end is the opposite one to what the map
+                         assumes — the run stays where it is, the pixel order reverses, and the
+                         overlay's ring marks the first pixel so the result is visible at a glance.
+                         Straighten: the way back from any bend, deliberate or not. -->
+                    <HorizontalStackLayout Spacing="6">
+                        <Button Text="Flip direction" FontSize="11" Padding="8,2" Command="{Binding FlipDirectionCommand}" />
+                        <Button Text="Straighten" FontSize="11" Padding="8,2" Command="{Binding StraightenCommand}" />
+                    </HorizontalStackLayout>
 
                     <!-- Spacing of the selected fixture, read back off its stored offsets. Applying
                          scales the run about its first pixel, so the fixture keeps its position and
                          its shape and only the gap between pixels changes. -->
                     <HorizontalStackLayout Spacing="6">
-                        <Label Text="Pixel spacing" TextColor="White" FontSize="11" VerticalOptions="Center" />
+                        <Label Text="Pixel spacing" TextColor="White" FontSize="11" VerticalOptions="Center" WidthRequest="90" />
                         <Entry Text="{Binding SpacingText}" Placeholder="Spacing" WidthRequest="70"
-                               Keyboard="Numeric" FontSize="11" ReturnCommand="{Binding ApplySpacingCommand}" />
+                               Style="{StaticResource FieldEntry}" Keyboard="Numeric" ReturnCommand="{Binding ApplySpacingCommand}" />
                         <Button Text="Apply" FontSize="11" Padding="8,2" Command="{Binding ApplySpacingCommand}" />
+                    </HorizontalStackLayout>
+
+                    <!-- Total turn of the selected run, measured the same way. Applying lays it out
+                         as an even arc with that much turn: 0 is straight, 90 a quarter turn, 360 a
+                         ring. For a corner at one pixel, bend by dragging instead. -->
+                    <HorizontalStackLayout Spacing="6">
+                        <Label Text="Bend (degrees)" TextColor="White" FontSize="11" VerticalOptions="Center" WidthRequest="90" />
+                        <Entry Text="{Binding BendText}" Placeholder="0" WidthRequest="70"
+                               Style="{StaticResource FieldEntry}" Keyboard="Numeric" ReturnCommand="{Binding ApplyBendCommand}" />
+                        <Button Text="Apply" FontSize="11" Padding="8,2" Command="{Binding ApplyBendCommand}" />
+                    </HorizontalStackLayout>
+
+                    <!-- Pixels that sample as black — a dead tail, a cut-out segment. Wire
+                         positions, zero-based and inclusive, so they keep their channels and the
+                         strips after them stay addressed where they are. -->
+                    <VerticalStackLayout Spacing="1">
+                        <Label Text="Blanked pixels (0-based, e.g. 12-15, 40)" Style="{StaticResource FieldLabel}" />
+                        <HorizontalStackLayout Spacing="6">
+                            <Entry Text="{Binding BlankedText}" Placeholder="none" WidthRequest="200"
+                                   Style="{StaticResource FieldEntry}" ReturnCommand="{Binding ApplyBlankedCommand}" />
+                            <Button Text="Apply" FontSize="11" Padding="8,2" Command="{Binding ApplyBlankedCommand}" />
+                        </HorizontalStackLayout>
+                    </VerticalStackLayout>
+
+                    <BoxView HeightRequest="1" Color="#40FFFFFF" />
+
+                    <!-- Wiring checks. These replace the animation on the rig (and colour the dots
+                         above to match) and are session state, not part of the map: leaving edit
+                         mode switches them all off, so a show cannot be left with one strip lit. -->
+                    <Label Text="Wiring check" TextColor="White" FontSize="13" FontAttributes="Bold" />
+                    <Label Text="{Binding OutputOverrideText}" Style="{StaticResource FieldLabel}" LineBreakMode="WordWrap" />
+                    <HorizontalStackLayout Spacing="6">
+                        <Button Text="Chase" FontSize="11" Padding="8,2" Command="{Binding SetTestPatternCommand}"
+                                CommandParameter="{x:Static mapping:PixelTestPattern.Chase}" />
+                        <Button Text="Rainbow" FontSize="11" Padding="8,2" Command="{Binding SetTestPatternCommand}"
+                                CommandParameter="{x:Static mapping:PixelTestPattern.Rainbow}" />
+                        <Button Text="Colours" FontSize="11" Padding="8,2" Command="{Binding SetTestPatternCommand}"
+                                CommandParameter="{x:Static mapping:PixelTestPattern.FixtureColors}" />
+                        <Button Text="White" FontSize="11" Padding="8,2" Command="{Binding SetTestPatternCommand}"
+                                CommandParameter="{x:Static mapping:PixelTestPattern.White}" />
+                        <Button Text="Diagonals" FontSize="11" Padding="8,2" Command="{Binding SetTestPatternCommand}"
+                                CommandParameter="{x:Static mapping:PixelTestPattern.Diagonals}" />
+                    </HorizontalStackLayout>
+                    <HorizontalStackLayout Spacing="6">
+                        <Button Text="Pattern off" FontSize="11" Padding="8,2" Command="{Binding SetTestPatternCommand}"
+                                CommandParameter="{x:Static mapping:PixelTestPattern.None}" />
+                        <Button Text="Solo selected" FontSize="11" Padding="8,2" Command="{Binding SoloSelectedCommand}" />
+                        <Button Text="Show animation" FontSize="11" Padding="8,2" Command="{Binding ClearOutputOverrideCommand}" />
                     </HorizontalStackLayout>
 
                     <BoxView HeightRequest="1" Color="#40FFFFFF" />
 
-                    <Label Text="Add fixture" TextColor="White" FontSize="13" FontAttributes="Bold" />
+                    <Label Text="Add or edit fixture" TextColor="White" FontSize="13" FontAttributes="Bold" />
+                    <!-- One form for both: Add builds a new fixture from it, Load selected fills it
+                         from the selection, Apply to selected writes it back. -->
+                    <HorizontalStackLayout Spacing="6">
+                        <Button Text="Load selected" FontSize="11" Padding="8,2" Command="{Binding LoadSelectedIntoFormCommand}" />
+                        <Button Text="Apply to selected" FontSize="11" Padding="8,2" Command="{Binding ApplyFormToSelectedCommand}" />
+                    </HorizontalStackLayout>
 
                     <!-- Each field is a caption over its editor, paired in its own tight stack so
                          the 6pt spacing of the panel separates fields rather than splitting a label
@@ -151,7 +242,7 @@
                          numbers stops being self-explanatory. -->
                     <VerticalStackLayout Spacing="1">
                         <Label Text="Name" Style="{StaticResource FieldLabel}" />
-                        <Entry Text="{Binding NewName}" FontSize="11" />
+                        <Entry Text="{Binding NewName}" Style="{StaticResource FieldEntry}" />
                     </VerticalStackLayout>
 
                     <!-- Not a Picker: MAUI renders one as a UIPickerView on Mac Catalyst, which is
@@ -178,22 +269,32 @@
 
                     <VerticalStackLayout Spacing="1">
                         <Label Text="IP address" Style="{StaticResource FieldLabel}" />
-                        <Entry Text="{Binding NewIpAddress}" FontSize="11" />
+                        <Entry Text="{Binding NewIpAddress}" Style="{StaticResource FieldEntry}" />
                     </VerticalStackLayout>
 
                     <VerticalStackLayout Spacing="1">
                         <Label Text="Port (DDP)" Style="{StaticResource FieldLabel}" />
-                        <Entry Text="{Binding NewPort}" Keyboard="Numeric" FontSize="11" />
+                        <Entry Text="{Binding NewPort}" Keyboard="Numeric" Style="{StaticResource FieldEntry}" />
                     </VerticalStackLayout>
 
                     <VerticalStackLayout Spacing="1">
                         <Label Text="Universe (ArtNet)" Style="{StaticResource FieldLabel}" />
-                        <Entry Text="{Binding NewUniverse}" Keyboard="Numeric" FontSize="11" />
+                        <Entry Text="{Binding NewUniverse}" Keyboard="Numeric" Style="{StaticResource FieldEntry}" />
                     </VerticalStackLayout>
 
+                    <!-- Pre-filled with the first free channel on the controller the form describes
+                         — the sum of pixel counts times channels per pixel of every strip already
+                         there — and it follows the controller fields until something else is typed.
+                         The hint says which strip it comes after, so it can be checked against the
+                         list. Zero-based, as the file stores it and the list shows it. -->
                     <VerticalStackLayout Spacing="1">
-                        <Label Text="Start channel" Style="{StaticResource FieldLabel}" />
-                        <Entry Text="{Binding NewStartChannel}" Keyboard="Numeric" FontSize="11" />
+                        <Label Text="Start channel (0-based; filled in for you)" Style="{StaticResource FieldLabel}" />
+                        <HorizontalStackLayout Spacing="6">
+                            <Entry Text="{Binding NewStartChannel}" Keyboard="Numeric" WidthRequest="90"
+                                   Style="{StaticResource FieldEntry}" />
+                            <Button Text="Use next free" FontSize="11" Padding="8,2" Command="{Binding UseNextFreeChannelCommand}" />
+                        </HorizontalStackLayout>
+                        <Label Text="{Binding StartChannelHint}" Style="{StaticResource FieldLabel}" LineBreakMode="WordWrap" />
                     </VerticalStackLayout>
 
                     <!-- The whole catalogue, listed. Nine short rows are cheaper to read than any
@@ -219,20 +320,21 @@
 
                     <VerticalStackLayout Spacing="1">
                         <Label Text="Pixel count" Style="{StaticResource FieldLabel}" />
-                        <Entry Text="{Binding NewPixelCount}" Keyboard="Numeric" FontSize="11" />
+                        <Entry Text="{Binding NewPixelCount}" Keyboard="Numeric" Style="{StaticResource FieldEntry}" />
                     </VerticalStackLayout>
 
                     <!-- Spacing and angle lay the run out at creation; neither is stored in the map.
                          1.25 is the shipped rig's spacing: one LED per image pixel at the render
-                         target's previous size, scaled with it. -->
+                         target's previous size, scaled with it. On Apply to selected they lay out
+                         only the pixels a larger count adds; the boxes above change an existing run. -->
                     <VerticalStackLayout Spacing="1">
-                        <Label Text="Spacing (image px)" Style="{StaticResource FieldLabel}" />
-                        <Entry Text="{Binding NewSpacing}" Keyboard="Numeric" FontSize="11" />
+                        <Label Text="Spacing (image px; new pixels only)" Style="{StaticResource FieldLabel}" />
+                        <Entry Text="{Binding NewSpacing}" Keyboard="Numeric" Style="{StaticResource FieldEntry}" />
                     </VerticalStackLayout>
 
                     <VerticalStackLayout Spacing="1">
-                        <Label Text="Angle (degrees)" Style="{StaticResource FieldLabel}" />
-                        <Entry Text="{Binding NewAngle}" Keyboard="Numeric" FontSize="11" />
+                        <Label Text="Angle (degrees; new pixels only)" Style="{StaticResource FieldLabel}" />
+                        <Entry Text="{Binding NewAngle}" Keyboard="Numeric" Style="{StaticResource FieldEntry}" />
                     </VerticalStackLayout>
 
                     <Button Text="Add" FontSize="11" Padding="8,2" Command="{Binding AddFixtureCommand}" />

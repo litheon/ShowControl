@@ -2,6 +2,13 @@
 set -eu
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT/ShowControl.ControlPanel.Maui"
+# Delete Release outputs outright rather than "dotnet clean": that cleans Debug only, and
+# the Mac Catalyst arm64 AOT step is incremental per assembly (keyed on the assembly's own
+# timestamp, not its references). A stale AOT image compiled against an older trimmed
+# System.Private.CoreLib ships with GUIDs that no longer match and the app aborts at launch
+# with "Failed to load AOT module ... while running in aot-only mode because a dependency
+# cannot be found or it is out of date".
+rm -rf bin/Release obj/Release
 dotnet clean
 dotnet build --framework net9.0-maccatalyst --no-incremental
 dotnet publish -c Release --framework net9.0-maccatalyst -o "$REPO_ROOT/publish"

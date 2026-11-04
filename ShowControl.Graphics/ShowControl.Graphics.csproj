@@ -40,6 +40,7 @@
   <ItemGroup>
     <ShaderSource Include="**\*.vert" />
     <ShaderSource Include="**\*.frag" />
+    <ShaderSource Include="**\*.comp" />
     <!-- Exclude compiled shaders from project - they're copied to MAUI Resources -->
     <None Remove="**\*.spv" />
   </ItemGroup>

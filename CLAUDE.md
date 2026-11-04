@@ -185,6 +185,14 @@ MacCatalyst app (`ShowControl.ControlPanel.Maui`), published from a Mac via
   exists — the page is constructed *with* it — so `MauiEditorDialogs` takes a
   `Func<Page?>` and resolves it per call. A view-model given no dialogs (a test)
   says so on the status line rather than throwing out of a command body.
+- **Do not use MAUI's `FilePicker` on Mac Catalyst.** It resolves the picked URL
+  inside an `NSFileCoordinator` accessor on a background `NSOperationQueue` and
+  makes a bookmark there; when the bookmark fails (a file in the app's own
+  container is enough) the `NSErrorException` escapes a native block on a non-UI
+  thread and aborts the process — no Serilog line, only the `.ips`. Both halves of
+  `PixelMapFileDialog` on Catalyst present `UIDocumentPickerViewController`
+  directly (delegate on the main thread, no bookmark); Open keeps the picked
+  file's security scope for the session so Save can write back to the same path.
 - `MainPageViewModel` is in the MAUI project rather than the editor one on
   purpose: it reads audio, host and pixel-mapping types, and pulling those into the
   plain-net9.0 editor project would drag MAUI in behind them and take the test
@@ -282,7 +290,17 @@ MacCatalyst app (`ShowControl.ControlPanel.Maui`), published from a Mac via
   not nine commented lines), the rate is 48kHz, and startup is resilient — no matching
   interface falls back to the default input device, no device at all (or a stream
   failure) degrades to "no audio", never "no app". The callback does one copy, one
-  engine submit, one enqueue; no logging there.
+  downmix, one engine submit, one enqueue; no logging there.
+- Channels are chosen at runtime, not compiled in. PortAudio only opens "the first N"
+  inputs, so the stream opens the fewest that reach the operator's left/right pair
+  (`max + 1`) and the callback averages that pair (`CaptureLayout`, one volatile record)
+  into the mono block everything downstream reads. A pair within the opened count is a
+  field swap; one that needs a different count goes through `ReopenStream`, the same
+  stop/open/revert a device switch uses, and a device switch clamps the pair to the new
+  device's count. Equal indices select a single input with no 6dB loss. The default pair
+  is inputs 1/2; there is no persistence, the same as for the device choice. The channel
+  pickers are vertical row lists, not a `FlexLayout`: in the Auto-width left column a
+  FlexLayout measured unbounded and drew its rows over the debug view.
 - `AudioFrameProcessedEventArgs` disposal contract: the dispatch thread invokes the
   multicast event and then disposes exactly once. Subscribers copy what they keep and
   **never dispose** — a subscriber `using(e)` hands later subscribers a pooled array
@@ -396,6 +414,34 @@ MacCatalyst app (`ShowControl.ControlPanel.Maui`), published from a Mac via
   carries the throwing UIKit frames, and the app's own log lives in the sandbox
   container at
   `~/Library/Containers/com.companyname.showcontrol.controlpanel.maui/Data/Documents/.config/ShowControl/logs`.
+- **The per-pixel drag is a hinge, not a rope.** A press on the fixture that is
+  already selected grabs a pixel as the handle of a hinge at the pixel before
+  it: the run from the handle onward swings rigidly about the hinge to point at
+  the cursor (`PixelLayoutTools.PointSectionAt`, snapping within 4° of a
+  multiple of 45°), and the run before the hinge stays put. Pixel 0 has no
+  hinge before it, so grabbing the ringed first pixel rotates the whole run
+  about the origin. It replaced an inextensible-rope model that was faithful to
+  the physics and useless for the job: every pull propagated down the strip, a
+  corner could not be placed, and nothing got a bent strip straight again.
+  `Straighten` (chord direction, mean spacing) and the `Bend (degrees)` field
+  (`SetBend`: an even arc, 0 straight, 360 a ring) are the two commands over
+  the same offsets; `MeasureBend` is what the field reads back, as
+  `MeasureSpacing` is for spacing.
+- The add form's start channel is computed, not typed: `ChannelPlanner.
+  NextFreeChannel` is the first channel after every fixture already on the
+  target the form describes, disabled ones included (a venue toggle takes a
+  strip out of the layout, not off the wire). The box follows the suggestion
+  until it holds something else, so it advances after each Add and moves with
+  the IP/port/universe/interface fields; the hint names the strip it comes
+  after. Channels are zero-based everywhere in the editor — the file, the form,
+  the list row and the selected-fixture readout — because that is the
+  arithmetic an operator does (pixels × channels per pixel); only
+  `PixelMapSummary`, the startup log, still prints 1-based.
+- The editor panel's text boxes use the page's `FieldEntry` style with explicit
+  white-on-dark colours. The app-wide `Entry` style in `Styles.xaml` is
+  theme-bound (black text in light mode) and the panel is dark whatever the
+  theme, so an inherited style was unreadable the moment macOS was in light
+  mode. Any new `Entry` on the panel needs the style.
 - Dragging a fixture in `PreviewPage` publishes on every pointer move — that is
   what makes the lights follow the cursor — so the move handler does the map
   edit and an overlay redraw and nothing else. Rebuilding the fixture list there

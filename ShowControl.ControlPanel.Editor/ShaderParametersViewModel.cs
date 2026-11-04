@@ -20,12 +20,14 @@ namespace ShowControl.ControlPanel.Editor
         // MAUI project and this one is deliberately plain net9.0 so the tests can reach it.
         private const string Kaleidoscope = "kaleidoscope";
         private const string Clown = "clown";
+        private const string Fluid = "fluid";
         private const string AudioLite = "audiolite";
 
         private static readonly string[] DefaultLabels = { "Param1", "Param2", "Param3", "Param4" };
         private static readonly string[] KaleidoscopeLabels = { "Spiral Twist", "Time Offset", "Ring Density", "Flow Freq" };
         private static readonly string[] ClownLabels = { "Blades", "Spin Offset", "Hue Offset", "Dot Radius" };
         private static readonly string[] AudioLiteLabels = { "Flash Mode", "Param2", "Param3", "Param4" };
+        private static readonly string[] FluidLabels = { "Decay", "Drive", "Depth", "Damp" };
 
         /// <summary>
         /// What the label shows. Assigned through <see cref="ObservableObject.SetProperty{T}"/>, so
@@ -60,6 +62,7 @@ namespace ShowControl.ControlPanel.Editor
             Kaleidoscope => KaleidoscopeLabels,
             Clown => ClownLabels,
             AudioLite => AudioLiteLabels,
+            Fluid => FluidLabels,
             _ => DefaultLabels
         };
     }

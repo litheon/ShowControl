@@ -25,11 +25,24 @@ namespace ShowControl.Devices.Audio
         private const bool CaptureEnabled = true;
 
         public const int SampleRate = 48_000;
-        private const int ChannelOffset = 0;
-        private const int ChannelCount = 1;
-        /// <summary>Samples per frame in the interleaved capture buffer. Readonly rather than
-        /// const so the general de-interleave path compiles without unreachable-code noise.</summary>
-        private static readonly int Stride = ChannelOffset + ChannelCount;
+
+        /// <summary>
+        /// How the interleaved capture buffer maps onto the one mono channel everything
+        /// downstream consumes. <see cref="Stride"/> is the number of channels the stream was
+        /// opened with — the fewest that reach the chosen pair, i.e. the higher index plus
+        /// one, so a mono feed on input 1 opens one channel and inputs 1/2 open two.
+        /// <see cref="Left"/>/<see cref="Right"/> are the pair averaged into mono; equal
+        /// indices select a single channel. <see cref="DeviceChannels"/> is how many the
+        /// device has, the range a later selection is validated against. Immutable so the
+        /// real-time callback reads one consistent layout per block.
+        /// </summary>
+        private sealed record CaptureLayout(int Stride, int Left, int Right, int DeviceChannels);
+        private static readonly CaptureLayout NoLayout = new(0, 0, 0, 0);
+        private volatile CaptureLayout _layout = NoLayout;
+        // The pair the operator asked for, kept across device switches and clamped to
+        // whatever the next device actually has. 0/1 is the ordinary stereo feed.
+        private int _requestedLeft = 0;
+        private int _requestedRight = 1;
 
         private const int SampleLevelWindowSeconds = 20;
         private const int SampleQueueLength = SampleLevelWindowSeconds * SampleLevelWindowSeconds;
@@ -45,7 +58,6 @@ namespace ShowControl.Devices.Audio
         private static ArrayPool<float> _audioPool = ArrayPool<float>.Shared;
         private static ArrayPool<Complex> _fftPool = ArrayPool<Complex>.Shared;
         private readonly ArrayPool<Point> _pointPool = ArrayPool<Point>.Shared;
-        private static float[] _activeSamples;
 
         public const int FftLength = 4096;
         private int _fftPos;
@@ -85,14 +97,13 @@ namespace ShowControl.Devices.Audio
             _logger = logger;
             _analysisEngine = analysisEngine;
             _cancellationTokenSource = new CancellationTokenSource();
-            _bpmDetect = new RealTimeBpmDetect(ChannelCount, SampleRate);
+            _bpmDetect = new RealTimeBpmDetect(channelCount: 1, SampleRate);
             _bassAverageLevel = new SampleAverageLevelCalculator(0);
             // (double) matters: SampleRate / FftLength in integers rounds the bin width and
             // put the bass window one bin past 250Hz.
             _bassCurrentLevel = new SampleAverageLevelCalculator(Convert.ToInt32(Math.Round(BassCutOffHz / ((double)SampleRate / FftLength))) - 1);
             _overallAverageLevel = new SampleAverageLevelCalculator(0);
             _overallAverageLevelAverage = new SampleAverageLevelCalculator(0);
-            _activeSamples = new float[FftLength * ChannelCount];
             _audioProcessingThread = new Thread(ProcessingThreadStart);
             _audioDispatchThread = new Thread(DispatchThreadStart);
             _signalQueue = new ConcurrentQueue<AudioProcessSignal>();
@@ -151,28 +162,43 @@ namespace ShowControl.Devices.Audio
             try
             {
                 var deviceInfo = PortAudio.GetDeviceInfo(deviceIndex);
-                if (deviceInfo.maxInputChannels < Stride)
+                int channels = deviceInfo.maxInputChannels;
+                if (channels < 1)
                 {
                     _logger.LogWarning("[AudioService] '{Device}' has no usable input channels.", deviceInfo.name);
                     return false;
                 }
-                _logger.LogInformation("[AudioService] Capturing from '{Device}' at {Rate}Hz.", deviceInfo.name, SampleRate);
+                // Open only as many channels as the chosen pair reaches. PortAudio has no
+                // per-channel selection, just "the first N", so the pair sets N and the
+                // callback averages the two it wants out of the interleaved block.
+                int left = Math.Clamp(_requestedLeft, 0, channels - 1);
+                int right = Math.Clamp(_requestedRight, 0, channels - 1);
+                var layout = new CaptureLayout(Math.Max(left, right) + 1, left, right, channels);
+                _logger.LogInformation("[AudioService] Capturing from '{Device}' at {Rate}Hz: {Opened} of {Channels} channels, inputs {Left}/{Right}.",
+                    deviceInfo.name, SampleRate, layout.Stride, channels, left + 1, right + 1);
                 var inputParameters = new StreamParameters
                 {
                     device = deviceIndex,
-                    channelCount = Stride,
+                    channelCount = layout.Stride,
                     sampleFormat = SampleFormat.Float32,
                     suggestedLatency = deviceInfo.defaultLowInputLatency,
                     hostApiSpecificStreamInfo = IntPtr.Zero,
                 };
-                _stream = new PortAudioSharp.Stream(inputParameters, null, SampleRate, 0, StreamFlags.NoFlag, new Stream.Callback(Callback), null);
-                _stream.SetFinishedCallback(StreamFinishedCallback);
+                // Static trampolines, not instance delegates: the published app is aot-only
+                // and only a static [MonoPInvokeCallback] target has a precompiled wrapper.
+                // The service rides along as the stream's user data (a GCHandle PortAudioSharp
+                // hands back to every callback).
+                _stream = new PortAudioSharp.Stream(inputParameters, null, SampleRate, 0, StreamFlags.NoFlag, new Stream.Callback(CaptureCallback), this);
+                _stream.SetFinishedCallback(StreamFinished);
                 if (!_threadsStarted)
                 {
                     _threadsStarted = true;
                     _audioDispatchThread.Start();
                     _audioProcessingThread.Start();
                 }
+                // Publish the layout before the first callback can read it; the previous
+                // stream (if any) was stopped and drained before this one was opened.
+                _layout = layout;
                 _stream.Start();
                 _activeDeviceIndex = deviceIndex;
                 return true;
@@ -181,6 +207,7 @@ namespace ShowControl.Devices.Audio
             {
                 _logger.LogError(ex, "[AudioService] Failed to open capture on device {Index}.", deviceIndex);
                 _stream = null;
+                _layout = NoLayout;
                 _activeDeviceIndex = PortAudio.NoDevice;
                 return false;
             }
@@ -201,6 +228,99 @@ namespace ShowControl.Devices.Audio
 
         public int ActiveInputDeviceIndex => _activeDeviceIndex;
 
+        public (int Left, int Right) ActiveInputChannels
+        {
+            get
+            {
+                var layout = _layout;
+                return (layout.Left, layout.Right);
+            }
+        }
+
+        public bool SelectInputChannels(int left, int right)
+        {
+            lock (_disposalLock)
+            {
+                if (_stopped || !CaptureEnabled)
+                {
+                    return false;
+                }
+                var current = _layout;
+                if (current.Stride == 0)
+                {
+                    // No stream to validate against: remember the wish, the next OpenStream
+                    // clamps it to the device it gets.
+                    _requestedLeft = left;
+                    _requestedRight = right;
+                    return false;
+                }
+                if (left < 0 || right < 0 || left >= current.DeviceChannels || right >= current.DeviceChannels)
+                {
+                    _logger.LogWarning("[AudioService] Inputs {Left}/{Right} are outside the {Channels} channels of the active device.",
+                        left + 1, right + 1, current.DeviceChannels);
+                    return false;
+                }
+                int previousLeft = _requestedLeft;
+                int previousRight = _requestedRight;
+                _requestedLeft = left;
+                _requestedRight = right;
+                if (Math.Max(left, right) + 1 == current.Stride)
+                {
+                    // The open stream already carries both: one reference swap, the
+                    // callback picks it up on its next block.
+                    _layout = current with { Left = left, Right = right };
+                    return true;
+                }
+                // A different channel count means a different stream — the same stop/open
+                // as a device switch, with the same revert if the new one will not open.
+                int device = _activeDeviceIndex;
+                if (ReopenStream(device))
+                {
+                    return true;
+                }
+                _requestedLeft = previousLeft;
+                _requestedRight = previousRight;
+                if (ReopenStream(device))
+                {
+                    _logger.LogWarning("[AudioService] Reverted to the previous input pair.");
+                }
+                return false;
+            }
+        }
+
+        /// <summary>Stops and disposes whatever stream is open (its finished callback
+        /// suppressed so it does not restart the stream being replaced) and opens
+        /// <paramref name="deviceIndex"/> with the current requested pair. Caller holds the
+        /// disposal lock. Leaves the service streamless on failure, never throws.</summary>
+        private bool ReopenStream(int deviceIndex)
+        {
+            _suppressRestart = true;
+            try
+            {
+                var previousStream = _stream;
+                if (previousStream != null)
+                {
+                    try
+                    {
+                        previousStream.Stop();
+                        previousStream.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[AudioService] Stopping the previous capture stream failed; continuing with the switch.");
+                    }
+                    _stream = null;
+                    _layout = NoLayout;
+                    _activeDeviceIndex = PortAudio.NoDevice;
+                }
+                return OpenStream(deviceIndex);
+            }
+            finally
+            {
+                _suppressRestart = false;
+            }
+        }
+
         public IReadOnlyList<AudioInputDevice> GetInputDevices()
         {
             var devices = new List<AudioInputDevice>();
@@ -212,9 +332,9 @@ namespace ShowControl.Devices.Audio
             for (int i = 0; i < PortAudio.DeviceCount; i++)
             {
                 var info = PortAudio.GetDeviceInfo(i);
-                if (info.maxInputChannels >= Stride)
+                if (info.maxInputChannels >= 1)
                 {
-                    devices.Add(new AudioInputDevice(i, info.name, i == active));
+                    devices.Add(new AudioInputDevice(i, info.name, info.maxInputChannels, i == active));
                 }
             }
             return devices;
@@ -239,42 +359,18 @@ namespace ShowControl.Devices.Audio
                 }
 
                 int previousDevice = _activeDeviceIndex;
-                var previousStream = _stream;
-                _suppressRestart = true;
-                try
+                if (ReopenStream(deviceIndex))
                 {
-                    if (previousStream != null)
-                    {
-                        try
-                        {
-                            previousStream.Stop();
-                            previousStream.Dispose();
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "[AudioService] Stopping the previous capture stream failed; continuing with the switch.");
-                        }
-                        _stream = null;
-                        _activeDeviceIndex = PortAudio.NoDevice;
-                    }
-
-                    if (OpenStream(deviceIndex))
-                    {
-                        return true;
-                    }
-                    // The chosen device would not open; put the old one back rather than
-                    // leaving the rig deaf. If that also fails we run without audio, which
-                    // every consumer already survives.
-                    if (previousDevice != PortAudio.NoDevice && OpenStream(previousDevice))
-                    {
-                        _logger.LogWarning("[AudioService] Reverted to the previous capture device.");
-                    }
-                    return false;
+                    return true;
                 }
-                finally
+                // The chosen device would not open; put the old one back rather than
+                // leaving the rig deaf. If that also fails we run without audio, which
+                // every consumer already survives.
+                if (previousDevice != PortAudio.NoDevice && ReopenStream(previousDevice))
                 {
-                    _suppressRestart = false;
+                    _logger.LogWarning("[AudioService] Reverted to the previous capture device.");
                 }
+                return false;
             }
         }
 
@@ -286,27 +382,63 @@ namespace ShowControl.Devices.Audio
             AudioFrameProcessed += audioFrameProcessedEventHandler;
         }
 
+        [MonoPInvokeCallback(typeof(Stream.Callback))]
+        private static StreamCallbackResult CaptureCallback(IntPtr input, IntPtr output, uint frameCount, ref StreamCallbackTimeInfo timeInfo, StreamCallbackFlags flags, IntPtr userData)
+        {
+            var service = userData != IntPtr.Zero ? GCHandle.FromIntPtr(userData).Target as AudioService : null;
+            return service == null
+                ? StreamCallbackResult.Abort
+                : service.Callback(input, output, frameCount, ref timeInfo, flags, userData);
+        }
+
+        [MonoPInvokeCallback(typeof(Stream.FinishedCallback))]
+        private static void StreamFinished(IntPtr userData)
+        {
+            var service = userData != IntPtr.Zero ? GCHandle.FromIntPtr(userData).Target as AudioService : null;
+            service?.StreamFinishedCallback(userData);
+        }
+
         private StreamCallbackResult Callback(IntPtr input, IntPtr output, uint frameCount, ref StreamCallbackTimeInfo e, StreamCallbackFlags f, IntPtr d)
         {
             try
             {
-                int sampleCount = (int)frameCount * Stride;
-                var bufferArray = _audioPool.Rent(sampleCount);
-                Marshal.Copy(input, bufferArray, 0, sampleCount);
+                var layout = _layout;
+                int frames = (int)frameCount;
+                int stride = layout.Stride;
+                float[] mono;
+                if (stride <= 1)
+                {
+                    // A mono device: the block already is the channel.
+                    mono = _audioPool.Rent(frames);
+                    Marshal.Copy(input, mono, 0, frames);
+                }
+                else
+                {
+                    // Average the chosen pair out of the interleaved block. Both pooled —
+                    // frameCount is the driver's choice and has no bound worth betting the
+                    // stack on — and the interleaved copy goes straight back.
+                    int sampleCount = frames * stride;
+                    var interleaved = _audioPool.Rent(sampleCount);
+                    try
+                    {
+                        Marshal.Copy(input, interleaved, 0, sampleCount);
+                        mono = _audioPool.Rent(frames);
+                        Downmix(interleaved, mono, frames, stride, layout.Left, layout.Right);
+                    }
+                    finally
+                    {
+                        _audioPool.Return(interleaved);
+                    }
+                }
 
                 // Fan out to the analysis engine first (it copies synchronously, so handing
                 // the same buffer to the legacy queue afterwards is safe). The sample counter
                 // is the capture clock: the engine anchors on the first submit and counts
                 // from there. No logging here — this is the real-time thread.
-                if (_analysisEngine != null && Stride == 1)
-                {
-                    _analysisEngine.Submit(
-                        bufferArray.AsSpan(0, sampleCount),
-                        (double)_capturedSamples / SampleRate);
-                }
+                _analysisEngine?.Submit(mono.AsSpan(0, frames), (double)_capturedSamples / SampleRate);
                 _capturedSamples += frameCount;
 
-                _signalQueue.Enqueue(new AudioProcessSignal(bufferArray, Convert.ToInt32(frameCount)));
+                _signalQueue.Enqueue(new AudioProcessSignal(mono, frames));
                 _signalQueueChangeEvent.Set();
                 return StreamCallbackResult.Continue;
             }
@@ -314,6 +446,25 @@ namespace ShowControl.Devices.Audio
             {
                 _logger.LogError(ex, "Exception in audio callback, aborting stream.");
                 return StreamCallbackResult.Abort;
+            }
+        }
+
+        /// <summary>Mono from an interleaved block: the mean of the two chosen channels, or
+        /// the one channel when both indices agree (no 6dB loss on a single input).</summary>
+        internal static void Downmix(ReadOnlySpan<float> interleaved, Span<float> mono, int frames, int stride, int left, int right)
+        {
+            if (left == right)
+            {
+                for (int i = 0; i < frames; i++)
+                {
+                    mono[i] = interleaved[i * stride + left];
+                }
+                return;
+            }
+            for (int i = 0; i < frames; i++)
+            {
+                int row = i * stride;
+                mono[i] = 0.5f * (interleaved[row + left] + interleaved[row + right]);
             }
         }
 
@@ -363,12 +514,11 @@ namespace ShowControl.Devices.Audio
 
         private void DoProcessing(int frameCount, float[] samples)
         {
-            // One channel out of the interleaved buffer. The old code averaged two adjacent
-            // *time* samples (a stereo assumption the mono config never satisfied) and read
-            // one past the end on the last frame.
+            // The block is already mono (the callback downmixed the chosen pair), so the
+            // FFT and the detector both read it straight.
             for (int i = 0; i < frameCount; i++)
             {
-                var sample = samples[i * Stride + ChannelOffset];
+                var sample = samples[i];
                 _fftBuffer[_fftPos].X = (float)(sample * FastFourierTransform.HammingWindow(_fftPos, _fftBuffer.Length));
                 _fftBuffer[_fftPos].Y = 0;
                 _fftPos++;
@@ -377,28 +527,7 @@ namespace ShowControl.Devices.Audio
                     FftProcessed();
                 }
             }
-
-            if (Stride == 1)
-            {
-                // Mono, no offset: the buffer already is the channel.
-                _bpmDetect.InputSamples(samples.AsSpan(0, frameCount), frameCount);
-                return;
-            }
-            // De-interleave for the detector. Pooled, not stackalloc: frameCount is the
-            // driver's choice and has no upper bound worth betting the stack on.
-            var channelArray = _audioPool.Rent(frameCount);
-            try
-            {
-                for (int i = 0; i < frameCount; i++)
-                {
-                    channelArray[i] = samples[i * Stride + ChannelOffset];
-                }
-                _bpmDetect.InputSamples(channelArray.AsSpan(0, frameCount), frameCount);
-            }
-            finally
-            {
-                _audioPool.Return(channelArray);
-            }
+            _bpmDetect.InputSamples(samples.AsSpan(0, frameCount), frameCount);
         }
 
         private void FftProcessed()

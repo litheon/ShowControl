@@ -8,6 +8,46 @@ namespace ShowControl.ControlPanel.Maui
 {
     public sealed partial class PixelMapFileDialog
     {
+        // The security scope of the file last opened, held for as long as the session may save
+        // back to it. Catalyst grants access to a picked file only between Start/Stop, and the
+        // editor's Save writes to the same path later, from a different call — so the scope is
+        // kept open until another file is picked. One file at a time is what the editor has.
+        private static NSUrl _openedScope;
+
+        /// <summary>
+        /// Presents the document picker in open mode and returns the path of the file in place
+        /// (not a copy — Save has to write back to it). See <see cref="PickOpenPathAsync"/> for
+        /// why this is not MAUI's <c>FilePicker</c>.
+        /// </summary>
+        private partial async Task<string?> PickOpenPlatformAsync()
+        {
+            var completion = new TaskCompletionSource<NSUrl>();
+            var picker = new UIDocumentPickerViewController(new[] { UniformTypeIdentifiers.UTTypes.Json }, asCopy: false);
+            picker.DidPickDocumentAtUrls += (_, e) =>
+                completion.TrySetResult(e.Urls != null && e.Urls.Length > 0 ? e.Urls[0] : null);
+            picker.WasCancelled += (_, _) => completion.TrySetResult(null);
+
+            var presenter = TopViewController();
+            if (presenter == null)
+            {
+                return null;
+            }
+
+            presenter.PresentViewController(picker, animated: true, completionHandler: null);
+            NSUrl chosen = await completion.Task;
+            if (chosen == null)
+            {
+                return null;
+            }
+
+            _openedScope?.StopAccessingSecurityScopedResource();
+            _openedScope = chosen;
+            // False for a file the sandbox already reaches (the app's own container); the read
+            // still works there, so it is not an error.
+            chosen.StartAccessingSecurityScopedResource();
+            return chosen.Path;
+        }
+
         /// <summary>
         /// Writes a temporary file inside the container and hands it to the document picker in
         /// export mode.

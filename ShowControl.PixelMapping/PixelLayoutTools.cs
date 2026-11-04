@@ -169,28 +169,99 @@ namespace ShowControl.PixelMapping
         }
 
         /// <summary>
-        /// Drags one pixel with the run behaving as an inextensible rope: the dragged pixel takes
-        /// the full delta, and each neighbour outward moves only when its link is pulled past its
-        /// rest length — and then only far enough to sit at rest length again, on the line toward
-        /// where it already was. Slack absorbs everything else: pushing a pixel toward its
-        /// neighbours, or any move small enough not to draw a link taut, moves nothing but the
-        /// grabbed pixel, and the first slack link stops the walk. No link ever stretches, so the
-        /// strip's physical spacing is honoured exactly on the pulled side and only ever shortened
-        /// on the slack side.
+        /// The run with <paramref name="pixelCount"/> pixels: the existing positions kept, the run
+        /// cut short, or carried on past its last pixel in the direction and at the spacing of
+        /// its last link — which is what a strip physically does when it is extended. A run of one
+        /// pixel has no last link, so it grows at <paramref name="fallbackSpacing"/> and
+        /// <paramref name="fallbackAngleDegrees"/>, which is how the add form lays a new one out.
+        /// Returns a new array; the input is untouched.
+        /// </summary>
+        public static float[] SetPixelCount(float[] offsets, int pixelCount, float fallbackSpacing = 1f, float fallbackAngleDegrees = 0f)
+        {
+            if (offsets == null) throw new ArgumentNullException(nameof(offsets));
+            if (offsets.Length % 2 != 0)
+            {
+                throw new ArgumentException("Offsets must hold an x and a y per pixel.", nameof(offsets));
+            }
+            if (pixelCount <= 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(pixelCount), pixelCount, "A fixture needs at least one pixel.");
+            }
+
+            int current = offsets.Length / 2;
+            var result = new float[pixelCount * 2];
+            Array.Copy(offsets, result, Math.Min(offsets.Length, result.Length));
+            if (pixelCount <= current)
+            {
+                return result;
+            }
+
+            float dx, dy;
+            if (current >= 2)
+            {
+                dx = offsets[(current - 1) * 2] - offsets[(current - 2) * 2];
+                dy = offsets[((current - 1) * 2) + 1] - offsets[((current - 2) * 2) + 1];
+            }
+            else
+            {
+                GetDirection(fallbackAngleDegrees, out dx, out dy);
+                dx *= fallbackSpacing;
+                dy *= fallbackSpacing;
+            }
+            if (dx == 0f && dy == 0f)
+            {
+                // The last two pixels sit on top of each other: continue the way the add form would.
+                GetDirection(fallbackAngleDegrees, out dx, out dy);
+                dx *= fallbackSpacing;
+                dy *= fallbackSpacing;
+            }
+
+            // An empty run grows from pixel 0 at the origin, as the add form lays one out.
+            int anchor = Math.Max(current, 1) - 1;
+            float lastX = current > 0 ? offsets[anchor * 2] : 0f;
+            float lastY = current > 0 ? offsets[(anchor * 2) + 1] : 0f;
+            for (int i = anchor + 1; i < pixelCount; i++)
+            {
+                int steps = i - anchor;
+                result[i * 2] = lastX + (steps * dx);
+                result[(i * 2) + 1] = lastY + (steps * dy);
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Swings the run from <paramref name="handleIndex"/> onward about the pixel before it, so
+        /// that the handle lies on the ray from that hinge toward <paramref name="targetX"/>,
+        /// <paramref name="targetY"/> (in offset space: image position minus the fixture's origin).
+        /// The swung section keeps its own shape — a rigid rotation, not a re-layout — so a strip
+        /// that already has a corner further along keeps it.
         /// <para>
-        /// The inherent consequence of exact inextensibility: a pull that keeps links taut drags
-        /// the run for as far as it stays taut, however long that is — dragging the end of a
-        /// straight strip sideways walks the whole strip (the discrete tractrix). That is the rope
-        /// being a rope; the slack rule is what keeps ordinary sculpting local.
+        /// This is the editor's pixel-drag gesture, and it replaced an inextensible-rope model. The
+        /// rope was faithful to the physics and useless for the job: every pull propagated down the
+        /// strip, a corner could not be placed because the slack rule moved only the grabbed pixel,
+        /// and nothing short of re-adding the fixture got a bent strip straight again. A physical
+        /// strip bends at a point and is straight between bends, and that is exactly what a hinge
+        /// gives you: grab the pixel after where you want the corner, point the rest of the run.
+        /// </para>
+        /// <para>
+        /// Grabbing pixel 0 has no pixel before it, so the hinge is pixel 0 itself and the whole
+        /// run rotates about the fixture's origin — which makes the ring that marks the first pixel
+        /// double as the rotate handle. Pixel 0 therefore never moves, so no rebase is needed.
+        /// </para>
+        /// <para>
+        /// A heading within <paramref name="snapToleranceDegrees"/> of a multiple of 45° snaps to
+        /// it, which is how a right angle is hit by eye. A target closer to the hinge than half the
+        /// hinge-to-handle distance is ignored: the angle is meaningless there, and every bend
+        /// starts with the cursor sitting on the handle, a fraction of a pixel from the hinge.
         /// </para>
         /// <para>
         /// Pure and in-place on a copy the caller owns, which must hold the <em>rest</em> positions —
-        /// the offsets as they stood when the gesture began. Recomputing from rest on every pointer
-        /// move (rather than accumulating) is what keeps the drag anchored: the same delta always
-        /// produces the same shape, however many moves were coalesced or dropped.
+        /// the offsets as they stood when the gesture began — so the same target always produces
+        /// the same shape however many moves were coalesced or dropped.
         /// </para>
         /// </summary>
-        public static void DragRope(float[] offsets, int pixelIndex, float deltaX, float deltaY)
+        /// <returns>The heading the section now points in, in degrees, or null if nothing changed.</returns>
+        public static float? PointSectionAt(float[] offsets, int handleIndex, float targetX, float targetY, float snapToleranceDegrees = 0f)
         {
             if (offsets == null) throw new ArgumentNullException(nameof(offsets));
             if (offsets.Length % 2 != 0)
@@ -199,69 +270,247 @@ namespace ShowControl.PixelMapping
             }
 
             int pixelCount = offsets.Length / 2;
-            if (pixelIndex < 0 || pixelIndex >= pixelCount)
+            if (handleIndex < 0 || handleIndex >= pixelCount)
             {
-                throw new ArgumentOutOfRangeException(nameof(pixelIndex));
+                throw new ArgumentOutOfRangeException(nameof(handleIndex));
             }
-            if (!float.IsFinite(deltaX) || !float.IsFinite(deltaY))
+            if (!float.IsFinite(targetX) || !float.IsFinite(targetY))
             {
-                throw new ArgumentException("The drag delta must be finite.");
+                throw new ArgumentException("The target must be finite.");
             }
 
-            offsets[pixelIndex * 2] += deltaX;
-            offsets[(pixelIndex * 2) + 1] += deltaY;
+            int hinge = handleIndex == 0 ? 0 : handleIndex - 1;
+            int first = hinge + 1;
+            if (first >= pixelCount)
+            {
+                // A single pixel has nothing to swing.
+                return null;
+            }
 
-            FollowWhenTaut(offsets, pixelIndex, deltaX, deltaY, step: 1);
-            FollowWhenTaut(offsets, pixelIndex, deltaX, deltaY, step: -1);
+            float hingeX = offsets[hinge * 2];
+            float hingeY = offsets[(hinge * 2) + 1];
+            float linkX = offsets[first * 2] - hingeX;
+            float linkY = offsets[(first * 2) + 1] - hingeY;
+            float towardX = targetX - hingeX;
+            float towardY = targetY - hingeY;
+
+            float linkLength = MathF.Sqrt((linkX * linkX) + (linkY * linkY));
+            float reach = MathF.Sqrt((towardX * towardX) + (towardY * towardY));
+            if (reach <= 0f || reach < linkLength * 0.5f)
+            {
+                return null;
+            }
+
+            float currentHeading = linkLength > 0f ? HeadingDegrees(linkX, linkY) : 0f;
+            float targetHeading = HeadingDegrees(towardX, towardY);
+            if (snapToleranceDegrees > 0f)
+            {
+                float nearest = MathF.Round(targetHeading / 45f) * 45f;
+                if (MathF.Abs(NormalizeTurn(targetHeading - nearest)) <= snapToleranceDegrees)
+                {
+                    targetHeading = nearest % 360f;
+                }
+            }
+
+            float turn = NormalizeTurn(targetHeading - currentHeading);
+            if (turn == 0f)
+            {
+                return targetHeading;
+            }
+
+            RotateSection(offsets, hinge, turn);
+            return targetHeading;
         }
 
         /// <summary>
-        /// One arm of the rope, walking outward from the moved pixel. Each pixel's rest position is
-        /// read before it is overwritten, so the pass needs no scratch copy of the run.
+        /// The total turn along the run: the signed angle from the first link's heading to the
+        /// last link's, accumulated pixel by pixel so a run that winds past 180° is measured as the
+        /// 360° it actually turns. Zero for a straight run, which is what the editor's "bend" field
+        /// shows; the inverse of <see cref="SetBend"/> for an evenly bent one.
         /// </summary>
-        private static void FollowWhenTaut(float[] offsets, int fromIndex, float movedByX, float movedByY, int step)
+        /// <returns>Degrees, positive clockwise in image space (y down). Zero for fewer than three pixels.</returns>
+        public static float MeasureBend(float[] offsets)
         {
-            int pixelCount = offsets.Length / 2;
-
-            // The leader's rest position is its current one un-moved: the caller has already
-            // applied the delta to the pixel the walk starts from.
-            float newLeaderX = offsets[fromIndex * 2];
-            float newLeaderY = offsets[(fromIndex * 2) + 1];
-            float leaderRestX = newLeaderX - movedByX;
-            float leaderRestY = newLeaderY - movedByY;
-
-            for (int i = fromIndex + step; i >= 0 && i < pixelCount; i += step)
+            if (offsets == null) throw new ArgumentNullException(nameof(offsets));
+            if (offsets.Length % 2 != 0)
             {
-                float restX = offsets[i * 2];
-                float restY = offsets[(i * 2) + 1];
-                float linkX = restX - leaderRestX;
-                float linkY = restY - leaderRestY;
-                float restLength = MathF.Sqrt((linkX * linkX) + (linkY * linkY));
+                throw new ArgumentException("Offsets must hold an x and a y per pixel.", nameof(offsets));
+            }
 
-                float towardRestX = restX - newLeaderX;
-                float towardRestY = restY - newLeaderY;
-                float distance = MathF.Sqrt((towardRestX * towardRestX) + (towardRestY * towardRestY));
+            int pixelCount = offsets.Length / 2;
+            if (pixelCount < 3)
+            {
+                return 0f;
+            }
 
-                if (distance <= restLength)
+            double total = 0d;
+            float? previousHeading = null;
+            for (int i = 1; i < pixelCount; i++)
+            {
+                float dx = offsets[i * 2] - offsets[(i - 1) * 2];
+                float dy = offsets[(i * 2) + 1] - offsets[((i - 1) * 2) + 1];
+                if (dx == 0f && dy == 0f)
                 {
-                    // Slack: this pixel stays, so nothing beyond it can be pulled either.
-                    return;
+                    // Two pixels on top of each other have no heading between them; skip the link
+                    // rather than invent one.
+                    continue;
                 }
 
-                // Taut: the minimal move — back onto the circle of rest length around the leader,
-                // along the line it is being pulled in. distance > restLength ≥ 0, so the division
-                // is safe.
-                float newX = newLeaderX + (towardRestX / distance * restLength);
-                float newY = newLeaderY + (towardRestY / distance * restLength);
-
-                offsets[i * 2] = newX;
-                offsets[(i * 2) + 1] = newY;
-
-                leaderRestX = restX;
-                leaderRestY = restY;
-                newLeaderX = newX;
-                newLeaderY = newY;
+                float heading = HeadingDegrees(dx, dy);
+                if (previousHeading.HasValue)
+                {
+                    total += NormalizeTurn(heading - previousHeading.Value);
+                }
+                previousHeading = heading;
             }
+
+            return (float)total;
+        }
+
+        /// <summary>
+        /// Lays the run out as an even arc turning <paramref name="totalDegrees"/> in all between
+        /// its first link and its last: the same turn at every interior pixel, at the run's mean
+        /// spacing, starting in the direction the first link already points. Zero straightens it
+        /// along that first link; 360 is a ring (very nearly closed — the turn is spread over the
+        /// interior pixels, so the final link stops one step short of the first).
+        /// <para>
+        /// Pixel 0 stays put, so the fixture's origin still marks it. Regenerates at the mean spacing
+        /// rather than preserving each link, because the editor's tools only ever produce evenly
+        /// spaced runs and a physical strip is one; any unevenness is damage from an older gesture,
+        /// and this is the one that repairs it. Pure and in-place on a copy the caller owns.
+        /// </para>
+        /// </summary>
+        public static void SetBend(float[] offsets, float totalDegrees)
+        {
+            if (offsets == null) throw new ArgumentNullException(nameof(offsets));
+            if (!float.IsFinite(totalDegrees))
+            {
+                throw new ArgumentOutOfRangeException(nameof(totalDegrees), totalDegrees, "Bend must be a finite number of degrees.");
+            }
+
+            int pixelCount = offsets.Length / 2;
+            float spacing = MeasureSpacing(offsets);
+            if (pixelCount < 2 || spacing <= 0f)
+            {
+                return;
+            }
+
+            float startHeading = FirstLinkHeading(offsets);
+            float perPixel = pixelCount >= 3 ? totalDegrees / (pixelCount - 2) : 0f;
+            Relayout(offsets, startHeading, perPixel, spacing);
+        }
+
+        /// <summary>
+        /// Makes the run a straight, evenly spaced line again, pointing from its first pixel toward
+        /// where its last pixel was — the fix for a strip that was bent by accident, and the way back
+        /// from any shape. Pixel 0 stays put; spacing is the run's mean spacing, so a strip that was
+        /// bent and unbent measures the same as it did before. Pure and in-place on a copy the caller
+        /// owns.
+        /// </summary>
+        public static void Straighten(float[] offsets)
+        {
+            if (offsets == null) throw new ArgumentNullException(nameof(offsets));
+
+            int pixelCount = offsets.Length / 2;
+            float spacing = MeasureSpacing(offsets);
+            if (pixelCount < 2 || spacing <= 0f)
+            {
+                return;
+            }
+
+            float chordX = offsets[(pixelCount - 1) * 2] - offsets[0];
+            float chordY = offsets[((pixelCount - 1) * 2) + 1] - offsets[1];
+            float heading = chordX == 0f && chordY == 0f ? FirstLinkHeading(offsets) : HeadingDegrees(chordX, chordY);
+
+            Relayout(offsets, heading, perPixelTurnDegrees: 0f, spacing);
+        }
+
+        /// <summary>
+        /// Rewrites every pixel after the first as a walk from it: each link <paramref name="spacing"/>
+        /// long, the first at <paramref name="startHeadingDegrees"/>, each subsequent one turned by
+        /// <paramref name="perPixelTurnDegrees"/> more. The straight case is computed by
+        /// multiplication rather than accumulation so a horizontal or vertical run is bit-exact, as
+        /// <see cref="GenerateLine"/> is; an arc has to accumulate, and 720 float adds are accurate
+        /// to well under a thousandth of an image pixel.
+        /// </summary>
+        private static void Relayout(float[] offsets, float startHeadingDegrees, float perPixelTurnDegrees, float spacing)
+        {
+            int pixelCount = offsets.Length / 2;
+            float startX = offsets[0];
+            float startY = offsets[1];
+
+            if (perPixelTurnDegrees == 0f)
+            {
+                GetDirection(startHeadingDegrees, out float dx, out float dy);
+                for (int i = 1; i < pixelCount; i++)
+                {
+                    offsets[i * 2] = startX + (i * spacing * dx);
+                    offsets[(i * 2) + 1] = startY + (i * spacing * dy);
+                }
+                return;
+            }
+
+            float x = startX;
+            float y = startY;
+            for (int i = 1; i < pixelCount; i++)
+            {
+                GetDirection(startHeadingDegrees + ((i - 1) * perPixelTurnDegrees), out float dx, out float dy);
+                x += spacing * dx;
+                y += spacing * dy;
+                offsets[i * 2] = x;
+                offsets[(i * 2) + 1] = y;
+            }
+        }
+
+        /// <summary>Heading of the first link with any length, or 0° (along +x) if there is none.</summary>
+        private static float FirstLinkHeading(float[] offsets)
+        {
+            int pixelCount = offsets.Length / 2;
+            for (int i = 1; i < pixelCount; i++)
+            {
+                float dx = offsets[i * 2] - offsets[(i - 1) * 2];
+                float dy = offsets[(i * 2) + 1] - offsets[((i - 1) * 2) + 1];
+                if (dx != 0f || dy != 0f)
+                {
+                    return HeadingDegrees(dx, dy);
+                }
+            }
+            return 0f;
+        }
+
+        /// <summary>Direction of a vector in degrees, in [0, 360), with the quarter turns exact.</summary>
+        public static float HeadingDegrees(float dx, float dy)
+        {
+            if (dy == 0f)
+            {
+                return dx >= 0f ? 0f : 180f;
+            }
+            if (dx == 0f)
+            {
+                return dy > 0f ? 90f : 270f;
+            }
+
+            float degrees = MathF.Atan2(dy, dx) * (180f / MathF.PI);
+            if (degrees < 0f)
+            {
+                degrees += 360f;
+            }
+            return degrees;
+        }
+
+        /// <summary>A difference of headings folded into (-180, 180], so the turn is the short way round.</summary>
+        private static float NormalizeTurn(float degrees)
+        {
+            degrees %= 360f;
+            if (degrees > 180f)
+            {
+                degrees -= 360f;
+            }
+            else if (degrees <= -180f)
+            {
+                degrees += 360f;
+            }
+            return degrees;
         }
 
         /// <summary>

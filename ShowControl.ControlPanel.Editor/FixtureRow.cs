@@ -21,11 +21,30 @@ namespace ShowControl.ControlPanel.Editor
 
         public string Description { get; init; } = string.Empty;
 
-        public static FixtureRow From(FixtureDefinition fixture) => new FixtureRow
+        /// <summary>
+        /// Name, size, channel range and controller, in that order: the row is one truncating line,
+        /// and the channel range is what the operator is reading the list for when wiring a new
+        /// strip. Channels are the zero-based offsets the file stores and the add form takes, so
+        /// the number here is the number you would type. The full record is in the detail readout.
+        /// </summary>
+        public static FixtureRow From(FixtureDefinition fixture, IPixelTypeResolver pixelTypes)
         {
-            Id = fixture.Id,
-            Enabled = fixture.Enabled,
-            Description = $"{fixture.Name} · {fixture.PixelCount}px · {fixture.Output.Key} ch {fixture.Output.StartChannel + 1}"
-        };
+            if (fixture == null) throw new ArgumentNullException(nameof(fixture));
+            if (pixelTypes == null) throw new ArgumentNullException(nameof(pixelTypes));
+
+            int start = fixture.Output.StartChannel;
+            int channels = ChannelPlanner.ChannelCount(fixture, pixelTypes);
+            string range = channels > 0 ? $"ch {start}–{start + channels - 1}" : $"ch {start}";
+            string endpoint = fixture.Output.Interface == OutputInterfaceType.ArtNet
+                ? $"{fixture.Output.IpAddress} u{fixture.Output.Universe}"
+                : fixture.Output.IpAddress;
+
+            return new FixtureRow
+            {
+                Id = fixture.Id,
+                Enabled = fixture.Enabled,
+                Description = $"{fixture.Name} · {fixture.PixelCount}px · {range} · {endpoint}"
+            };
+        }
     }
 }

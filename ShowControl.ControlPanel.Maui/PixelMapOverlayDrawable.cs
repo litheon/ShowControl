@@ -34,6 +34,13 @@ namespace ShowControl.ControlPanel.Maui
         public int? DraggedPixelIndex { get; set; }
 
         /// <summary>
+        /// The wiring check the rig is showing, so the dots show it too: pattern colours where a
+        /// pattern is on, and black dots for the strips a solo has darkened. The chase is drawn
+        /// where it stands at the redraw — the overlay is not redrawn per frame.
+        /// </summary>
+        public PixelOutputOverrideRequest OutputOverride { get; set; }
+
+        /// <summary>
         /// Part of the image the preview is showing. Set by the page's zoom; must be the same
         /// rectangle the graphics host was given, or the map drifts off the picture.
         /// </summary>
@@ -57,9 +64,11 @@ namespace ShowControl.ControlPanel.Maui
                 var region = Region.IsUsable ? Region : PreviewRegion.WholeImage(map.ImageWidth, map.ImageHeight);
                 var transform = new PixelMapOverlayTransform(map, dirtyRect.Width, dirtyRect.Height, region);
 
+                int enabledOrdinal = 0;
                 foreach (var fixture in map.Fixtures)
                 {
-                    DrawFixture(canvas, transform, fixture);
+                    // The ordinal the layout gives the fixture: disabled ones are not in it.
+                    DrawFixture(canvas, transform, fixture, fixture.Enabled ? enabledOrdinal++ : -1);
                 }
 
             }
@@ -73,7 +82,7 @@ namespace ShowControl.ControlPanel.Maui
             }
         }
 
-        private void DrawFixture(ICanvas canvas, PixelMapOverlayTransform transform, FixtureDefinition fixture)
+        private void DrawFixture(ICanvas canvas, PixelMapOverlayTransform transform, FixtureDefinition fixture, int enabledOrdinal)
         {
             int pixelCount = fixture.PixelCount;
             if (pixelCount == 0)
@@ -103,8 +112,13 @@ namespace ShowControl.ControlPanel.Maui
             canvas.DrawPath(path);
 
             // Blanked pixels are drawn hollow so a dead tail is visible without reading the file.
+            // Under a wiring check the dots take the rig's colours, and are drawn larger so the
+            // colours read; a strip a solo has darkened shows as dark dots.
+            var check = OutputOverride;
+            bool checking = check.IsActive && fixture.Enabled;
+            double seconds = Environment.TickCount64 / 1000.0;
             int step = Math.Max(1, pixelCount / MaxDotsPerFixture);
-            float radius = selected ? 2.5f : 1.75f;
+            float radius = checking ? 3f : selected ? 2.5f : 1.75f;
             for (int i = 0; i < pixelCount; i += step)
             {
                 var point = transform.ToOverlay(fixture, i);
@@ -115,7 +129,12 @@ namespace ShowControl.ControlPanel.Maui
                 }
                 else
                 {
-                    canvas.FillColor = color;
+                    var dot = color;
+                    if (checking && PixelOutputOverride.ColorFor(check, fixture, enabledOrdinal, i, seconds) is RgbSample c)
+                    {
+                        dot = Color.FromRgb(c.R, c.G, c.B);
+                    }
+                    canvas.FillColor = dot;
                     canvas.FillCircle(point.X, point.Y, radius);
                 }
             }

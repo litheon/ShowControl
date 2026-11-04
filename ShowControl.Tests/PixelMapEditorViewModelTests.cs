@@ -79,6 +79,16 @@ namespace ShowControl.Tests
             return _session.Current;
         }
 
+        public PixelOutputOverrideRequest CurrentOutputOverride => _session.CurrentOutputOverride;
+
+        public event EventHandler? OutputOverrideChanged
+        {
+            add => _session.OutputOverrideChanged += value;
+            remove => _session.OutputOverrideChanged -= value;
+        }
+
+        public void SetOutputOverride(PixelOutputOverrideRequest request) => _session.SetOutputOverride(request);
+
         public void KeepRecoveredWork()
         {
             KeptRecoveredWorkCount++;
@@ -249,14 +259,13 @@ namespace ShowControl.Tests
         }
 
         /// <summary>
-        /// The scoped press: the first drag on a fixture selects it and moves the whole run; a
-        /// press on the fixture that is already selected grabs the pixel under the cursor, and the
-        /// run follows it as an inextensible rope — neighbours come along when their link is
-        /// pulled taut, and no link ever stretches. Same invariants as the whole-fixture drag —
-        /// every move publishes, nothing the panel is bound to is touched until the drag ends.
+        /// A press on the fixture that is already selected grabs the pixel under the cursor as the
+        /// handle of a hinge at the pixel before it: the run from the handle onward swings to point
+        /// at the cursor, the run before the hinge stays put. Same invariants as the whole-fixture
+        /// drag — every move publishes, nothing the panel is bound to is touched until the drag ends.
         /// </summary>
         [Fact]
-        public void PressingTheSelectedFixture_GrabsThePixelUnderTheCursor_AndTheRunFollowsWhenPulledTaut()
+        public void PressingTheSelectedFixture_GrabsThePixelUnderTheCursor_AndBendsTheRunThere()
         {
             var (vm, editor) = NewEditor(PixelMappingTestData.Strip("Strip", originX: 100f, originY: 100f, pixelCount: 10));
 
@@ -271,33 +280,27 @@ namespace ShowControl.Tests
             // Second press, on the now-selected fixture: grabs pixel 5.
             Assert.True(vm.TryBeginDrag(105d, 100d, thresholdImageUnits: 2d));
             Assert.Equal(5, vm.DraggedPixelIndex);
+            Assert.Contains("bending at pixel 4", vm.StatusText);
             int appliesAfterBegin = editor.ApplyCount;
 
-            vm.DragTo(105d, 103d);
+            // Straight below the hinge (pixel 4 at 104,100): the tail turns to run straight down.
+            vm.DragTo(104d, 110d);
 
             Assert.Equal(appliesAfterBegin + 1, editor.ApplyCount);
             Assert.Equal(0, rowChanges);
 
             var fixture = vm.Working.Fixtures[0];
-            var grabbed = PixelMapGeometry.Resolve(fixture, 5);
-            Assert.Equal(105f, grabbed.X, 2);
-            Assert.Equal(103f, grabbed.Y, 2);
-
-            // The rope never stretches: no link is longer than the strip's 1-unit spacing, and the
-            // two links at the grab are drawn exactly taut.
             var positions = PixelMapGeometry.Resolve(fixture);
-            for (int i = 1; i < positions.Length; i++)
+            for (int i = 0; i <= 4; i++)
             {
-                float dx = positions[i].X - positions[i - 1].X;
-                float dy = positions[i].Y - positions[i - 1].Y;
-                Assert.InRange(MathF.Sqrt((dx * dx) + (dy * dy)), 0f, 1.001f);
+                Assert.Equal(100f + i, positions[i].X);
+                Assert.Equal(100f, positions[i].Y);
             }
-            float grabLinkBefore = MathF.Sqrt(
-                MathF.Pow(positions[5].X - positions[4].X, 2) + MathF.Pow(positions[5].Y - positions[4].Y, 2));
-            float grabLinkAfter = MathF.Sqrt(
-                MathF.Pow(positions[6].X - positions[5].X, 2) + MathF.Pow(positions[6].Y - positions[5].Y, 2));
-            Assert.Equal(1f, grabLinkBefore, 3);
-            Assert.Equal(1f, grabLinkAfter, 3);
+            for (int i = 5; i < 10; i++)
+            {
+                Assert.Equal(104f, positions[i].X, 3);
+                Assert.Equal(100f + (i - 4), positions[i].Y, 3);
+            }
 
             // The origin did not move: the shape changed, not the fixture's anchor.
             Assert.Equal(100f, fixture.OriginX);
@@ -305,15 +308,18 @@ namespace ShowControl.Tests
 
             Assert.True(vm.EndDrag());
             Assert.Null(vm.DraggedPixelIndex);
-            Assert.Contains("pixel 5", vm.StatusText);
+            Assert.Contains("bent at pixel 4", vm.StatusText);
+            Assert.Contains("90°", vm.StatusText);
+            Assert.Equal("90", vm.BendText);
         }
 
         /// <summary>
-        /// Dragging pixel 0 carries it off the origin; ending the drag rebases so the origin marks
-        /// pixel 0 again, moving nothing — the same positions expressed by convention.
+        /// Pixel 0 has no pixel before it, so grabbing it rotates the whole run about the origin —
+        /// the ring that marks the first pixel doubles as the rotate handle. Pixel 0 itself never
+        /// moves, so the origin still marks it without any rebase.
         /// </summary>
         [Fact]
-        public void DraggingPixelZero_RebasesOnEnd_SoTheOriginStillMarksPixelZero()
+        public void DraggingPixelZero_RotatesTheWholeRunAboutTheOrigin()
         {
             var (vm, _) = NewEditor(PixelMappingTestData.Strip("Strip", originX: 100f, originY: 100f, pixelCount: 6));
 
@@ -321,24 +327,24 @@ namespace ShowControl.Tests
             vm.EndDrag();
             vm.TryBeginDrag(100d, 100d, 2d); // pixel 0 drag
             Assert.Equal(0, vm.DraggedPixelIndex);
+            Assert.Contains("rotating", vm.StatusText);
 
-            vm.DragTo(97d, 98d);
-            var fixture = vm.Working.Fixtures[0];
-            var positionsBeforeEnd = PixelMapGeometry.Resolve(fixture);
-
+            vm.DragTo(100d, 90d);
             vm.EndDrag();
 
+            var fixture = vm.Working.Fixtures[0];
+            Assert.Equal(100f, fixture.OriginX);
+            Assert.Equal(100f, fixture.OriginY);
             Assert.Equal(0f, fixture.PixelOffsets[0]);
             Assert.Equal(0f, fixture.PixelOffsets[1]);
-            Assert.Equal(97f, fixture.OriginX, 2);
-            Assert.Equal(98f, fixture.OriginY, 2);
-
-            var positionsAfterEnd = PixelMapGeometry.Resolve(fixture);
-            for (int i = 0; i < positionsBeforeEnd.Length; i++)
+            var positions = PixelMapGeometry.Resolve(fixture);
+            for (int i = 0; i < 6; i++)
             {
-                Assert.Equal(positionsBeforeEnd[i].X, positionsAfterEnd[i].X, 2);
-                Assert.Equal(positionsBeforeEnd[i].Y, positionsAfterEnd[i].Y, 2);
+                Assert.Equal(100f, positions[i].X, 3);
+                Assert.Equal(100f - i, positions[i].Y, 3);
             }
+            Assert.Contains("rotated to 270°", vm.StatusText);
+            Assert.Equal("0", vm.BendText);
         }
 
         /// <summary>
@@ -467,11 +473,162 @@ namespace ShowControl.Tests
         }
 
         [Fact]
+        public void Straightening_UndoesAnyBend_AndPublishes()
+        {
+            var fixture = PixelMappingTestData.Strip("A", 50f, 50f, pixelCount: 8);
+            PixelLayoutTools.RotateSection(fixture.PixelOffsets, fromIndex: 3, turnDegrees: 90f);
+            var (vm, editor) = NewEditor(fixture);
+            vm.SelectedFixtureId = fixture.Id;
+            Assert.Equal("90", vm.BendText);
+            int applies = editor.ApplyCount;
+
+            vm.StraightenCommand.Execute(null);
+
+            Assert.Equal(applies + 1, editor.ApplyCount);
+            Assert.Equal(0f, PixelLayoutTools.MeasureBend(vm.Working.Fixtures[0].PixelOffsets), 3);
+            Assert.Equal("0", vm.BendText);
+            Assert.Equal(50f, vm.Working.Fixtures[0].OriginX);
+            Assert.Contains("straight again", vm.StatusText);
+        }
+
+        [Fact]
+        public void ApplyingABend_LaysTheRunOutAsAnArc_AndTheBoxReadsItBack()
+        {
+            var (vm, editor) = NewEditor(PixelMappingTestData.Strip("A", 50f, 50f, pixelCount: 20));
+            vm.SelectedFixtureId = vm.Working.Fixtures[0].Id;
+            int applies = editor.ApplyCount;
+
+            vm.BendText = "90";
+            vm.ApplyBendCommand.Execute(null);
+
+            Assert.Equal(applies + 1, editor.ApplyCount);
+            Assert.Equal(90f, PixelLayoutTools.MeasureBend(vm.Working.Fixtures[0].PixelOffsets), 2);
+            Assert.Equal("90", vm.BendText);
+            Assert.Equal(1f, PixelLayoutTools.MeasureSpacing(vm.Working.Fixtures[0].PixelOffsets), 3);
+        }
+
+        [Fact]
+        public void ApplyingANonNumericBend_IsRefusedWithoutTouchingTheFixture()
+        {
+            var (vm, editor) = NewEditor(PixelMappingTestData.Strip("A", 0f, 0f, pixelCount: 5));
+            vm.SelectedFixtureId = vm.Working.Fixtures[0].Id;
+            var before = (float[])vm.Working.Fixtures[0].PixelOffsets.Clone();
+            int applies = editor.ApplyCount;
+
+            vm.BendText = "lots";
+            vm.ApplyBendCommand.Execute(null);
+
+            Assert.Equal(applies, editor.ApplyCount);
+            Assert.Equal(before, vm.Working.Fixtures[0].PixelOffsets);
+            Assert.Contains("Bend", vm.StatusText);
+        }
+
+        /// <summary>
+        /// The list row is one truncating line; the readout is where every field is legible,
+        /// including the channel range — which is what the operator reads off to wire the next strip.
+        /// </summary>
+        [Fact]
+        public void SelectingAFixture_ShowsEveryFieldIncludingItsChannelRange()
+        {
+            var fixture = PixelMappingTestData.Strip("Stage left", 10f, 20f, pixelCount: 4, startChannel: 12);
+            fixture.BlankedPixels.Add(new PixelRange(2, 2));
+            var (vm, _) = NewEditor(fixture);
+            Assert.Contains("Nothing selected", vm.SelectedFixtureDetail);
+
+            vm.SelectedFixtureId = fixture.Id;
+
+            var detail = vm.SelectedFixtureDetail;
+            Assert.Contains("Stage left", detail);
+            Assert.Contains("DDP 192.168.3.207 · port 4048", detail);
+            Assert.Contains("WS2812B · 3 ch/px · 4 px · 12 ch", detail);
+            Assert.Contains("Channels 12–23 (next free 24)", detail);
+            Assert.Contains("Origin 10.0, 20.0 · spacing 1 · bend 0°", detail);
+            Assert.Contains("Blanked 2-3 (2 px dark)", detail);
+
+            vm.SelectedFixtureId = null;
+            Assert.Contains("Nothing selected", vm.SelectedFixtureDetail);
+        }
+
+        [Fact]
+        public void TheFixtureRow_ShowsTheChannelRangeAndTheController()
+        {
+            var fixture = PixelMappingTestData.Strip("A", 0f, 0f, pixelCount: 4, startChannel: 12);
+
+            var row = FixtureRow.From(fixture, new TestPixelTypes());
+
+            Assert.Equal("A · 4px · ch 12–23 · 192.168.3.207", row.Description);
+        }
+
+        /// <summary>
+        /// The start channel used to be typed in by hand — the pixel counts of every strip already
+        /// on the controller, added up and multiplied by the channels per pixel. The form does that
+        /// sum, follows the controller fields while the box still holds its suggestion, and leaves
+        /// a typed value alone.
+        /// </summary>
+        [Fact]
+        public void TheAddForm_SuggestsTheNextFreeChannelOnTheChosenController_AndFollowsIt()
+        {
+            var a = PixelMappingTestData.Strip("A", 0f, 0f, pixelCount: 4, ipAddress: "192.168.3.207", startChannel: 0);
+            var b = PixelMappingTestData.Strip("B", 0f, 50f, pixelCount: 10, ipAddress: "192.168.3.208", startChannel: 100);
+            var (vm, _) = NewEditor(a, b);
+
+            Assert.Equal("192.168.3.207", vm.NewIpAddress);
+            Assert.Equal("12", vm.NewStartChannel);
+            Assert.Contains("after 'A'", vm.StartChannelHint);
+
+            vm.NewIpAddress = "192.168.3.208";
+            Assert.Equal("130", vm.NewStartChannel);
+            Assert.Contains("after 'B'", vm.StartChannelHint);
+
+            vm.NewIpAddress = "192.168.3.209";
+            Assert.Equal("0", vm.NewStartChannel);
+            Assert.Contains("Nothing on", vm.StartChannelHint);
+
+            // A typed value is the operator's: the hint follows, the box does not.
+            vm.NewStartChannel = "500";
+            vm.NewIpAddress = "192.168.3.207";
+            Assert.Equal("500", vm.NewStartChannel);
+            Assert.Contains("is 12", vm.StartChannelHint);
+
+            vm.UseNextFreeChannelCommand.Execute(null);
+            Assert.Equal("12", vm.NewStartChannel);
+        }
+
+        [Fact]
+        public void AddingAFixture_TakesTheSuggestedChannel_AndAdvancesThePastIt()
+        {
+            var (vm, _) = NewEditor(PixelMappingTestData.Strip("A", 0f, 0f, pixelCount: 4, startChannel: 0));
+            Assert.Equal("12", vm.NewStartChannel);
+
+            vm.NewName = "B";
+            vm.NewPixelCount = "10";
+            vm.AddFixtureCommand.Execute(null);
+
+            Assert.Equal(12, vm.Working.Fixtures[1].Output.StartChannel);
+            Assert.Contains("channels 12–41", vm.StatusText);
+            Assert.Equal("42", vm.NewStartChannel);
+            Assert.Contains("after 'B'", vm.StartChannelHint);
+            Assert.Contains("ch 12–41", vm.Rows[1].Description);
+        }
+
+        /// <summary>
+        /// A disabled strip is still wired: its channels stay reserved so re-enabling it later does
+        /// not collide with whatever was added in the meantime.
+        /// </summary>
+        [Fact]
+        public void TheSuggestedChannel_CountsDisabledFixturesToo()
+        {
+            var (vm, _) = NewEditor(PixelMappingTestData.Strip("A", 0f, 0f, pixelCount: 4, startChannel: 0, enabled: false));
+
+            Assert.Equal("12", vm.NewStartChannel);
+        }
+
+        [Fact]
         public void CommandsWithNothingSelected_SayWhatIsMissingRatherThanThrowing()
         {
             var (vm, _) = NewEditor(PixelMappingTestData.Strip("A", 0f, 0f, pixelCount: 4));
 
-            foreach (var command in new[] { vm.ToggleEnabledCommand, vm.RemoveFixtureCommand, vm.FlipDirectionCommand, vm.ApplySpacingCommand })
+            foreach (var command in new[] { vm.ToggleEnabledCommand, vm.RemoveFixtureCommand, vm.FlipDirectionCommand, vm.ApplySpacingCommand, vm.StraightenCommand, vm.ApplyBendCommand })
             {
                 vm.StatusText = string.Empty;
                 command.Execute(null);
@@ -957,6 +1114,201 @@ namespace ShowControl.Tests
             Assert.Equal(PixelMap.DefaultImageWidth, vm.Zoom.ImageWidth);
             Assert.Equal(PixelMap.DefaultImageHeight, vm.Zoom.ImageHeight);
             Assert.Equal(PreviewRegion.WholeImage(PixelMap.DefaultImageWidth, PixelMap.DefaultImageHeight), vm.Zoom.Region);
+        }
+
+        // ------------------------------------------------------------------ blanked pixels
+
+        [Fact]
+        public void ApplyingBlankedPixels_PublishesThem_AndTheSampleMapGoesDarkThere()
+        {
+            var fixture = PixelMappingTestData.Strip("A", 0f, 0f, pixelCount: 8);
+            var (vm, editor) = NewEditor(fixture);
+            vm.SelectedFixtureId = fixture.Id;
+            Assert.Equal(string.Empty, vm.BlankedText);
+            int appliesBefore = editor.ApplyCount;
+
+            vm.BlankedText = "6-7, 2";
+            vm.ApplyBlankedCommand.Execute(null);
+
+            Assert.Equal(appliesBefore + 1, editor.ApplyCount);
+            Assert.Equal(new List<PixelRange> { new(2, 1), new(6, 2) }, vm.Working.Fixtures[0].BlankedPixels);
+            Assert.Equal("2, 6-7", vm.BlankedText);                      // read back canonical
+            Assert.Contains("Blanked 2, 6-7 (3 px dark)", vm.SelectedFixtureDetail);
+            var offsets = editor.CurrentSampleMap.ByteOffsets.ToArray();
+            Assert.Equal(PixelSampleMap.Blank, offsets[2]);
+            Assert.Equal(PixelSampleMap.Blank, offsets[6]);
+            Assert.Equal(PixelSampleMap.Blank, offsets[7]);
+            Assert.NotEqual(PixelSampleMap.Blank, offsets[5]);
+
+            // Clearing the box un-blanks them.
+            vm.BlankedText = "";
+            vm.ApplyBlankedCommand.Execute(null);
+            Assert.Empty(vm.Working.Fixtures[0].BlankedPixels);
+            Assert.DoesNotContain(PixelSampleMap.Blank, editor.CurrentSampleMap.ByteOffsets.ToArray());
+        }
+
+        [Theory]
+        [InlineData("8")]
+        [InlineData("3-12")]
+        [InlineData("tail")]
+        public void ApplyingBlankedPixelsOutsideTheFixture_IsRefusedWithoutTouchingIt(string text)
+        {
+            var fixture = PixelMappingTestData.Strip("A", 0f, 0f, pixelCount: 8);
+            var (vm, editor) = NewEditor(fixture);
+            vm.SelectedFixtureId = fixture.Id;
+            int appliesBefore = editor.ApplyCount;
+
+            vm.BlankedText = text;
+            vm.ApplyBlankedCommand.Execute(null);
+
+            Assert.Equal(appliesBefore, editor.ApplyCount);
+            Assert.Empty(vm.Working.Fixtures[0].BlankedPixels);
+            Assert.Contains(text, vm.StatusText);
+        }
+
+        // ------------------------------------------------------------------ editing a fixture
+
+        [Fact]
+        public void LoadingTheSelectedFixture_FillsTheForm()
+        {
+            var fixture = PixelMappingTestData.Strip("Stage left", 10f, 20f, pixelCount: 6, ipAddress: "10.0.0.5", startChannel: 300);
+            fixture.PixelType = "Sheds";
+            fixture.PixelOffsets = PixelLayoutTools.GenerateLine(6, spacing: 2f, angleDegrees: 90f);
+            var (vm, _) = NewEditor(fixture);
+            vm.SelectedFixtureId = fixture.Id;
+
+            vm.LoadSelectedIntoFormCommand.Execute(null);
+
+            Assert.Equal("Stage left", vm.NewName);
+            Assert.Equal("10.0.0.5", vm.NewIpAddress);
+            Assert.Equal("300", vm.NewStartChannel);
+            Assert.Equal("Sheds", vm.NewPixelType);
+            Assert.Equal("6", vm.NewPixelCount);
+            Assert.Equal("2", vm.NewSpacing);
+            Assert.Equal("90", vm.NewAngle);
+            Assert.Equal(OutputInterfaceType.Ddp, vm.NewInterface);
+        }
+
+        [Fact]
+        public void ApplyingTheFormToTheSelectedFixture_RewritesItInPlace_AndExtendsTheRun()
+        {
+            var fixture = PixelMappingTestData.Strip("A", 10f, 20f, pixelCount: 4, startChannel: 0);
+            fixture.BlankedPixels.Add(new PixelRange(3, 1));
+            var other = PixelMappingTestData.Strip("B", 50f, 20f, pixelCount: 4, startChannel: 12);
+            var (vm, editor) = NewEditor(fixture, other);
+            vm.SelectedFixtureId = fixture.Id;
+            vm.LoadSelectedIntoFormCommand.Execute(null);
+            int appliesBefore = editor.ApplyCount;
+
+            vm.NewName = "A renamed";
+            vm.NewStartChannel = "24";
+            vm.NewPixelCount = "6";
+            vm.ApplyFormToSelectedCommand.Execute(null);
+
+            Assert.Equal(appliesBefore + 1, editor.ApplyCount);
+            Assert.Equal(2, vm.Working.Fixtures.Count);                 // edited, not added
+            var updated = vm.Working.Fixtures[0];
+            Assert.Equal(fixture.Id, updated.Id);
+            Assert.Equal("A renamed", updated.Name);
+            Assert.Equal(24, updated.Output.StartChannel);
+            Assert.Equal(6, updated.PixelCount);
+            Assert.Equal(10f, updated.OriginX);                          // it did not move
+            Assert.Equal(new[] { 4f, 0f, 5f, 0f }, updated.PixelOffsets[8..]);   // carried on at its spacing
+            Assert.Equal(new List<PixelRange> { new(3, 1) }, updated.BlankedPixels);
+            Assert.Contains("A renamed", vm.Rows[0].Description);
+            Assert.Contains("extended from 4 to 6 px", vm.StatusText);
+
+            // Cutting it short drops the blanked pixels beyond the end.
+            vm.NewPixelCount = "3";
+            vm.ApplyFormToSelectedCommand.Execute(null);
+            Assert.Equal(3, vm.Working.Fixtures[0].PixelCount);
+            Assert.Empty(vm.Working.Fixtures[0].BlankedPixels);
+        }
+
+        [Fact]
+        public void ARejectedFormApply_PutsTheFixtureBack()
+        {
+            var fixture = PixelMappingTestData.Strip("A", 10f, 20f, pixelCount: 4);
+            var (vm, editor) = NewEditor(fixture);
+            vm.SelectedFixtureId = fixture.Id;
+            vm.LoadSelectedIntoFormCommand.Execute(null);
+            editor.RejectEdits = true;
+
+            vm.NewName = "Nope";
+            vm.NewPixelCount = "9";
+            vm.ApplyFormToSelectedCommand.Execute(null);
+
+            Assert.Equal("A", vm.Working.Fixtures[0].Name);
+            Assert.Equal(4, vm.Working.Fixtures[0].PixelCount);
+            Assert.Contains("rejected", vm.StatusText);
+        }
+
+        // ------------------------------------------------------------------ wiring checks
+
+        [Fact]
+        public void TestPatternsAndSolo_ReachTheSession_AndClearOnLeavingEditMode()
+        {
+            var a = PixelMappingTestData.Strip("A", 0f, 0f);
+            var b = PixelMappingTestData.Strip("B", 50f, 0f, startChannel: 12);
+            var (vm, editor) = NewEditor(a, b);
+            vm.IsEditing = true;
+            Assert.Equal("Showing the animation.", vm.OutputOverrideText);
+
+            vm.SetTestPatternCommand.Execute(PixelTestPattern.Rainbow);
+            Assert.Equal(PixelTestPattern.Rainbow, editor.CurrentOutputOverride.Pattern);
+            Assert.Contains("rainbow", vm.OutputOverrideText);
+
+            vm.SelectedFixtureId = b.Id;
+            vm.SoloSelectedCommand.Execute(null);
+            Assert.Equal(b.Id, editor.CurrentOutputOverride.SoloFixtureId);
+            Assert.Equal(PixelTestPattern.Rainbow, editor.CurrentOutputOverride.Pattern);   // the pattern stays
+            Assert.Contains("Solo 'B'", vm.OutputOverrideText);
+
+            vm.SoloSelectedCommand.Execute(null);                                            // again: un-solo
+            Assert.Null(editor.CurrentOutputOverride.SoloFixtureId);
+
+            vm.SoloSelectedCommand.Execute(null);
+            vm.SetTestPatternCommand.Execute(PixelTestPattern.None);
+            Assert.Equal(new PixelOutputOverrideRequest(PixelTestPattern.None, b.Id), editor.CurrentOutputOverride);
+
+            vm.IsEditing = false;
+            Assert.Equal(PixelOutputOverrideRequest.Nothing, editor.CurrentOutputOverride);
+            Assert.Equal("Showing the animation.", vm.OutputOverrideText);
+        }
+
+        [Fact]
+        public void ShowAnimation_ClearsBothPatternAndSolo()
+        {
+            var a = PixelMappingTestData.Strip("A", 0f, 0f);
+            var (vm, editor) = NewEditor(a);
+            vm.SelectedFixtureId = a.Id;
+            vm.SetTestPatternCommand.Execute(PixelTestPattern.Chase);
+            vm.SoloSelectedCommand.Execute(null);
+            Assert.True(editor.CurrentOutputOverride.IsActive);
+
+            vm.ClearOutputOverrideCommand.Execute(null);
+            Assert.Equal(PixelOutputOverrideRequest.Nothing, editor.CurrentOutputOverride);
+        }
+
+        [Fact]
+        public void SoloWithNothingSelected_SaysSo_AndChangesNothing()
+        {
+            var (vm, editor) = NewEditor(PixelMappingTestData.Strip("A", 0f, 0f));
+            vm.SoloSelectedCommand.Execute(null);
+            Assert.Equal(PixelOutputOverrideRequest.Nothing, editor.CurrentOutputOverride);
+            Assert.Contains("Select a fixture", vm.StatusText);
+        }
+
+        [Fact]
+        public void ApplyingTheFormWithNothingSelected_SaysSo()
+        {
+            var (vm, editor) = NewEditor(PixelMappingTestData.Strip("A", 0f, 0f));
+            int appliesBefore = editor.ApplyCount;
+            vm.ApplyFormToSelectedCommand.Execute(null);
+            vm.LoadSelectedIntoFormCommand.Execute(null);
+            vm.ApplyBlankedCommand.Execute(null);
+            Assert.Equal(appliesBefore, editor.ApplyCount);
+            Assert.Contains("Select a fixture", vm.StatusText);
         }
     }
 }

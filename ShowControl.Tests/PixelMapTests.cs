@@ -168,125 +168,226 @@ namespace ShowControl.Tests
         }
 
         /// <summary>
-        /// The rope drag is what the per-pixel editing gesture rides on: the dragged pixel takes
-        /// the delta, neighbours are pulled after it only when their link goes taut, and no link is
-        /// ever longer than its rest length — the spacing of a physical strip is not negotiable.
+        /// The hinge is what the per-pixel editing gesture rides on: the grabbed pixel and everything
+        /// after it swing about the pixel before it to point at the target, and the run before the
+        /// hinge does not move. Dragging pixel 3 of a horizontal strip to sit below pixel 2 makes a
+        /// right angle there — the corner a physical strip actually bends at.
         /// </summary>
         [Fact]
-        public void DragRope_MovesTheDraggedPixelByTheDelta_AndNeverStretchesALink()
+        public void PointSectionAt_SwingsTheRunFromTheHandleOnward_AboutThePixelBeforeIt()
         {
-            var offsets = PixelLayoutTools.GenerateLine(10, spacing: 2f);
-            PixelLayoutTools.RotateSection(offsets, fromIndex: 5, turnDegrees: 90f); // a bent run, not just a line
-            var rest = (float[])offsets.Clone();
+            var offsets = PixelLayoutTools.GenerateLine(6, spacing: 2f);
 
-            PixelLayoutTools.DragRope(offsets, pixelIndex: 4, deltaX: 3f, deltaY: -5f);
+            float? heading = PixelLayoutTools.PointSectionAt(offsets, handleIndex: 3, targetX: 4f, targetY: 10f);
 
-            Assert.Equal(rest[8] + 3f, offsets[8], 3);
-            Assert.Equal(rest[9] - 5f, offsets[9], 3);
-            for (int i = 1; i < 10; i++)
-            {
-                float restLength = Distance(rest, i - 1, i);
-                Assert.InRange(Distance(offsets, i - 1, i), 0f, restLength + 0.001f);
-            }
-
-            // A pull this hard draws both neighbouring links taut, and taut means exactly rest
-            // length — the rope neither stretches nor bunches where it is being pulled.
-            Assert.Equal(Distance(rest, 3, 4), Distance(offsets, 3, 4), 3);
-            Assert.Equal(Distance(rest, 4, 5), Distance(offsets, 4, 5), 3);
+            Assert.Equal(90f, heading);
+            // Pixels 0..2 untouched.
+            Assert.Equal(new[] { 0f, 0f, 2f, 0f, 4f, 0f }, offsets.Take(6).ToArray());
+            // Pixels 3..5 now run straight down from pixel 2, still two units apart.
+            Assert.Equal(4f, offsets[6], 4);
+            Assert.Equal(2f, offsets[7], 4);
+            Assert.Equal(4f, offsets[8], 4);
+            Assert.Equal(4f, offsets[9], 4);
+            Assert.Equal(4f, offsets[10], 4);
+            Assert.Equal(6f, offsets[11], 4);
         }
 
-        /// <summary>
-        /// Pulling an end pixel directly away from the run leaves no slack anywhere, so the whole
-        /// rope comes along rigidly — the rope being a rope, and the degenerate case that makes the
-        /// model easy to verify.
-        /// </summary>
+        /// <summary>A rigid swing: a corner already further along the run is carried with it.</summary>
         [Fact]
-        public void DragRope_PullingTheEndAwayFromTheRun_DragsTheWholeRopeTaut()
+        public void PointSectionAt_KeepsTheShapeOfTheSectionItSwings()
         {
-            var offsets = PixelLayoutTools.GenerateLine(5); // along +x; pixel 0 at the origin end
+            var offsets = PixelLayoutTools.GenerateLine(6, spacing: 1f);
+            PixelLayoutTools.RotateSection(offsets, fromIndex: 4, turnDegrees: 90f); // corner at pixel 4
+            float cornerBefore = PixelLayoutTools.MeasureBend(offsets);
 
-            PixelLayoutTools.DragRope(offsets, pixelIndex: 0, deltaX: -3f, deltaY: 0f);
+            PixelLayoutTools.PointSectionAt(offsets, handleIndex: 2, targetX: 1f, targetY: 5f); // bend at pixel 1
 
-            for (int i = 0; i < 5; i++)
+            // Two corners now: the new one and the one that came along.
+            Assert.Equal(cornerBefore + 90f, PixelLayoutTools.MeasureBend(offsets), 3);
+            for (int i = 1; i < 6; i++)
             {
-                Assert.Equal(i - 3f, offsets[i * 2], 3);
-                Assert.Equal(0f, offsets[(i * 2) + 1], 3);
+                Assert.Equal(1f, Distance(offsets, i - 1, i), 3);
             }
         }
 
-        /// <summary>
-        /// The slack rule, and what keeps ordinary sculpting local: a link only pulls, never
-        /// pushes, so moving a pixel toward its neighbours moves nothing else at all.
-        /// </summary>
         [Fact]
-        public void DragRope_PushingTowardTheRun_MovesOnlyTheGrabbedPixel()
+        public void PointSectionAt_OnPixelZero_RotatesTheWholeRunAboutIt()
         {
-            var offsets = PixelLayoutTools.GenerateLine(10);
-            var rest = (float[])offsets.Clone();
+            var offsets = PixelLayoutTools.GenerateLine(4, spacing: 1f);
 
-            PixelLayoutTools.DragRope(offsets, pixelIndex: 0, deltaX: 0.5f, deltaY: 0f);
+            float? heading = PixelLayoutTools.PointSectionAt(offsets, handleIndex: 0, targetX: 0f, targetY: -7f);
 
-            Assert.Equal(0.5f, offsets[0]);
-            Assert.Equal(0f, offsets[1]);
-            Assert.Equal(rest.Skip(2), offsets.Skip(2));
+            Assert.Equal(270f, heading);
+            Assert.Equal(new[] { 0f, 0f, 0f, -1f, 0f, -2f, 0f, -3f }, offsets.Select(v => MathF.Round(v, 4)).ToArray());
         }
 
         /// <summary>
-        /// Dragging along the run is asymmetric on purpose: the arm behind the motion is pulled
-        /// taut and comes along; the arm ahead gains slack and stays exactly where it was.
+        /// A right angle has to be hittable by eye, so a heading near a multiple of 45° snaps to it
+        /// — and one clearly off it does not, so a deliberate shallow angle survives.
         /// </summary>
-        [Fact]
-        public void DragRope_DraggingAlongTheRun_PullsOnlyTheArmBehindTheMotion()
+        [Theory]
+        [InlineData(10f, 0.5f, 90f)]    // ~87°: snaps to vertical
+        [InlineData(10f, 3f, 73.3f)]    // ~73°: left alone
+        public void PointSectionAt_SnapsOntoTheNearestEighthTurn_OnlyWhenClose(float targetY, float targetX, float expected)
         {
-            var offsets = PixelLayoutTools.GenerateLine(10);
-            var rest = (float[])offsets.Clone();
+            var offsets = PixelLayoutTools.GenerateLine(3, spacing: 1f);
 
-            PixelLayoutTools.DragRope(offsets, pixelIndex: 5, deltaX: 2f, deltaY: 0f);
+            float? heading = PixelLayoutTools.PointSectionAt(offsets, handleIndex: 1, targetX, targetY, snapToleranceDegrees: 4f);
 
-            for (int i = 0; i <= 5; i++)
-            {
-                Assert.Equal(rest[i * 2] + 2f, offsets[i * 2], 3); // behind: dragged along, taut
-                Assert.Equal(0f, offsets[(i * 2) + 1], 3);
-            }
-            for (int i = 6; i < 10; i++)
-            {
-                Assert.Equal(rest[i * 2], offsets[i * 2]); // ahead: slack, untouched
-                Assert.Equal(rest[(i * 2) + 1], offsets[(i * 2) + 1]);
-            }
+            Assert.Equal(expected, heading!.Value, 1);
         }
 
         /// <summary>
-        /// Recomputed from rest on every pointer move rather than accumulated, so the result must be
-        /// a pure function of (rest shape, delta) — that is what anchors the gesture.
+        /// Every bend starts with the cursor on the handle, a fraction of a pixel from the hinge,
+        /// where the angle is noise. Nothing moves until the cursor is clear of it.
         /// </summary>
         [Fact]
-        public void DragRope_IsAPureFunctionOfTheRestShapeAndTheDelta()
+        public void PointSectionAt_IgnoresATargetTooCloseToTheHinge()
         {
-            var restA = PixelLayoutTools.GenerateLine(20, spacing: 1.5f);
+            var offsets = PixelLayoutTools.GenerateLine(4, spacing: 2f);
+            var before = (float[])offsets.Clone();
+
+            Assert.Null(PixelLayoutTools.PointSectionAt(offsets, handleIndex: 2, targetX: 2.2f, targetY: 0.6f));
+            Assert.Equal(before, offsets);
+        }
+
+        [Fact]
+        public void PointSectionAt_IsAPureFunctionOfTheRestShapeAndTheTarget()
+        {
+            var restA = PixelLayoutTools.GenerateLine(12, spacing: 1.5f);
             var restB = (float[])restA.Clone();
 
-            PixelLayoutTools.DragRope(restA, pixelIndex: 7, deltaX: 4f, deltaY: 6f);
-            PixelLayoutTools.DragRope(restB, pixelIndex: 7, deltaX: 4f, deltaY: 6f);
+            PixelLayoutTools.PointSectionAt(restA, handleIndex: 7, targetX: 3f, targetY: 9f);
+            PixelLayoutTools.PointSectionAt(restB, handleIndex: 7, targetX: 3f, targetY: 9f);
 
             Assert.Equal(restA, restB);
         }
 
         [Fact]
-        public void DragRope_RejectsAPixelOutsideTheFixture()
+        public void PointSectionAt_RejectsAHandleOutsideTheFixture()
         {
             var offsets = PixelLayoutTools.GenerateLine(3);
-            Assert.Throws<ArgumentOutOfRangeException>(() => PixelLayoutTools.DragRope(offsets, 3, 1f, 1f));
+            Assert.Throws<ArgumentOutOfRangeException>(() => PixelLayoutTools.PointSectionAt(offsets, 3, 1f, 1f));
+        }
+
+        [Fact]
+        public void MeasureBend_IsZeroForAStraightRun_AndTheCornerAngleForABentOne()
+        {
+            var straight = PixelLayoutTools.GenerateLine(10, spacing: 1.25f, angleDegrees: 30f);
+            Assert.Equal(0f, PixelLayoutTools.MeasureBend(straight), 3);
+
+            var bent = PixelLayoutTools.GenerateLine(10);
+            PixelLayoutTools.RotateSection(bent, fromIndex: 4, turnDegrees: -60f);
+            Assert.Equal(-60f, PixelLayoutTools.MeasureBend(bent), 3);
         }
 
         /// <summary>
-        /// After a rope drag has carried pixel 0 off the origin, rebasing restores the convention
+        /// The bend field round-trips: lay a run out at N degrees and it measures N, so what the
+        /// box shows after Apply is what was typed. A full turn is counted as 360, not folded.
+        /// </summary>
+        [Fact]
+        public void SetPixelCount_CutsTheRun_OrCarriesItOnAlongItsLastLink()
+        {
+            // A run heading up the image at spacing 2, bent so its last link points right.
+            var offsets = PixelLayoutTools.GenerateLine(4, spacing: 2f, angleDegrees: 90f);
+            offsets[6] = 2f; offsets[7] = 4f;          // pixel 3 steps right from pixel 2 (0,4)
+
+            var longer = PixelLayoutTools.SetPixelCount(offsets, 6);
+            Assert.Equal(12, longer.Length);
+            Assert.Equal(offsets, longer[..8]);        // the existing pixels stay put
+            Assert.Equal(new[] { 4f, 4f, 6f, 4f }, longer[8..]);   // the rest continue the last link
+
+            var shorter = PixelLayoutTools.SetPixelCount(offsets, 2);
+            Assert.Equal(offsets[..4], shorter);
+
+            // One pixel has no link to continue: the fallback lays the new ones out.
+            var single = PixelLayoutTools.SetPixelCount(new float[] { 0f, 0f }, 3, fallbackSpacing: 1.5f, fallbackAngleDegrees: 0f);
+            Assert.Equal(new[] { 0f, 0f, 1.5f, 0f, 3f, 0f }, single);
+        }
+
+        [Theory]
+        [InlineData(0f)]
+        [InlineData(90f)]
+        [InlineData(-45f)]
+        [InlineData(360f)]
+        public void SetBend_LaysOutAnEvenArc_ThatMeasuresBackToTheSameTurn(float degrees)
+        {
+            var offsets = PixelLayoutTools.GenerateLine(40, spacing: 2f);
+
+            PixelLayoutTools.SetBend(offsets, degrees);
+
+            Assert.Equal(degrees, PixelLayoutTools.MeasureBend(offsets), 2);
+            Assert.Equal(2f, PixelLayoutTools.MeasureSpacing(offsets), 3);
+            for (int i = 1; i < 40; i++)
+            {
+                Assert.Equal(2f, Distance(offsets, i - 1, i), 3);
+            }
+            Assert.Equal(0f, offsets[0]);
+            Assert.Equal(0f, offsets[1]);
+        }
+
+        [Fact]
+        public void SetBend_KeepsTheFirstLinksHeading()
+        {
+            var offsets = PixelLayoutTools.GenerateLine(8, spacing: 1f, angleDegrees: 90f);
+
+            PixelLayoutTools.SetBend(offsets, 45f);
+
+            Assert.Equal(0f, offsets[2], 4); // first link still straight down
+            Assert.Equal(1f, offsets[3], 4);
+        }
+
+        /// <summary>
+        /// The way back from any shape: straight, evenly spaced, pointing from the first pixel to
+        /// where the last was, and pixel 0 where it was so the fixture does not move.
+        /// </summary>
+        [Fact]
+        public void Straighten_UndoesAnyBend_AlongTheChordAtTheMeanSpacing()
+        {
+            var offsets = PixelLayoutTools.GenerateLine(9, spacing: 1.25f);
+            PixelLayoutTools.RotateSection(offsets, fromIndex: 3, turnDegrees: 90f);
+            PixelLayoutTools.RotateSection(offsets, fromIndex: 6, turnDegrees: -30f);
+            float lastX = offsets[16];
+            float lastY = offsets[17];
+
+            PixelLayoutTools.Straighten(offsets);
+
+            Assert.Equal(0f, PixelLayoutTools.MeasureBend(offsets), 3);
+            Assert.Equal(1.25f, PixelLayoutTools.MeasureSpacing(offsets), 3);
+            Assert.Equal(0f, offsets[0]);
+            Assert.Equal(0f, offsets[1]);
+            // Along the chord: the last pixel is in the same direction it was, just at the full length.
+            Assert.Equal(MathF.Atan2(lastY, lastX), MathF.Atan2(offsets[17], offsets[16]), 3);
+        }
+
+        /// <summary>
+        /// A U whose last pixel sits straight below its first has a vertical chord, and straightening
+        /// along it is bit-exact — the same exactness GenerateLine promises on the quarter turns.
+        /// </summary>
+        [Fact]
+        public void Straighten_AlongAnAxisAlignedChord_IsExact()
+        {
+            var offsets = PixelLayoutTools.GenerateLine(7);
+            PixelLayoutTools.RotateSection(offsets, fromIndex: 2, turnDegrees: 90f);
+            PixelLayoutTools.RotateSection(offsets, fromIndex: 4, turnDegrees: 90f);
+            Assert.Equal(0f, offsets[12]);
+            Assert.Equal(2f, offsets[13]);
+
+            PixelLayoutTools.Straighten(offsets);
+
+            Assert.Equal(new[] { 0f, 0f, 0f, 1f, 0f, 2f, 0f, 3f, 0f, 4f, 0f, 5f, 0f, 6f }, offsets);
+        }
+
+        /// <summary>
+        /// If anything carries pixel 0 off the origin, rebasing restores the convention
         /// that the origin marks pixel 0 — without moving a single resolved position.
         /// </summary>
         [Fact]
         public void Rebase_PutsPixelZeroBackOnTheOrigin_WithoutMovingAnyPixel()
         {
             var fixture = PixelMappingTestData.Strip("Rebase", originX: 50f, originY: 60f, pixelCount: 4);
-            PixelLayoutTools.DragRope(fixture.PixelOffsets, pixelIndex: 0, deltaX: -3f, deltaY: 2f);
+            fixture.PixelOffsets[0] -= 3f; // pixel 0 carried off the origin, however it got there
+            fixture.PixelOffsets[1] += 2f;
             var before = PixelMapGeometry.Resolve(fixture);
 
             var shift = PixelLayoutTools.Rebase(fixture.PixelOffsets);

@@ -12,6 +12,17 @@ namespace ShowControl.ControlPanel.Maui
         /// rather than the main one: initializing with the main window's handle from a secondary
         /// window is the usual reason a WinUI picker never appears.
         /// </summary>
+        /// <summary>MAUI's picker is fine here; the Catalyst problem is Catalyst's.</summary>
+        private partial async Task<string?> PickOpenPlatformAsync()
+        {
+            var result = await FilePicker.Default.PickAsync(new PickOptions
+            {
+                PickerTitle = "Open pixel map",
+                FileTypes = JsonFileType
+            });
+            return result?.FullPath;
+        }
+
         private partial async Task<string?> SaveAsPlatformAsync(string suggestedFileName, string contents)
         {
             var picker = new FileSavePicker

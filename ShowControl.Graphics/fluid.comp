@@ -1,0 +1,722 @@
+#version 450
+
+// ───────────────────────────────────────────────────────────────────────────
+// Weakly compressible fluid simulation — stage 1 of the "fluid" effect.
+//
+// Real fluid physics on the grid: each cell carries density and momentum,
+// pressure follows density (equation of state p = c²(ρ−1)), velocity responds
+// to the pressure gradient, density to the velocity divergence, and both are
+// advected semi-Lagrangian. Because the fluid is compressible, every
+// injection launches a genuine pressure WAVE FRONT that propagates at the
+// sound speed, reflects off the top and bottom walls, and interferes — each cell's behavior
+// is driven by the wave fronts and flows reaching it from its neighbors.
+// The field is CONTINUOUS LEFT TO RIGHT: the two side edges are the same
+// place, so whatever leaves one side — flow, dye, a wave front, an injection
+// point — arrives at the other, and there is no side wall to pile up against.
+//
+// The spectrum is read on a log-frequency axis from ~60 Hz to ~9.4 kHz, and
+// is split in two at 300 Hz, each half doing one job:
+//
+// - THE BASS (60–300 Hz) IS THE TIMING. It is cut into INJ_BANDS sub-bands,
+//   one per injection point — five points — and a point injects when, and
+//   as hard as, its own slice of the bass is sounding relative to its usual
+//   level. Nothing above 300 Hz makes a point fire.
+// - EVERYTHING ABOVE 300 Hz IS THE COLOR RANGE. Each point has a hue from a
+//   small palette (lows, mids and highs of the bass hold three hues around a
+//   key that turns with the music, converge on one color as a build's tension
+//   rises, and are thrown wide again on a fresh key by each drop — decided
+//   on the CPU by InjectionPalette, arriving in the table after the bins).
+//   The upper spectrum is shared out between the points and laid across each
+//   one's disc in rings, and each ring's hue is pushed off the point's own by
+//   how far its frequency currently stands from its usual level. A flat,
+//   steady top end injects one color per point; a lively one opens each
+//   point out into a range of neighbouring hues.
+//
+// The 9.4–20 kHz "air" bins, which sit above the map, SCATTER which
+// frequency each ring reads — bright treble makes the colors dance.
+//
+// Each point is a round, soft-edged disc pushing its fluid outward in a
+// circle. Across, the points sit in a row and are carried by the bias (below);
+// their depth is placed by the last 60 seconds of audio (the table after the
+// bins — computed on the CPU by InjectionHistory, which needs an exact window,
+// not an average): a point sinks with its bass sub-band's activity over the
+// most recent part of the minute, folding back at the top and bottom.
+//
+// The field has a sideways BIAS, in exactly one of three forms at a time
+// (FlowBias, on the CPU — it arrives with the table): everything moving left,
+// everything moving right — the fluid pushed that way and the discs
+// themselves travelling with it, around and around the continuous axis — or
+// nothing moving at all, with the same velocity given instead to the discs'
+// emission to their left and right. Never a blend of them. A drop switches the form; the speed sinks in a slow
+// section and climbs through a build. Nothing pushes the field up or down.
+//
+// The state buffers are the simulation's entire memory; the only history kept
+// on the CPU is the injection-site table above. FluidSimulationPass dispatches this SUBSTEPS times per
+// rendered frame, ping-ponging src/dst.
+//
+// AudioLite and the drop signal shape the physics. Impact is spent on MOTION,
+// never on brightness: beats (impulse²) and the drop's hit multiply how hard
+// the discs throw their fluid, so a big moment reads as speed. Bar phase
+// rocks the discs' emission up and down, grain stirs micro-turbulence
+// through the whole field (which also keeps the flow from settling into one
+// familiar attractor), and motion scales the advection liveliness.
+// Knobs: u_param1 = dye decay (1/s), u_param2 = injection drive,
+// u_param3 = injection depth (how far down from the top the discs may go),
+// u_param4 = velocity damping.
+// ───────────────────────────────────────────────────────────────────────────
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(push_constant) uniform Push {
+    vec2  u_resolution;
+    float u_time;
+    float u_distortionStrength;
+    float u_hueTolerance;
+    float u_falloff;
+    float u_param1;              // dye decay rate (1/s)
+    float u_param2;              // injection drive
+    float u_param3;              // injection depth: 0 = top edge only, 1 = whole plane
+    float u_param4;              // velocity damping multiplier
+    float a_energy;
+    float a_impulse;
+    float a_tension;
+    float a_phase;
+    float a_hue;
+    float a_grain;
+    float a_motion;
+    float a_spread;
+} pc;
+
+layout(std430, set = 0, binding = 1) readonly buffer Spectrum {
+    int   binCount;   // 1024
+    int   version;    // monotonic publish counter; 0 = never published
+    float hopHz;
+    float dropSeconds; // + seconds until the nearest drop, − seconds since one
+                       // just fired, ≥900 none known (see AudioLiteBridge)
+    float mags[1024]; // magnitudes, DC first, 1/N-scaled (small!)
+    float siteX[5];   // per band: centre of its disc across the plane, 0..1
+    float siteY[5];   // per band: its depth, 0 = top .. 1 = just above the floor
+                      // band. Both placed by the last 60 s of audio (INJ_BANDS).
+    float siteHue[5]; // per band: the hue it injects, 0..1 turns (InjectionPalette,
+                      // overridden by any pad colors held on the control surface —
+                      // GraphicsHost blends those in on the CPU)
+    float sitePulse[5]; // per band: how hard it injects dye right now, 0..1 — a
+                      // baseline following the band's level against its average
+                      // of the last few minutes, over which a hit at the loudest of
+                      // the last few minutes — the big drop — fires one
+                      // envelope to 1 from every band at once, a few minutes
+                      // apart at most (InjectionPulses). Ordinary hits inject
+                      // nothing: they arrive as `turbulence` below.
+    float biasField;  // the bias as a drift of all the fluid: + right, − left, in
+                      // plane widths per second; 0 while the bias is split. The
+                      // discs' own travel at this speed is already in siteX.
+    float biasSplit;  // the bias as the discs' left/right emission instead, in
+                      // multiples of its nominal speed; 0 otherwise. Never
+                      // both nonzero (FlowBias).
+    float marble;     // how marbled the dye is shown, 0..1 — read by fluid.frag;
+                      // the phase is laid down regardless so a switch shows at once
+    float padHold;    // 0..1, how firmly the control surface's pads hold the
+                      // colors: at 1 each point injects its pad's hue flat
+    float turbulence; // 0..1, how hard the bass hits are stirring the flow: the
+                      // envelope of the strongest pulse running (InjectionPulses)
+} spec;
+
+struct Cell {
+    vec4 a;   // x = density ρ (rest 1), yz = velocity (cells/substep),
+              // w = running mean of this cell's band magnitude (edge cells only)
+    vec4 b;   // rgb = dye (LINEAR — never store sRGB in state),
+              // a = marble phase: a scalar laid down in rings at injection and
+              // carried with the dye, which fluid.frag turns into fine color
+              // stripes — the flow folds it, so the stripes marble
+};
+layout(std430, set = 0, binding = 2) readonly  buffer StateSrc { Cell cells[]; } src;
+layout(std430, set = 0, binding = 3) writeonly buffer StateDst { Cell cells[]; } dst;
+
+// Must match FluidSimulationPass.GridWidth/GridHeight and fluid.frag — the
+// grid size lives in three places that must agree.
+const int GRID_W = 288;
+const int GRID_H = 256;
+
+// One substep = dt 1, dx 1; FluidSimulationPass runs SUBSTEPS per 46fps frame
+// (~140 substeps/s). CFL: sound speed c = sqrt(CS2) = 0.3 must stay well
+// below 1 cell/substep.
+const float DT = 1.0;
+const float DT_SEC = 1.0 / 138.0;      // one substep in seconds, for per-second knobs
+const float CS2 = 0.09;               // squared sound speed (cells²/substep²) — what
+                                      // the old wave knob gave at 0.5
+const float VEL_DAMP = 0.008;         // per-substep velocity damping at u_param4 = 1
+const float RHO_RELAX = 0.004;        // slow density relaxation toward rest — keeps
+                                      // long-run drift bounded without killing waves
+const float VEL_MAX = 0.85;           // CFL guard on advection
+const float DYE_MAX = 8.0;
+
+// The top BAND cells of every column keep that column's usual-level state,
+// wherever its band is injecting.
+const float BAND = 2.5;
+
+// Every injection bin lights at least this many cells of the axis: the
+// spectrum lookup takes the max over the bin window covering half this width
+// to each side. At the high end of the log map ~7 bins share one cell, so a
+// lone loud bin would otherwise be sub-cell and invisible; at the low end one
+// bin already spans many cells and the window changes nothing.
+const float MIN_INJ_WIDTH = 5.0;
+
+// The wall collision bands: within this many cells of the top or the bottom,
+// momentum heading into the wall is progressively absorbed and DEPOSITED AS
+// PRESSURE — what a rigid surface does to an impacting fluid. The pressure
+// then drives the collision response through the ordinary physics: lateral
+// splash along the wall, and fronts pushed back out where two streams'
+// spreads run into each other.
+const float WALL_BAND = 6.0;
+const float WALL_ABSORB = 0.35;      // fraction of wall-ward speed removed at the wall
+const float WALL_STIFF = 0.8;        // density deposited per unit of absorbed speed
+// Per cell of a disc. A disc covers about 2.5× the cells a bar did, so these
+// are lower than the bar's were to keep the total injected about the same.
+const float INJ_DYE = 0.045;          // dye per substep at full drive (halved: the
+                                      // cores were too dense at a hit)
+const float INJ_RHO = 0.015;          // pressure pulse per substep at full drive
+const float INJ_VEL = 0.025;          // outward momentum per substep at full drive (halved from 0.05)
+const float INJ_LEAN = 0.35;          // how much of that the bar-phase sway adds, up and down
+// The marble phase injected with the dye: this many cycles from a disc's
+// centre to its rim, offset by a value that moves with time so each pulse
+// lays down fresh stripes against what is already there. The flow then
+// stretches and folds the field, and fluid.frag reads the stripes off it.
+// Kept unwrapped (not fract'd) so the bilinear blend across two pulses
+// yields an in-between value, not a seam; the time offset cycles over a long
+// period only so the float stays precise.
+const float MARBLE_RINGS = 1.0;       // one stripe per radius at MARBLE_FREQ 1.0: the
+                                      // baseline; the age term below adds to it
+const float MARBLE_DRIFT = 0.688;     // phase cycles per u_time unit
+// Long enough that the wrap never happens in a show (26 h at this drift): the
+// wrap is a 65536-cycle jump between fresh and old dye, which shows as a
+// burst of noise-fine stripes wherever the two mix until the old dye is gone.
+const float MARBLE_PERIOD = 65536.0;
+// Stripes per unit of phase as fluid.frag reads it — keep in step with the
+// constant of the same name there.
+const float MARBLE_FREQ = 1.0;
+// The densest the stripes are allowed to get, in stripes per cell. The phase
+// field's slope is limited to this every substep, so wherever the flow has
+// folded old dye against new (which otherwise packs their whole age
+// difference into a few cells) the stripes spread into a wider band at this
+// density instead of going finer. 3 per disc radius is where the stripes
+// still read as stripes by eye; about 10 is where they turn to moiré.
+const float MARBLE_MAX_STRIPES = 3.0 / 7.0;   // 7 = INJ_RADIUS, declared below
+// Empty space keeps up with the drift: cells with no dye relax their phase to
+// its current value at this rate per substep (~0.15 s), so dye arriving
+// somewhere fresh — the first dye after start, or into a region nothing has
+// reached in a while — meets its own phase, not one that has been left at
+// zero or a stale value since whenever. Without this the whole uptime's drift
+// stood between every form and its surroundings, and the cap spread it as a
+// band of maximum-density stripes that grew with the session.
+const float MARBLE_EMPTY_DYE = 0.02;
+const float MARBLE_EMPTY_RELAX = 0.05;
+const float MARBLE_TAKE = 0.4;        // how firmly injection overwrites the phase — low,
+                                      // so each pulse eases its stripes into what is
+                                      // there instead of stamping them (that jumped)
+
+// The spectrum maps log-frequency along the top edge. At 48 kHz / 2048 window
+// the left end starts at bin 2.56 ≈ 60 Hz (sub-bass below that is omitted)
+// and the right end caps at bin 400 ≈ 9.4 kHz: above that real music is
+// nearly empty, and mapping to 24 kHz left the high end permanently dark.
+const float MIN_BIN = 2.56;
+const float MAX_BIN = 400.0;
+// 300 Hz on that axis (bin 12.8): log(12.8 / MIN_BIN) / log(MAX_BIN / MIN_BIN).
+// Below it is the bass that times the injection; above it, the spectrum that
+// colors it. InjectionHistory's HighestHz is the same 300 Hz.
+const float BASS_SPLIT = 0.3187;
+// The widest a ring's hue strays from its point's palette hue, in turns, and
+// the level difference from usual (in octaves, either way) that takes it
+// there. Kept under half the gap between palette families, so a point's range
+// never reaches its neighbour's color.
+const float HUE_RANGE = 0.12;
+const float HUE_OCTAVES = 2.0;
+// The deviation is read against each column's usual level, which starts from
+// nothing: for the first seconds every ring stands at many times "usual" and
+// the air band's scatter rolls that saturated deviation from ring to ring six
+// times a second — a cold start opened with the discs flickering through
+// colours. So the hue spread fades in over the first seconds of u_time
+// (u_time runs at 0.15× seconds, so 0.45 is three seconds).
+const float HUE_WARMUP = 0.45;
+
+// The spectrum's injection range is cut into INJ_BANDS bands, each with its
+// own site and hue.
+// The same bands are the units the injection sites move — must match
+// GraphicsHost.InjectionSites and InjectionHistory.BandCount, and the size of
+// spec.siteX/siteY/siteHue above.
+const int INJ_BANDS = 5;
+// A disc's radius in cells; its band's slice of the spectrum is laid out from
+// the centre to the rim.
+const float INJ_RADIUS = 7.0;
+// Overlapping segments add; this caps how hard a pile-up of bands can push.
+const float INJ_STACK_MAX = 2.0;
+// A FLOOD — a pulse above anything the baseline reaches (the accent on a drop,
+// a pad press, a pad held; InjectionPulses) — has to read as one, and at the
+// disc's normal size and throw it did not: the disc filled in a fifth of a
+// second and then the dye crawled out at INJ_VEL (~7 cells/s) while the old
+// dye around it lingered, so two seconds into a hold the new colour was a blob
+// twice the disc. So in flood the disc SWELLS, to this many times its radius
+// at full (6× the area), and THROWS this many times harder, so the colour is
+// across the plane in a second or two.
+const float FLOOD_FROM = 0.5;         // sitePulse at which the flood starts (baseline tops at 0.45)
+const float FLOOD_RADIUS = 2.5;
+const float FLOOD_THROW = 3.0;
+// And a flood OVERWRITES: within the swelled disc the dye is replaced by the
+// flood's colour at this level, by the flood and the disc's falloff, rather
+// than added to what is there — so the burst is the pressed colour outright,
+// not that colour mixed into whatever dye was passing through.
+const float FLOOD_DYE = 1.5;
+
+// The air band (9.4–20 kHz, bins 400–853) shimmers the colour: its energy
+// scales a per-ring hue jitter that wanders between a fresh roll ~6×/s —
+// eased from one roll to the next, because cutting between them made the
+// injectors visibly twitch. Quiet treble → steady rings; open hats and air →
+// sparkling ones. It used to scatter the LOOKUP position instead (±0.35 of
+// the axis at full), which divided one frequency's magnitude by another's
+// usual: whenever the level was far from usual — after any big change, for
+// the 1.2 s / 12 s the running mean takes to follow — the deviation was pinned
+// at ±1 and the scatter flipped it between the two extremes six times a
+// second, a ±0.24-turn colour flicker that only stopped once the mean caught
+// up. The hue jitter is bounded whatever the level is doing.
+const float HF_GAIN = 400.0;         // compression gain for the tiny air-band magnitudes
+const float HF_HUE_JITTER = 0.03;    // max hue scatter at full treble, in turns either way
+
+// Adaptive per-band normalization: each top-edge cell keeps a running mean of its
+// own band's magnitude (in state, like all history here) — fast attack, slow
+// release — and injects by the ratio current/usual. Every band then pushes at
+// comparable force when it is active RELATIVE TO ITSELF, instead of bass
+// dominating purely by spectral slope. The floor keeps silence from being
+// amplified into noise.
+const float EMA_ATTACK = 0.006;      // ~1.2 s rise at 138 substeps/s
+const float EMA_RELEASE = 0.0006;    // ~12 s fall
+const float EMA_FLOOR = 2.0e-4;
+const float NORM_GAIN = 0.5;         // intensity compression of the ratio
+
+// Central differences on a collocated grid are blind to the grid-frequency
+// checkerboard mode (the gradient at a cell skips the cell itself), so that
+// mode grows into a visible grid pattern. The Laplacian is maximal on exactly
+// that mode: this much density diffusion and viscosity damps it while barely
+// touching the real waves. Keep both well under the 0.25 diffusion CFL limit.
+// Both were raised (from 0.08 and 0.06) along with RHO_RELAX, and the
+// injection pressure halved, to calm the pressure waves: at the old values
+// the rim of every shape rippled visibly with each front crossing it.
+const float KAPPA_RHO = 0.16;
+const float NU_VEL = 0.08;
+
+// In the split form the discs emit sideways at this multiple of their outward
+// strength per unit of bias speed.
+const float INJ_SPLIT = 1.0;
+
+const float TAU = 6.283185307179586;
+
+// Musical forces (AudioLite + the drop signal — see the header comment).
+const float IMPACT_VEL = 3.0;      // extra injection velocity at full impact
+                                   // (impulse², or the moment a drop lands)
+// The lead-up to a drop is a RAMP: the discs throw harder and the fluid is
+// stirred harder the further into it the music is, rising as the square of
+// the build so it starts gently and arrives steeply. "Build" is the greater
+// of the inferred tension (from the audio alone — no metadata needed) and,
+// when a drop is announced or predicted, a countdown over RAMP_SECONDS
+// before it. RAMP_SECONDS matches FlowBias.RampSeconds, which ramps the
+// bias speed the same way.
+const float RAMP_SECONDS = 16.0;
+const float RAMP_THROW = 1.5;      // extra injection velocity at the top of the ramp
+const float RAMP_STIR = 2.0;       // extra stirring at the top of the ramp
+const float SWAY_PUSH = 0.8;       // bar-phase rocking of the discs' emission
+// Stirring: a smooth, slowly changing swirl field (the curl of layered value
+// noise, so it is divergence-free and launches no pressure waves) churns the
+// fluid WHERE THERE IS DYE, so the inside of every shape keeps turning over
+// while the empty field stays calm. Per-cell white noise re-rolled a few
+// times a second was tried first: it stirred, but it twitched. The lattice
+// repeats across the width (STIR_CELLS divides GRID_W) so the seam is quiet.
+const float STIR_FORCE = 0.03;     // acceleration per unit of swirl, at full grain
+const float STIR_CELLS = 16.0;     // size of the largest swirls, cells
+const float STIR_RATE = 3.0;       // new swirl pattern per u_time unit (~2 s)
+const float STIR_BASE = 0.25;      // stirring kept up even without grain or dye
+// The hits stir too: each bass hit's envelope (spec.turbulence, run to
+// completion on the CPU so it is smooth and one at a time) adds this much
+// swirl, on top of whatever grain and energy are giving. Low on purpose —
+// the hits used to inject dye, which read as a steady pumping; a hit should
+// turn the picture over, gently, not add to it.
+const float STIR_HIT = 0.5;        // at a full hit, in units of the grain stir at full
+                                   // (halved from 1.0: the churn was too quick)
+
+// Deterministic per-cell noise.
+float hash12(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+// Value noise on a lattice `period` cells wide, repeating across the width.
+float latticeNoise(vec2 p, float period, float seed) {
+    vec2 i = floor(p);
+    vec2 f = p - i;
+    f = f * f * (3.0 - 2.0 * f);
+    float x0 = mod(i.x, period), x1 = mod(i.x + 1.0, period);
+    float a = hash12(vec2(x0, i.y) + seed);
+    float b = hash12(vec2(x1, i.y) + seed);
+    float c = hash12(vec2(x0, i.y + 1.0) + seed);
+    float d = hash12(vec2(x1, i.y + 1.0) + seed);
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+// The swirl potential at a cell position: two octaves, each eased between
+// one random pattern and the next so it changes smoothly in time as well.
+float swirl(vec2 p) {
+    float t = pc.u_time * STIR_RATE;
+    float t0 = floor(t);
+    float ft = smoothstep(0.0, 1.0, t - t0);
+    float period = float(GRID_W) / STIR_CELLS;
+    vec2 q = p / STIR_CELLS;
+    float n = mix(latticeNoise(q, period, t0 * 7.1),
+                  latticeNoise(q, period, (t0 + 1.0) * 7.1), ft);
+    n += 0.5 * mix(latticeNoise(q * 2.0 + 3.7, period * 2.0, t0 * 7.1 + 11.0),
+                   latticeNoise(q * 2.0 + 3.7, period * 2.0, (t0 + 1.0) * 7.1 + 11.0), ft);
+    return n;
+}
+
+vec3 hsv2rgb(vec3 hsv) {
+    vec3 K = vec3(1.0, 2.0/3.0, 1.0/3.0);
+    vec3 p = abs(fract(hsv.xxx + K.xyz) * 6.0 - 3.0);
+    return hsv.z * mix(vec3(1.0), clamp(p - 1.0, 0.0, 1.0), hsv.y);
+}
+
+int cellIndex(ivec2 g) { return g.y * GRID_W + g.x; }
+
+// X wraps (the field is continuous left to right); Y clamps at the walls.
+int wrapX(int x) { return (x % GRID_W + GRID_W) % GRID_W; }
+ivec2 wrapGrid(ivec2 g) { return ivec2(wrapX(g.x), clamp(g.y, 0, GRID_H - 1)); }
+
+// Manual bilinear sample of the source state at a continuous grid position
+// (no samplers exist in this pipeline; the state is a buffer, not an image).
+void sampleSrc(vec2 p, out vec4 a, out vec4 b) {
+    vec2 base = vec2(p.x, clamp(p.y, 0.5, float(GRID_H) - 1.5)) - 0.5;
+    ivec2 cell = ivec2(floor(base));
+    vec2 f = base - vec2(cell);
+    ivec2 i0 = ivec2(wrapX(cell.x), cell.y);
+    ivec2 i1 = ivec2(wrapX(cell.x + 1), min(cell.y + 1, GRID_H - 1));
+    Cell c00 = src.cells[cellIndex(i0)];
+    Cell c10 = src.cells[cellIndex(ivec2(i1.x, i0.y))];
+    Cell c01 = src.cells[cellIndex(ivec2(i0.x, i1.y))];
+    Cell c11 = src.cells[cellIndex(i1)];
+    a = mix(mix(c00.a, c10.a, f.x), mix(c01.a, c11.a, f.x), f.y);
+    b = mix(mix(c00.b, c10.b, f.x), mix(c01.b, c11.b, f.x), f.y);
+}
+
+// Spectrum magnitude at a 0..1 edge-position parameter (0 = lowest bin at the
+// left, 1 = highest at the right, log-frequency in between). The value is the
+// MAX over every bin mapping within half a MIN_INJ_WIDTH column of the
+// position, so each bin's on-screen footprint has a minimum width.
+float magAt(float binParam) {
+    float halfBp = 0.5 * MIN_INJ_WIDTH / float(GRID_W);
+    float binLo = MIN_BIN * pow(MAX_BIN / MIN_BIN, clamp(binParam - halfBp, 0.0, 1.0));
+    float binHi = MIN_BIN * pow(MAX_BIN / MIN_BIN, clamp(binParam + halfBp, 0.0, 1.0));
+    int lo = clamp(int(binLo + 0.5) - 1, 1, spec.binCount - 2);
+    int hi = clamp(int(binHi + 0.5) + 1, lo, spec.binCount - 2);
+    float m = 0.0;
+    for (int b = lo; b <= hi; b++) {
+        m = max(m, spec.mags[b]);
+    }
+    return m;
+}
+
+// Intensity of the 0..1 axis position bp right now, relative to its usual
+// level: the ratio current/usual, where "usual" is the running mean kept by
+// the top-edge cell at bp's HOME column, and the current magnitude is read at
+// bp + offset (the air band's scatter).
+float ratioAt(float bp, float offset) {
+    int homeCol = clamp(int(bp * float(GRID_W)), 0, GRID_W - 1);
+    float usual = max(src.cells[cellIndex(ivec2(homeCol, 0))].a.w, EMA_FLOOR);
+    return magAt(clamp(bp + offset, 0.0, 1.0)) / usual;
+}
+
+// Injection at a cell. Every point whose disc covers the cell contributes
+// dye, a pressure pulse, and a push straight out from the disc's centre — so
+// each point spreads in a circle.
+//
+// HOW MUCH is the bass: the point's own sub-band of 60–300 Hz relative to
+// usual, fired as one-shot pulses on the CPU (spec.sitePulse), compressed into
+// 0..1 and faded out toward the rim. The whole disc fires together.
+//
+// WHAT COLOR is everything above 300 Hz: the point's share of the upper
+// spectrum runs from the centre of the disc (its low end) to the rim (its
+// high end) in rings, and each ring's hue is the point's palette hue shifted
+// by how far that frequency stands from its usual level — above usual one
+// way round the wheel, below it the other, up to HUE_RANGE.
+//
+// Discs that overlap add. Returns false, cheaply, for the cells no disc
+// covers — which is nearly all of them.
+bool siteInject(vec2 cellCenter, out float e, out vec3 dyeIn, out vec2 outward,
+                out float marbleIn, out float flood) {
+    e = 0.0;
+    dyeIn = vec3(0.0);
+    outward = vec2(0.0);
+    marbleIn = 0.0;
+    flood = 0.0;
+    float marbleWeight = 0.0;
+    bool covered = false;
+    // Depth 0 puts the disc against the top wall; depth 1 takes it as far down
+    // as the injection-depth knob allows — at the knob's full 1.0 that rests
+    // it on the bottom collision band, at 0 every disc stays on the top edge.
+    // The knob scales the reach rather than clipping it, so the discs keep
+    // their history-driven motion inside whatever range they are given.
+    float ySpan = (float(GRID_H) - WALL_BAND - 2.0 * INJ_RADIUS) * clamp(pc.u_param3, 0.0, 1.0);
+
+    for (int band = 0; band < INJ_BANDS; band++) {
+        vec2 centre = vec2(spec.siteX[band] * float(GRID_W),
+                           INJ_RADIUS + spec.siteY[band] * ySpan);
+        vec2 fromCentre = cellCenter - centre;
+        // Across wraps, so a disc straddling the seam shows on both sides.
+        fromCentre.x -= float(GRID_W) * round(fromCentre.x / float(GRID_W));
+        float r = length(fromCentre);
+        float bandFlood = clamp((spec.sitePulse[band] - FLOOD_FROM) / (1.0 - FLOOD_FROM), 0.0, 1.0);
+        float radius = INJ_RADIUS * (1.0 + (FLOOD_RADIUS - 1.0) * bandFlood);
+        if (r >= radius) {
+            continue;
+        }
+        covered = true;
+        flood = max(flood, bandFlood);
+        float local = r / radius;
+        // Full strength through the core, easing to nothing at the rim, so the
+        // disc has no hard edge for the fluid to trace.
+        float weight = 1.0 - smoothstep(0.55, 1.0, local);
+
+        // Timing: this point's pulse — its sub-band of the bass, already gated
+        // on the CPU into one-shot envelopes (InjectionPulses), so a hit is one
+        // complete push and the level in between cannot flicker it.
+        float eBand = (1.0 - exp(-spec.sitePulse[band] * NORM_GAIN * pc.u_param2)) * weight;
+
+        // Air-band scatter: treble energy sets how far each ring's reading
+        // wanders between its ~6 rolls a second.
+        float hfMag = 0.0;
+        for (int b = 400; b < 853; b += 57) {
+            hfMag = max(hfMag, spec.mags[b]);
+        }
+        float hf = 1.0 - exp(-hfMag * HF_GAIN);
+        float jRing = floor(r) + 31.0 * float(band);
+        float jTime = pc.u_time * 40.0;
+        float roll = mix(hash12(vec2(jRing, floor(jTime))),
+                         hash12(vec2(jRing, floor(jTime) + 1.0)),
+                         smoothstep(0.0, 1.0, fract(jTime)));
+        float shimmer = (roll - 0.5) * 2.0 * HF_HUE_JITTER * hf;
+
+        // Color: this ring's frequency in the point's share of the spectrum
+        // above the bass, and how far it stands from usual — in octaves of
+        // level, so twice usual and half usual are equal and opposite — read
+        // at the ring's own column, against that column's usual.
+        float colorBp = BASS_SPLIT
+                      + (1.0 - BASS_SPLIT) * (float(band) + local) / float(INJ_BANDS);
+        float colorRatio = max(ratioAt(colorBp, 0.0), 1.0e-3);
+        float deviation = clamp(log2(colorRatio) / HUE_OCTAVES, -1.0, 1.0);
+        float warm = smoothstep(0.0, HUE_WARMUP, pc.u_time);
+        float spread = (HUE_RANGE * deviation * warm + shimmer) * (1.0 - clamp(spec.padHold, 0.0, 1.0));
+        float hue = fract(spec.siteHue[band] + spread);
+
+        dyeIn += hsv2rgb(vec3(hue, 1.0, 1.0)) * eBand;
+        e += eBand;
+        // The marble phase this disc lays down here: rings from its centre,
+        // on a base that drifts with time (and differs per disc).
+        float phase = local * MARBLE_RINGS
+                    + mod(pc.u_time * MARBLE_DRIFT + float(band) * 0.37, MARBLE_PERIOD);
+        marbleIn += phase * eBand;
+        marbleWeight += eBand;
+        // Outward push, rising from nothing at the very centre (where "out"
+        // has no direction) so the middle of the disc is not torn.
+        outward += fromCentre / max(r, 1.0) * min(r, 1.0) * eBand;
+    }
+    e = min(e, INJ_STACK_MAX);
+    marbleIn = marbleWeight > 0.0 ? marbleIn / marbleWeight : 0.0;
+    return covered;
+}
+
+// The sideways push on the field per substep, for a signed bias speed in
+// plane widths per second (FlowBias owns the speed, so the fluid and the
+// discs it also moves cannot disagree): the push whose terminal speed against
+// the current damping is that speed, so the damping knob does not change how
+// fast the field drifts.
+float biasPush(float widthsPerSecond) {
+    float cellsPerSubstep = widthsPerSecond * float(GRID_W) * DT_SEC;
+    return cellsPerSubstep * VEL_DAMP * pc.u_param4;
+}
+
+void main() {
+    ivec2 g = ivec2(gl_GlobalInvocationID.xy);
+    if (g.x >= GRID_W || g.y >= GRID_H) {
+        return;
+    }
+    int idx = cellIndex(g);
+    Cell self = src.cells[idx];
+
+    // Self-initialization: the buffers start zero-filled, but the fluid's rest
+    // state is ρ = 1 everywhere — the first pass writes it. No CPU involvement.
+    // The marble phase of empty space is the drift's current value (see below),
+    // so the first dye meets its own phase rather than a field at 0.
+    float marbleBase = mod(pc.u_time * MARBLE_DRIFT, MARBLE_PERIOD) + 0.37 * 0.5 * float(INJ_BANDS - 1);
+    if (self.a == vec4(0.0) && self.b == vec4(0.0)) {
+        dst.cells[idx].a = vec4(1.0, 0.0, 0.0, 0.0);
+        dst.cells[idx].b = vec4(0.0, 0.0, 0.0, marbleBase);
+        return;
+    }
+
+    // Neighbor stencil for the Eulerian terms (central differences).
+    vec4 aL = src.cells[cellIndex(wrapGrid(g + ivec2(-1, 0)))].a;
+    vec4 aR = src.cells[cellIndex(wrapGrid(g + ivec2( 1, 0)))].a;
+    vec4 aD = src.cells[cellIndex(wrapGrid(g + ivec2( 0,-1)))].a;
+    vec4 aU = src.cells[cellIndex(wrapGrid(g + ivec2( 0, 1)))].a;
+
+    // Pressure gradient from the equation of state p = c²(ρ−1): the force each
+    // arriving wave front exerts on this cell.
+    float cs2 = CS2;
+    vec2 gradRho = 0.5 * vec2(aR.x - aL.x, aU.x - aD.x);
+    vec2 accel = -cs2 * gradRho;
+
+    // Velocity divergence — how much this cell is being compressed or rarefied
+    // by the flows around it (continuity equation).
+    float div = 0.5 * ((aR.y - aL.y) + (aU.z - aD.z));
+
+    // 5-point Laplacian of (ρ, velocity) for the checkerboard-damping terms.
+    vec4 lapA = aL + aR + aD + aU - 4.0 * self.a;
+
+    // Semi-Lagrangian advection: fetch the state that flows INTO this cell.
+    // Motion (section-level liveliness) scales the effective flow speed.
+    vec2 cellCenter = vec2(g) + 0.5;
+    float flowScale = 0.7 + 0.3 * pc.a_motion;
+    vec4 a4; vec4 b4;
+    sampleSrc(cellCenter - self.a.yz * DT * flowScale, a4, b4);
+    float rho = a4.x;
+    vec2 vel = a4.yz;
+    vec3 dye = b4.rgb;
+    float marble = b4.a;
+
+    // Physics update. The bias pushes the whole field left or right, at the
+    // speed the discs are travelling the same way — or not at all, in its
+    // split form, which acts at the discs' emission instead (below).
+    vel += accel * DT;
+    vel.x += biasPush(spec.biasField) * DT;
+
+    // The moment a drop lands (dropSeconds just below 0): spent on the discs'
+    // throw, below.
+    float dropIn = spec.dropSeconds;
+    float blast = dropIn < 0.0 ? exp(dropIn * 2.5) : 0.0;
+    float approach = dropIn >= 0.0 ? 1.0 - min(dropIn, RAMP_SECONDS) / RAMP_SECONDS : 0.0;
+    float build = max(pc.a_tension, approach);
+    float ramp = build * build;
+
+    // Smooth turbulence: the curl of the swirl field stirs the fluid, most
+    // where there is dye (so the inside of each shape churns), scaled by
+    // grain and energy. Textured, loud material keeps kicking the flow off
+    // its attractor, so the long-run look stops converging to one pattern.
+    vec2 stir = 0.5 * vec2(swirl(cellCenter + vec2(0.0, 1.0)) - swirl(cellCenter - vec2(0.0, 1.0)),
+                           swirl(cellCenter - vec2(1.0, 0.0)) - swirl(cellCenter + vec2(1.0, 0.0)));
+    float dyeHere = smoothstep(0.0, 0.3, max(dye.r, max(dye.g, dye.b)));
+    float stirGain = (STIR_BASE + pc.a_grain) * (0.3 + pc.a_energy)
+                   + STIR_HIT * clamp(spec.turbulence, 0.0, 1.0);
+    vel += stir * STIR_FORCE * stirGain
+         * (0.2 + 0.8 * dyeHere) * (1.0 + RAMP_STIR * ramp) * DT;
+
+    vel += NU_VEL * lapA.yz * DT;
+    vel *= 1.0 - VEL_DAMP * pc.u_param4;
+    rho -= rho * div * DT;
+    rho += KAPPA_RHO * lapA.x * DT;
+    rho = mix(rho, 1.0, RHO_RELAX);
+    dye *= exp(-max(pc.u_param1, 0.01) * DT_SEC);
+
+    // Injection, wherever the history has put each band's disc. A disc pushes
+    // its fluid straight out from its centre — a circular spread — rocked up
+    // and down by the bar phase. While the bias is in its split form the disc
+    // also emits to its left and its right with the bias's velocity.
+    // Impact goes into the throw: impulse² (so ordinary hits barely register
+    // and big hits fire) and the moment a drop lands both multiply the
+    // injection velocity. Pressure is left alone — a pressure burst shows up
+    // as brightness, and a hit should move the picture, not flash it. Bar
+    // phase leans the streams side to side; spread widens how far they lean.
+    float e; vec3 dyeIn; vec2 outward; float marbleIn; float flood;
+    if (siteInject(cellCenter, e, dyeIn, outward, marbleIn, flood)) {
+        float sway = sin(TAU * pc.a_phase) * (0.3 + 0.7 * pc.a_spread) * SWAY_PUSH;
+        float impact = max(pc.a_impulse * pc.a_impulse, blast);
+        float throwGain = (1.0 + IMPACT_VEL * impact) * (1.0 + RAMP_THROW * ramp)
+                        * (1.0 + (FLOOD_THROW - 1.0) * flood);
+        dye += dyeIn * INJ_DYE;
+        if (flood > 0.0 && e > 1.0e-4) {
+            dye = mix(dye, dyeIn / e * FLOOD_DYE, clamp(flood * e, 0.0, 1.0));
+        }
+        marble = mix(marble, marbleIn, clamp(e * MARBLE_TAKE, 0.0, 1.0));
+        rho += e * INJ_RHO;
+        vec2 emit = outward * vec2(1.0 + INJ_SPLIT * spec.biasSplit, 1.0);
+        vel += (emit + vec2(0.0, sway) * e * INJ_LEAN) * INJ_VEL * throwGain;
+    }
+
+    // Empty space follows the drift (see MARBLE_EMPTY_RELAX). Only where the
+    // dye is below what the black floor shows, so a form keeps its own phase
+    // right out to its visible rim and the join to the surroundings is dark.
+    if (max(dye.r, max(dye.g, dye.b)) < MARBLE_EMPTY_DYE) {
+        marble = mix(marble, marbleBase, MARBLE_EMPTY_RELAX);
+    }
+
+    // Density cap on the marbling: hold this cell's phase to within one
+    // cell's worth of the maximum slope of each neighbour's. A step steeper
+    // than that (fresh dye against old, a fold) is eased into a ramp at the
+    // cap, one cell further each substep; where the neighbours disagree by
+    // more than twice the cap there is no value that satisfies all of them,
+    // so take the middle and let the next substeps settle it.
+    {
+        float slope = MARBLE_MAX_STRIPES / MARBLE_FREQ;
+        float mL = src.cells[cellIndex(wrapGrid(g + ivec2(-1, 0)))].b.a;
+        float mR = src.cells[cellIndex(wrapGrid(g + ivec2( 1, 0)))].b.a;
+        float mD = src.cells[cellIndex(wrapGrid(g + ivec2( 0,-1)))].b.a;
+        float mU = src.cells[cellIndex(wrapGrid(g + ivec2( 0, 1)))].b.a;
+        float lo = max(max(mL, mR), max(mD, mU)) - slope;
+        float hi = min(min(mL, mR), min(mD, mU)) + slope;
+        marble = lo <= hi ? clamp(marble, lo, hi) : 0.5 * (lo + hi);
+    }
+
+    // Usual level of each column's home frequency: fast attack, slow release.
+    // Kept by the top-edge cells whatever is injecting there — it is keyed to
+    // THIS cell's column, so it is read from the cell itself, never advected
+    // with the flow; cells below the edge carry zeros forever.
+    float ema = self.a.w;
+    if (cellCenter.y < BAND) {
+        float magBase = magAt(cellCenter.x / float(GRID_W));
+        ema = mix(ema, magBase, magBase > ema ? EMA_ATTACK : EMA_RELEASE);
+    }
+
+    // Wall collision bands, bottom and top: progressively absorb momentum
+    // heading into the wall and deposit it as pressure, strongest at the wall.
+    // The density bump's gradient does the rest — splashing the stream
+    // sideways and shoving neighboring flows into each other.
+    float floorDepth = cellCenter.y - (float(GRID_H) - WALL_BAND);
+    if (floorDepth > 0.0) {
+        float k = floorDepth / WALL_BAND;
+        float vDown = max(vel.y, 0.0);
+        rho += vDown * WALL_STIFF * k;
+        vel.y -= vDown * WALL_ABSORB * k;
+    }
+    float ceilingDepth = WALL_BAND - cellCenter.y;
+    if (ceilingDepth > 0.0) {
+        float k = ceilingDepth / WALL_BAND;
+        float vUp = max(-vel.y, 0.0);
+        rho += vUp * WALL_STIFF * k;
+        vel.y += vUp * WALL_ABSORB * k;
+    }
+
+    // Reflective walls, top and bottom only: zero the normal velocity
+    // component so wave fronts bounce back into the field instead of leaking
+    // out. The sides are not walls — X wraps.
+    if (g.y == 0 || g.y == GRID_H - 1) { vel.y = 0.0; }
+
+    // Stability clamps: CFL guard on speed, bounded density, bounded dye,
+    // NaN scrub (a NaN in the state would persist forever).
+    float speed = length(vel);
+    if (speed > VEL_MAX) { vel *= VEL_MAX / speed; }
+    rho = clamp(rho, 0.3, 3.0);
+    dye = clamp(dye, vec3(0.0), vec3(DYE_MAX));
+    vec4 outA = vec4(rho, vel, ema);
+    if (any(isnan(outA)) || any(isnan(dye)) || isnan(marble)) {
+        marble = 0.0;
+        outA = vec4(1.0, 0.0, 0.0, 0.0);
+        dye = vec3(0.0);
+    }
+
+    dst.cells[idx].a = outA;
+    dst.cells[idx].b = vec4(dye, marble);
+}

@@ -56,4 +56,51 @@ public sealed record AnalysisSettings
 
     /// <summary>How long after the last non-silent hop the signal-present flag stays up.</summary>
     public double SignalHoldSeconds { get; init; } = 0.5;
+
+    /// <summary>Automatic input gain: the capture is scaled so the loudest level heard
+    /// over <see cref="AutoGainWindowSeconds"/> is 100%. See <see cref="AutoGain"/>.</summary>
+    public bool AutoGainEnabled { get; init; } = true;
+
+    /// <summary>How far back the auto gain looks for its reference peak.</summary>
+    public double AutoGainWindowSeconds { get; init; } = 300.0;
+
+    /// <summary>The lowest peak (linear full-scale) the auto gain will treat as 100%: it
+    /// never amplifies by more than 1/this, so a quiet room is not lifted to full.</summary>
+    public double AutoGainFloor { get; init; } = 0.05;
+
+    /// <summary>Keeps the fluid's marbling on through every section instead of letting
+    /// drops switch it off (see <see cref="InjectionPalette.MarbleAlways"/>). A tuning
+    /// aid: on, so the marble constants can be judged against any music; turn it off
+    /// for the show's alternation of plain and marbled sections.</summary>
+    public bool MarbleAlways { get; init; } = true;
+
+    /// <summary>How far above its usual level a band must rise to fire a pulse, as a
+    /// ratio (1 = at usual). This is the only gate: there is no outright level a hit
+    /// must reach, so the pulses stay as sensitive as the auto gain lets the quiet
+    /// material be (see <see cref="AutoGainFloor"/>, which is what keeps silence silent).
+    /// See <see cref="InjectionPulses"/>.</summary>
+    public double PulseTriggerRatio { get; init; } = 1.25;
+
+    /// <summary>How far back a band looks for the loudest it has been — the level a hit
+    /// must come near to fire an accent — and for its average, which its baseline
+    /// injection is measured against.</summary>
+    public double PulseReferenceSeconds { get; init; } = 300.0;
+
+    /// <summary>Dye injection that is always there, 0..1 of a full pulse, so the fluid
+    /// keeps moving through material too quiet to fire a pulse. This is its value for
+    /// a band at its average level of the last <see cref="PulseReferenceSeconds"/>; it
+    /// follows the band's level against that average, smoothed, from a quarter of this
+    /// at silence to twice it well above the average. Accents rise from it.</summary>
+    public double PulseBaseline { get; init; } = 0.225;
+
+    /// <summary>How near a band's loudest over <see cref="PulseReferenceSeconds"/> a
+    /// hit must come to fire the accent — a pulse of dye at full from every band —
+    /// as a fraction of it. Tight on purpose: the accent is for a hit AT the peak of
+    /// the last five minutes, the big drop, not merely in its neighbourhood.</summary>
+    public double PulseAccentRatio { get; init; } = 0.95;
+
+    /// <summary>The least time between accents, in seconds. The backstop for material
+    /// limited to one level, where every kick is at the peak: however the track is
+    /// cut, the fluid takes a large push at most this often.</summary>
+    public double PulseAccentSeconds { get; init; } = 180.0;
 }

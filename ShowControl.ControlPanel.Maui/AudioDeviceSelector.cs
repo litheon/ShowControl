@@ -25,11 +25,15 @@ namespace ShowControl.ControlPanel.Maui
             var choices = new List<AudioDeviceChoice>(devices.Count);
             foreach (var device in devices)
             {
-                choices.Add(new AudioDeviceChoice(device.Index, device.Name, device.IsActive));
+                choices.Add(new AudioDeviceChoice(device.Index, device.Name, device.ChannelCount, device.IsActive));
             }
             return choices;
         }
 
         public bool SelectInputDevice(int index) => _audioService.SelectInputDevice(index);
+
+        public (int Left, int Right) ActiveChannels => _audioService.ActiveInputChannels;
+
+        public bool SelectInputChannels(int left, int right) => _audioService.SelectInputChannels(left, right);
     }
 }

@@ -50,7 +50,10 @@ namespace ShowControl.Graphics
             }
         }
 
-        private string _shader = Shaders.Kaleidoscope;
+        // Matches the index-0 startup animation in RenderService, so the initial pipeline
+        // is built for the shader that will actually run (the same-name SetShader at
+        // startup then follows the identical path kaleidoscope always took).
+        private string _shader = Shaders.Fluid;
         private Thread _backgroundThread;
         private readonly ILogger<GraphicsHost> _logger;
         // static handle for the [UnmanagedCallersOnly] Vulkan debug callback
@@ -65,6 +68,7 @@ namespace ShowControl.Graphics
             _logger = logger;
             _staticLogger = logger;
             _logger.LogDebug("[GraphicsHost] Constructor called");
+            Array.Fill(_discReleasedAt, double.NegativeInfinity);
             _backgroundThread = new Thread(Run);
             _backgroundThread.Start();
             _logger.LogDebug("[GraphicsHost] Background thread started");
@@ -108,6 +112,98 @@ namespace ShowControl.Graphics
         /// <inheritdoc />
         public void SetAudio(in AudioLitePush audio) =>
             Volatile.Write(ref _audioLite, new AudioLiteHolder(audio));
+
+        /// <summary>Fixed spectrum size the SSBO header and shaders assume.</summary>
+        internal const int SpectrumBins = 1024;
+
+        /// <summary>Injection bands appended after the bins, as all the positions across,
+        /// then all the depths, then all the hues, then all the pulses, then the two bias
+        /// values, the marble amount and the pad hold — must match INJ_BANDS in fluid.comp and
+        /// InjectionHistory.BandCount (three places that must agree).</summary>
+        internal const int InjectionSites = 5;
+
+        /// <summary>One published payload: the bins, then the injection table.</summary>
+        private const int SpectrumPayloadFloats = SpectrumBins + InjectionTableFloats;
+        private const int InjectionTableFloats = InjectionSites * 4 + 5;
+
+        /// <summary>
+        /// Spectrum publication: the AudioLiteHolder idiom, but the 4 KB payload (bins
+        /// followed by the injection sites, so the pair can never tear) lives in a
+        /// 3-deep preallocated ring so publishing never allocates the array. A wrap-around
+        /// tear would need two publishes (~21 ms) to land inside the render thread's
+        /// microsecond memcpy of the previous holder — effectively impossible, and the
+        /// consequence would be one visually blended hop.
+        /// </summary>
+        private sealed class SpectrumHolder
+        {
+            public readonly float[] Bins;
+            public readonly int Version;
+            public SpectrumHolder(float[] bins, int version) { Bins = bins; Version = version; }
+        }
+
+        private readonly float[][] _spectrumRing =
+        {
+            new float[SpectrumPayloadFloats], new float[SpectrumPayloadFloats], new float[SpectrumPayloadFloats],
+        };
+        private int _spectrumWriteIndex;
+        private int _spectrumPublishVersion;
+        private SpectrumHolder _spectrum = new(HomeSitesPayload(), 0);
+
+        /// <summary>Silence with every injection site at home (plain frequency order
+        /// along the top, a golden-angle hue per band) — what a shader sees before the first publish.</summary>
+        private static float[] HomeSitesPayload()
+        {
+            var payload = new float[SpectrumPayloadFloats];
+            FillHomeSites(payload.AsSpan(SpectrumBins));
+            return payload;
+        }
+
+        private static void FillHomeSites(Span<float> sites)
+        {
+            for (int i = 0; i < InjectionSites; i++)
+            {
+                sites[i] = (i + 0.5f) / InjectionSites;
+                sites[InjectionSites + i] = 0f;
+                sites[InjectionSites * 2 + i] = i * 0.381966f % 1f;
+                sites[InjectionSites * 3 + i] = 0f; // nothing injecting
+            }
+            sites[InjectionSites * 4] = 0f;         // no bias, in either form
+            sites[InjectionSites * 4 + 1] = 0f;
+            sites[InjectionSites * 4 + 2] = 1f;     // fully marbled
+            sites[InjectionSites * 4 + 3] = 0f;     // no pads held
+            sites[InjectionSites * 4 + 4] = 0f;     // nothing stirring
+        }
+        private float _dropSignal = 999f;
+
+        /// <inheritdoc />
+        public void SetDropSignal(float signedSeconds)
+        {
+            Volatile.Write(ref _dropSignal,
+                float.IsFinite(signedSeconds) ? Math.Clamp(signedSeconds, -999f, 999f) : 999f);
+        }
+
+        /// <inheritdoc />
+        public void SetAudioSpectrum(ReadOnlySpan<float> magnitudes, ReadOnlySpan<float> injectionTable)
+        {
+            var target = _spectrumRing[_spectrumWriteIndex];
+            _spectrumWriteIndex = (_spectrumWriteIndex + 1) % _spectrumRing.Length;
+            var count = Math.Min(magnitudes.Length, SpectrumBins);
+            magnitudes.Slice(0, count).CopyTo(target);
+            if (count < SpectrumBins)
+            {
+                Array.Clear(target, count, SpectrumBins - count);
+            }
+            var sites = target.AsSpan(SpectrumBins);
+            if (injectionTable.Length == sites.Length)
+            {
+                injectionTable.CopyTo(sites);
+            }
+            else
+            {
+                FillHomeSites(sites);
+            }
+            Volatile.Write(ref _spectrum, new SpectrumHolder(target, ++_spectrumPublishVersion));
+        }
 
         private Vk _vk;
         private Instance _instance;
@@ -208,12 +304,54 @@ namespace ShowControl.Graphics
         // Snapshot of color state taken just before a color-count change, used for SSBO cross-fade
         private List<Vector4> _snapshotColors = new List<Vector4>();
         private double _transitionStart = double.NegativeInfinity;
+        // This frame's color state as the injection table reads it (built by
+        // UpdateColorState, which runs before the spectrum upload): the pads HELD, each
+        // with its fade-in weight, and separately the colour most recently released with
+        // its fade-out weight. The split is the point: the injection cycles only among the
+        // held colours, so the colour just pressed is injected now rather than when the
+        // per-bar cycle next comes round to it past the entries still fading out.
+        // Per injection disc, the pad colour on it: its hue, and when it was pressed and
+        // released (NegativeInfinity = never / still down), so the hue snaps in on the
+        // press and fades out over PAD_INJECT_FADE_OUT_SECS after the release. Rebuilt
+        // from PadColors every frame by UpdateColorState; read by WriteSpectrumData.
+        private readonly float[] _discHue = new float[InjectionSites];
+        private readonly double[] _discHeldAt = new double[InjectionSites];
+        private readonly double[] _discReleasedAt = new double[InjectionSites];
+        private readonly bool[] _discHeld = new bool[InjectionSites];
+        private readonly System.Drawing.Color[] _discColor = new System.Drawing.Color[InjectionSites];
+        private static readonly List<Vector4> NoColors = new List<Vector4>();
+        // How long a pad's color takes to arrive after the press and to leave after the
+        // release — and the cross-fade when the set of held colors changes — in the
+        // region colours the kaleidoscope and the fluid's overlay read from the color
+        // SSBO. Two seconds: the regions wash in and out rather than cut.
         private const double COLOR_FADE_DURATION_SECS = 2.0;
+        // The fluid's injection hues and hue-spread flattening follow the pads on their own
+        // fades, shaped to the FLOOD a press fires through the analysis (InjectionPulses:
+        // a 0.64s attack, 1.76s hold, 2s release): in with the attack, so the dye of a
+        // tap is the tap's colour from the first of it, and out over the whole envelope
+        // after the release, so the flood a tap leaves behind stays in its colour to the
+        // end rather than turning back to the palette half way through. (Before the
+        // flood these matched the overlay's 2s so the pad's effects eased together; a
+        // 0.1s rise then read as a snap against the overlay still washing in. The rise
+        // is now as near a snap as a frame allows: a burst is wanted, not a ramp.)
+        private const double PAD_INJECT_FADE_OUT_SECS = 4.5;
 
         // Per-frame SSBO resources (one per MAX_FRAMES_IN_FLIGHT slot)
         private DescriptorSetLayout _ssboSetLayout;
         private DescriptorPool      _ssboPool;
-        private DescriptorSet[]     _ssboSets     = new DescriptorSet[MAX_FRAMES_IN_FLIGHT];
+        // One descriptor set per (frame slot, ping-pong parity): [slot * 2 + parity].
+        // Shaders without a compute prelude always use parity 0.
+        private DescriptorSet[]     _frameSets    = new DescriptorSet[MAX_FRAMES_IN_FLIGHT * 2];
+        private Buffer[]            _spectrumBuffers  = new Buffer[MAX_FRAMES_IN_FLIGHT];
+        private DeviceMemory[]      _spectrumMemories = new DeviceMemory[MAX_FRAMES_IN_FLIGHT];
+        private unsafe void*[]      _spectrumMapped   = new void*[MAX_FRAMES_IN_FLIGHT];
+        private const uint SpectrumBufferBytes = 16 + SpectrumPayloadFloats * sizeof(float); // header + bins + injection table
+
+        // The generic compute-prelude hook: a shader that ships a {name}.comp.spv gets a
+        // simulation pass created at startup and recorded before the render pass while it
+        // is the active shader. Currently only the fluid effect uses it.
+        private FluidSimulationPass? _computePrelude;
+        private string? _computePreludeShader;
         private Buffer[]            _ssboBuffers  = new Buffer[MAX_FRAMES_IN_FLIGHT];
         private DeviceMemory[]      _ssboMemories = new DeviceMemory[MAX_FRAMES_IN_FLIGHT];
         private unsafe void*[]      _ssboMapped   = new void*[MAX_FRAMES_IN_FLIGHT];
@@ -225,6 +363,8 @@ namespace ShowControl.Graphics
         public int Width { get; private set; }
         public int Height { get; private set; }
         public System.Drawing.Color[] Colors { get; set; } = Array.Empty<System.Drawing.Color>();
+        public PadColor[] PadColors { get; set; } = Array.Empty<PadColor>();
+        public bool ColorRegions { get; set; } = true;
         public float DistortionStrength { get; set; } = 0.12f;
         public float ShaderParam1 { get; set; } = 2.5f;   // spiral twist for kaleidoscope / blade count for clown
         public float ShaderParam2 { get; set; } = 0.0f;   // animation time offset
@@ -1873,6 +2013,39 @@ namespace ShowControl.Graphics
                 layout: _pipelineLayout, renderPass: _offscreenRenderPass, subpass: 0
             );
             _vk.CreateGraphicsPipelines(_device, default, 1, gpCI, null, out _pipeline);
+
+            CreateComputePreludes();
+        }
+
+        /// <summary>
+        /// The generic compute-prelude hook: a shader that ships a {name}.comp.spv gets a
+        /// simulation pass created here — at startup, never at SetShader time (runtime
+        /// pipeline creation hangs MoltenVK). The pass owns all of its resources; the
+        /// host only records it while its shader is active.
+        /// </summary>
+        private unsafe void CreateComputePreludes()
+        {
+            const string shader = Shaders.Fluid;
+            byte[] spirv;
+            try
+            {
+                using var stream = OpenShaderFile($"{shader}.comp.spv");
+                using var ms = new MemoryStream();
+                stream.CopyTo(ms);
+                spirv = ms.ToArray();
+            }
+            catch (Exception e)
+            {
+                _logger.LogWarning("[GraphicsHost] No compute prelude for '{Shader}' ({Message}); the shader will render without simulation state.",
+                    shader, e.Message);
+                return;
+            }
+
+            _computePrelude = new FluidSimulationPass(
+                _vk, _device, _memProps, _ssboSetLayout, spirv, (uint)Unsafe.SizeOf<PushData>());
+            _computePrelude.WriteStateDescriptors(_frameSets, MAX_FRAMES_IN_FLIGHT);
+            _computePreludeShader = shader;
+            _logger.LogDebug("[GraphicsHost] Compute prelude created for shader '{Shader}'.", shader);
         }
 
         private unsafe bool IsInstanceLayerAvailable(string layerName)
@@ -1959,15 +2132,215 @@ namespace ShowControl.Graphics
                 throw new Exception("Failed to create debug messenger");
         }
 
+        /// <summary>Advances the pad-colour state to this frame — fade-ins, fade-outs,
+        /// the cross-fade snapshot when the set changes — and writes it to this frame's
+        /// colour SSBO. Runs before the spectrum upload so the injection table sees
+        /// the same frame's colours: a press lands in the frame that observes it.</summary>
+        private unsafe void UpdateColorState(double elapsed)
+        {
+            var targetColors = Colors;
+
+            // --- Update effective color list (handles fade-in and fade-out) ---
+            // Mark colors that have been removed
+            for (int i = 0; i < _effectiveColors.Count; i++)
+            {
+                var e = _effectiveColors[i];
+                if (e.RemovedTime > double.NegativeInfinity) continue;
+                bool stillPresent = false;
+                for (int j = 0; j < targetColors.Length; j++)
+                    if (targetColors[j] == e.Color) { stillPresent = true; break; }
+                if (!stillPresent)
+                {
+                    e.RemovedTime = elapsed;
+                    _effectiveColors[i] = e;
+                    _logger.LogDebug("[Pads] Colour #{R:X2}{G:X2}{B:X2} released at {T:F2}s.", e.Color.R, e.Color.G, e.Color.B, elapsed);
+                }
+            }
+
+            // Remove fully faded-out slots — but only once any cross-fade transition
+            // is also idle.  Removing a color changes currentCount, which changes the
+            // regionId % currentCount mapping in the shader and causes a visible snap
+            // if a transition is still in flight.  Leaving the entry in the list while
+            // its w=0.0 is harmless (it contributes no color) and keeps the mapping
+            // stable until the cross-fade completes.
+            bool anyRemoved = false;
+            for (int i = _effectiveColors.Count - 1; i >= 0; i--)
+            {
+                var e = _effectiveColors[i];
+                if (e.RemovedTime > double.NegativeInfinity && (elapsed - e.RemovedTime) >= COLOR_FADE_DURATION_SECS)
+                {
+                    float currentTransitionT = (float)Math.Clamp(
+                        (elapsed - _transitionStart) / COLOR_FADE_DURATION_SECS, 0.0, 0.999);
+                    bool transitionIdle = currentTransitionT >= 0.999f || _snapshotColors.Count == 0;
+
+                    if (!transitionIdle)
+                        continue; // cross-fade still running — defer removal to avoid region snap
+
+                    if (!anyRemoved)
+                    {
+                        _snapshotColors = BuildCurrentColorVectors(elapsed);
+                        _transitionStart = elapsed;
+                    }
+                    anyRemoved = true;
+                    _effectiveColors.RemoveAt(i);
+                }
+            }
+
+            // Add newly appeared colors — take a single snapshot before any additions
+            bool anyAdded = false;
+            for (int j = 0; j < targetColors.Length; j++)
+            {
+                var c = targetColors[j];
+                bool alreadyTracked = false;
+                for (int i = 0; i < _effectiveColors.Count; i++)
+                    if (_effectiveColors[i].Color == c && _effectiveColors[i].RemovedTime <= double.NegativeInfinity)
+                    { alreadyTracked = true; break; }
+
+                if (!alreadyTracked)
+                {
+                    // Re-add a color that's still fading out — rehabilitate it
+                    bool rehabilitated = false;
+                    for (int i = 0; i < _effectiveColors.Count; i++)
+                    {
+                        var e = _effectiveColors[i];
+                        if (e.Color == c && e.RemovedTime > double.NegativeInfinity)
+                        {
+                            // Adjust AddedTime so fade-in continues from current fade-out level
+                            double currentFadeOut = Math.Clamp(1.0 - (elapsed - e.RemovedTime) / COLOR_FADE_DURATION_SECS, 0.0, 1.0);
+                            double equivalentFadeInAge = currentFadeOut * COLOR_FADE_DURATION_SECS;
+                            // Re-added at the end: the list is in press order, and the
+                            // injection gives disc 0 the newest.
+                            _effectiveColors.RemoveAt(i);
+                            _effectiveColors.Add(new EffectiveColor
+                            {
+                                Color = c,
+                                AddedTime = elapsed - equivalentFadeInAge,
+                                RemovedTime = double.NegativeInfinity
+                            });
+                            rehabilitated = true;
+                            break;
+                        }
+                    }
+
+                    if (!rehabilitated)
+                    {
+                        if (!anyAdded && !anyRemoved)
+                        {
+                            float T = (float)Math.Clamp(
+                                (elapsed - _transitionStart) / COLOR_FADE_DURATION_SECS, 0.0, 1.0);
+
+                            // If the last snapshot was taken very recently (T < 15% ≈ 300ms),
+                            // skip resetting the snapshot and let this color join the existing
+                            // cross-fade. This batches rapid simultaneous additions (e.g. four
+                            // pad presses at once) into one smooth transition instead of causing
+                            // four cascading sector reshuffles.
+                            bool shouldSnapshot = _snapshotColors.Count == 0 || T >= 0.15f;
+                            if (shouldSnapshot)
+                            {
+                                // Snapshot the visually-blended state rather than raw weights.
+                                // If a cross-fade is in progress, the shader shows:
+                                //   mix(snapshot[R % prevCount], current[R % currCount], T)
+                                // Taking a raw snapshot and resetting T=0 would snap each region
+                                // to its raw weight, diverging from the blended display.
+                                // Evaluate the blend per-slot so T=0 is visually continuous.
+                                var raw = BuildCurrentColorVectors(elapsed);
+                                if (_snapshotColors.Count > 0 && T < 0.999f)
+                                {
+                                    var blendedSnap = new List<Vector4>(raw.Count);
+                                    for (int s = 0; s < raw.Count; s++)
+                                    {
+                                        var prev = _snapshotColors[s % _snapshotColors.Count];
+                                        var cur  = raw[s];
+                                        blendedSnap.Add(new Vector4(
+                                            prev.X + (cur.X - prev.X) * T,
+                                            prev.Y + (cur.Y - prev.Y) * T,
+                                            prev.Z + (cur.Z - prev.Z) * T,
+                                            prev.W + (cur.W - prev.W) * T));
+                                    }
+                                    _snapshotColors = blendedSnap;
+                                }
+                                else
+                                {
+                                    _snapshotColors = raw;
+                                }
+                                _transitionStart = elapsed;
+                            }
+                        }
+                        anyAdded = true;
+                        _effectiveColors.Add(new EffectiveColor { Color = c, AddedTime = elapsed, RemovedTime = double.NegativeInfinity });
+                        _logger.LogDebug("[Pads] Colour #{R:X2}{G:X2}{B:X2} held from {T:F2}s (hue {Hue:F3}); regions {Regions}.",
+                            c.R, c.G, c.B, elapsed, HueOf(new Vector4(c.R / 255f, c.G / 255f, c.B / 255f, 1f)), ColorRegions ? "on" : "off");
+                    }
+                }
+            }
+
+            // Build current color vectors for SSBO
+            var currentColors = BuildCurrentColorVectors(elapsed);
+
+            float transitionT = (float)Math.Clamp(
+                (elapsed - _transitionStart) / COLOR_FADE_DURATION_SECS, 0.0, 0.999);
+
+            // Write SSBO for this frame slot — empty while the colour regions are off, so
+            // the shaders paint nothing in the pad colours; the injection below still sees them.
+            if (ColorRegions)
+            {
+                WriteSsboData(_currentFrame, currentColors, _snapshotColors, transitionT);
+            }
+            else
+            {
+                WriteSsboData(_currentFrame, NoColors, NoColors, 0f);
+            }
+
+            UpdateDiscColors(elapsed);
+        }
+
+        /// <summary>The injection's view of the pads: which disc is held in what colour
+        /// (<see cref="PadColors"/>), snapping in on the press — a burst, not a ramp — and
+        /// remembered for <see cref="PAD_INJECT_FADE_OUT_SECS"/> after the release so the
+        /// flood a tap leaves behind stays in its colour to the end of its envelope.</summary>
+        private void UpdateDiscColors(double elapsed)
+        {
+            var pads = PadColors;
+            for (int disc = 0; disc < InjectionSites; disc++)
+            {
+                bool held = false;
+                var color = default(System.Drawing.Color);
+                for (int i = 0; i < pads.Length; i++)
+                {
+                    if (pads[i].Disc == disc)
+                    {
+                        held = true;
+                        color = pads[i].Color;      // the last listed wins: pads sharing a disc, newest last
+                    }
+                }
+                if (held)
+                {
+                    if (!_discHeld[disc] || color != _discColor[disc])
+                    {
+                        _discHeldAt[disc] = elapsed;
+                        _discColor[disc] = color;
+                        _discHue[disc] = HueOf(new Vector4(color.R / 255f, color.G / 255f, color.B / 255f, 1f));
+                        _logger.LogDebug("[Pads] Disc {Disc} takes #{R:X2}{G:X2}{B:X2} (hue {Hue:F3}) at {T:F2}s.", disc, color.R, color.G, color.B, _discHue[disc], elapsed);
+                    }
+                }
+                else if (_discHeld[disc])
+                {
+                    _discReleasedAt[disc] = elapsed;
+                }
+                _discHeld[disc] = held;
+            }
+        }
+
         // Build current-frame color vectors from effective color list
-        private List<Vector4> BuildCurrentColorVectors(double elapsed)
+        private List<Vector4> BuildCurrentColorVectors(double elapsed,
+            double fadeInSeconds = COLOR_FADE_DURATION_SECS, double fadeOutSeconds = COLOR_FADE_DURATION_SECS)
         {
             var list = new List<Vector4>(_effectiveColors.Count);
             foreach (var e in _effectiveColors)
             {
-                float fadeIn  = (float)Math.Clamp((elapsed - e.AddedTime) / COLOR_FADE_DURATION_SECS, 0.0, 1.0);
+                float fadeIn  = (float)Math.Clamp((elapsed - e.AddedTime) / fadeInSeconds, 0.0, 1.0);
                 float fadeOut = e.RemovedTime > double.NegativeInfinity
-                    ? (float)Math.Clamp(1.0 - (elapsed - e.RemovedTime) / COLOR_FADE_DURATION_SECS, 0.0, 1.0)
+                    ? (float)Math.Clamp(1.0 - (elapsed - e.RemovedTime) / fadeOutSeconds, 0.0, 1.0)
                     : 1.0f;
                 // Normalize 0-255 → 0-1
                 list.Add(new Vector4(e.Color.R / 255f, e.Color.G / 255f, e.Color.B / 255f, fadeIn * fadeOut));
@@ -1991,32 +2364,47 @@ namespace ShowControl.Graphics
 
         private unsafe void CreateSsboResources()
         {
-            // Descriptor set layout: one storage buffer at binding 0
-            var binding = new DescriptorSetLayoutBinding
+            // Descriptor set layout — a superset of what any one shader declares (shader
+            // bindings must be a subset of the layout, so existing shaders that use only
+            // binding 0 are untouched):
+            //   0 ColorState (fragment)     1 Spectrum (fragment|compute)
+            //   2 sim state SRC             3 sim state DST (both fragment|compute)
+            var bindings = stackalloc DescriptorSetLayoutBinding[4];
+            bindings[0] = new DescriptorSetLayoutBinding
             {
                 Binding            = 0,
                 DescriptorType     = DescriptorType.StorageBuffer,
                 DescriptorCount    = 1,
                 StageFlags         = ShaderStageFlags.FragmentBit,
             };
+            for (uint b = 1; b < 4; b++)
+            {
+                bindings[b] = new DescriptorSetLayoutBinding
+                {
+                    Binding            = b,
+                    DescriptorType     = DescriptorType.StorageBuffer,
+                    DescriptorCount    = 1,
+                    StageFlags         = ShaderStageFlags.FragmentBit | ShaderStageFlags.ComputeBit,
+                };
+            }
             var dslCI = new DescriptorSetLayoutCreateInfo
             {
                 SType        = StructureType.DescriptorSetLayoutCreateInfo,
-                BindingCount = 1,
-                PBindings    = &binding,
+                BindingCount = 4,
+                PBindings    = bindings,
             };
             _vk.CreateDescriptorSetLayout(_device, dslCI, null, out _ssboSetLayout);
 
-            // Descriptor pool
+            // Descriptor pool: one set per (frame slot, ping-pong parity), 4 buffers each.
             var poolSize = new DescriptorPoolSize
             {
                 Type            = DescriptorType.StorageBuffer,
-                DescriptorCount = (uint)MAX_FRAMES_IN_FLIGHT,
+                DescriptorCount = (uint)(MAX_FRAMES_IN_FLIGHT * 2 * 4),
             };
             var poolCI = new DescriptorPoolCreateInfo
             {
                 SType         = StructureType.DescriptorPoolCreateInfo,
-                MaxSets       = (uint)MAX_FRAMES_IN_FLIGHT,
+                MaxSets       = (uint)(MAX_FRAMES_IN_FLIGHT * 2),
                 PoolSizeCount = 1,
                 PPoolSizes    = &poolSize,
             };
@@ -2054,41 +2442,203 @@ namespace ShowControl.Graphics
                 _ssboMapped[i] = mapped;
             }
 
-            // Allocate and write descriptor sets
-            var layouts = stackalloc DescriptorSetLayout[MAX_FRAMES_IN_FLIGHT];
-            for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) layouts[i] = _ssboSetLayout;
-            fixed (DescriptorSet* pSets = _ssboSets)
+            // Spectrum buffers: same shape as ColorState (per frame slot, host-visible,
+            // persistently mapped, memcpy'd each frame). Header zeroed once so a shader
+            // reading before the first publish sees binCount=1024, version=0, silence.
+            for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+            {
+                var bufCI = new BufferCreateInfo
+                {
+                    SType       = StructureType.BufferCreateInfo,
+                    Size        = SpectrumBufferBytes,
+                    Usage       = BufferUsageFlags.StorageBufferBit,
+                    SharingMode = SharingMode.Exclusive,
+                };
+                _vk.CreateBuffer(_device, bufCI, null, out _spectrumBuffers[i]);
+                _vk.GetBufferMemoryRequirements(_device, _spectrumBuffers[i], out var memReq);
+                var allocInfo = new MemoryAllocateInfo
+                {
+                    SType           = StructureType.MemoryAllocateInfo,
+                    AllocationSize  = memReq.Size,
+                    MemoryTypeIndex = FindMemoryType(
+                        memReq.MemoryTypeBits,
+                        MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit,
+                        _memProps),
+                };
+                _vk.AllocateMemory(_device, allocInfo, null, out _spectrumMemories[i]);
+                _vk.BindBufferMemory(_device, _spectrumBuffers[i], _spectrumMemories[i], 0);
+
+                void* mapped;
+                _vk.MapMemory(_device, _spectrumMemories[i], 0, SpectrumBufferBytes, 0, &mapped);
+                _spectrumMapped[i] = mapped;
+                new Span<byte>(mapped, (int)SpectrumBufferBytes).Clear();
+                *(int*)mapped = SpectrumBins;                   // header.binCount
+                *((float*)mapped + 2) = 93.75f;                 // header.hopHz
+                FillHomeSites(new Span<float>((byte*)mapped + 16 + SpectrumBins * sizeof(float), InjectionTableFloats));
+            }
+
+            // Allocate and write descriptor sets: one per (frame slot, parity).
+            const int totalSets = MAX_FRAMES_IN_FLIGHT * 2;
+            var layouts = stackalloc DescriptorSetLayout[totalSets];
+            for (int i = 0; i < totalSets; i++) layouts[i] = _ssboSetLayout;
+            fixed (DescriptorSet* pSets = _frameSets)
             {
                 var dsAllocInfo = new DescriptorSetAllocateInfo
                 {
                     SType              = StructureType.DescriptorSetAllocateInfo,
                     DescriptorPool     = _ssboPool,
-                    DescriptorSetCount = (uint)MAX_FRAMES_IN_FLIGHT,
+                    DescriptorSetCount = (uint)totalSets,
                     PSetLayouts        = layouts,
                 };
                 _vk.AllocateDescriptorSets(_device, dsAllocInfo, pSets);
             }
 
-            for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+            for (int i = 0; i < totalSets; i++)
             {
-                var bufInfo = new DescriptorBufferInfo
+                int slot = i / 2;
+                var colorInfo = new DescriptorBufferInfo
                 {
-                    Buffer = _ssboBuffers[i],
+                    Buffer = _ssboBuffers[slot],
                     Offset = 0,
                     Range  = bufferSize,
                 };
-                var write = new WriteDescriptorSet
+                var spectrumInfo = new DescriptorBufferInfo
+                {
+                    Buffer = _spectrumBuffers[slot],
+                    Offset = 0,
+                    Range  = SpectrumBufferBytes,
+                };
+                var writes = stackalloc WriteDescriptorSet[4];
+                writes[0] = new WriteDescriptorSet
                 {
                     SType           = StructureType.WriteDescriptorSet,
-                    DstSet          = _ssboSets[i],
+                    DstSet          = _frameSets[i],
                     DstBinding      = 0,
-                    DstArrayElement = 0,
                     DescriptorType  = DescriptorType.StorageBuffer,
                     DescriptorCount = 1,
-                    PBufferInfo     = &bufInfo,
+                    PBufferInfo     = &colorInfo,
                 };
-                _vk.UpdateDescriptorSets(_device, 1, &write, 0, null);
+                writes[1] = new WriteDescriptorSet
+                {
+                    SType           = StructureType.WriteDescriptorSet,
+                    DstSet          = _frameSets[i],
+                    DstBinding      = 1,
+                    DescriptorType  = DescriptorType.StorageBuffer,
+                    DescriptorCount = 1,
+                    PBufferInfo     = &spectrumInfo,
+                };
+                // Bindings 2/3 get valid placeholder descriptors (never accessed by
+                // shaders that don't declare them); a compute prelude overwrites them
+                // with its state buffers at startup.
+                writes[2] = new WriteDescriptorSet
+                {
+                    SType           = StructureType.WriteDescriptorSet,
+                    DstSet          = _frameSets[i],
+                    DstBinding      = 2,
+                    DescriptorType  = DescriptorType.StorageBuffer,
+                    DescriptorCount = 1,
+                    PBufferInfo     = &spectrumInfo,
+                };
+                writes[3] = new WriteDescriptorSet
+                {
+                    SType           = StructureType.WriteDescriptorSet,
+                    DstSet          = _frameSets[i],
+                    DstBinding      = 3,
+                    DescriptorType  = DescriptorType.StorageBuffer,
+                    DescriptorCount = 1,
+                    PBufferInfo     = &spectrumInfo,
+                };
+                _vk.UpdateDescriptorSets(_device, 4, writes, 0, null);
             }
+        }
+
+        /// <summary>
+        /// Copies the newest published spectrum into this frame slot's mapped buffer:
+        /// header {binCount, version, hopHz, dropSeconds}, the magnitudes, then the
+        /// injection sites. One 4 KB
+        /// memcpy per frame; the header's version lets a shader detect "never published".
+        /// </summary>
+        private unsafe void WriteSpectrumData(int frameSlot)
+        {
+            var holder = Volatile.Read(ref _spectrum);
+            byte* ptr = (byte*)_spectrumMapped[frameSlot];
+            *(int*)ptr = SpectrumBins;
+            *((int*)ptr + 1) = holder.Version;
+            *((float*)ptr + 2) = 93.75f;
+            *((float*)ptr + 3) = Volatile.Read(ref _dropSignal);
+            fixed (float* pBins = holder.Bins)
+            {
+                System.Buffer.MemoryCopy(pBins, ptr + 16,
+                    SpectrumPayloadFloats * sizeof(float), SpectrumPayloadFloats * sizeof(float));
+            }
+
+            // Pad colors: while any are held on the control surface, the injection
+            // points take their hues from them in turn — pad 1 colors the first point,
+            // pad 2 the second, round again if there are more points than pads —
+            // from the same entries the kaleidoscope's regions read, on the pad fades
+            // (PAD_INJECT_FADE_IN/OUT_SECS; see PadHueFor), from this same frame's state.
+            // With none held the analysis palette's hues stand. The hold also
+            // flattens each point's per-ring hue spread to its pad's color, since a
+            // pad's red over a palette's pink, both spread a fifth of the wheel, was
+            // indistinguishable. The marbling is left alone: it used to fade out with
+            // the hold as well, and once the pads floods the fluid a press visibly
+            // drained the marbling and the release brought it back.
+            float* hues = (float*)(ptr + 16) + SpectrumBins + InjectionSites * 2;
+            float hold = 0f;
+            for (int i = 0; i < InjectionSites; i++)
+            {
+                hues[i] = PadHueFor(i, hues[i], out float weight);
+                hold = Math.Max(hold, weight);
+            }
+            *((float*)(ptr + 16) + SpectrumBins + InjectionSites * 4 + 3) = hold;   // padHold
+        }
+
+        /// <summary>The hue injection disc <paramref name="band"/> should use: its pad's
+        /// colour outright while the pad is down, that colour fading back to the palette's
+        /// <paramref name="paletteHue"/> over <see cref="PAD_INJECT_FADE_OUT_SECS"/> after the
+        /// release, and the palette's otherwise. <paramref name="weightOut"/> is how much
+        /// of the pad colour is in force, 0..1.</summary>
+        private float PadHueFor(int band, float paletteHue, out float weightOut)
+        {
+            double elapsed = _stopwatch.Elapsed.TotalSeconds;
+            float weight;
+            if (_discHeld[band])
+            {
+                weight = 1f;
+            }
+            else if (_discReleasedAt[band] > double.NegativeInfinity)
+            {
+                weight = (float)Math.Clamp(1.0 - (elapsed - _discReleasedAt[band]) / PAD_INJECT_FADE_OUT_SECS, 0.0, 1.0);
+            }
+            else
+            {
+                weight = 0f;
+            }
+            weightOut = weight;
+            return weight > 0f ? HueLerp(paletteHue, _discHue[band], weight) : paletteHue;
+        }
+
+        private static float HueOf(Vector4 c)
+        {
+            float max = Math.Max(c.X, Math.Max(c.Y, c.Z));
+            float min = Math.Min(c.X, Math.Min(c.Y, c.Z));
+            float delta = max - min;
+            if (delta < 1e-6f) return 0f;
+            float h;
+            if (max == c.X) h = ((c.Y - c.Z) / delta + 6f) % 6f;
+            else if (max == c.Y) h = (c.Z - c.X) / delta + 2f;
+            else h = (c.X - c.Y) / delta + 4f;
+            return h / 6f;
+        }
+
+        /// <summary>Hue interpolation the short way round the wheel.</summary>
+        private static float HueLerp(float h, float target, float s)
+        {
+            float d = target - h;
+            if (d > 0.5f) d -= 1f;
+            if (d < -0.5f) d += 1f;
+            float r = (h + d * s) % 1f;
+            return r < 0f ? r + 1f : r;
         }
 
         private unsafe void WriteSsboData(int frameSlot, List<Vector4> current, List<Vector4> previous, float transitionT)
@@ -2139,6 +2689,26 @@ namespace ShowControl.Graphics
                     _ssboMemories[i] = default;
                 }
             }
+            for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+            {
+                if (_spectrumMapped[i] != null)
+                {
+                    _vk.UnmapMemory(_device, _spectrumMemories[i]);
+                    _spectrumMapped[i] = null;
+                }
+                if (_spectrumBuffers[i].Handle != 0)
+                {
+                    _vk.DestroyBuffer(_device, _spectrumBuffers[i], null);
+                    _spectrumBuffers[i] = default;
+                }
+                if (_spectrumMemories[i].Handle != 0)
+                {
+                    _vk.FreeMemory(_device, _spectrumMemories[i], null);
+                    _spectrumMemories[i] = default;
+                }
+            }
+            _computePrelude?.Destroy();
+            _computePrelude = null;
             if (_ssboPool.Handle != 0)
             {
                 _vk.DestroyDescriptorPool(_device, _ssboPool, null);
@@ -2151,7 +2721,7 @@ namespace ShowControl.Graphics
             }
         }
 
-        private uint FindMemoryType(
+        internal static uint FindMemoryType(
             uint typeFilter,
             MemoryPropertyFlags properties,
             in PhysicalDeviceMemoryProperties memProps)
@@ -2344,166 +2914,10 @@ namespace ShowControl.Graphics
             CommandBufferBeginInfo begin = new() { SType = StructureType.CommandBufferBeginInfo };
             _vk.BeginCommandBuffer(cmd, &begin);
 
-            // --- Off-screen render pass ---
-            var clear = new ClearValue(new ClearColorValue(0.1f, 0.1f, 0.1f, 1f));
-            RenderPassBeginInfo rpBegin = new()
-            {
-                SType = StructureType.RenderPassBeginInfo,
-                RenderPass = _offscreenRenderPass,
-                Framebuffer = _offscreenFramebuffer,
-                RenderArea = new Rect2D(new Offset2D(0, 0), _offscreenExtent),
-                ClearValueCount = 1,
-                PClearValues = &clear
-            };
-
-            _vk.CmdBeginRenderPass(cmd, &rpBegin, SubpassContents.Inline);
-            _vk.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, _pipeline);
-
             double elapsed = _stopwatch.Elapsed.TotalSeconds;
-            var targetColors = Colors;
 
-            // --- Update effective color list (handles fade-in and fade-out) ---
-            // Mark colors that have been removed
-            for (int i = 0; i < _effectiveColors.Count; i++)
-            {
-                var e = _effectiveColors[i];
-                if (e.RemovedTime > double.NegativeInfinity) continue;
-                bool stillPresent = false;
-                for (int j = 0; j < targetColors.Length; j++)
-                    if (targetColors[j] == e.Color) { stillPresent = true; break; }
-                if (!stillPresent)
-                {
-                    e.RemovedTime = elapsed;
-                    _effectiveColors[i] = e;
-                }
-            }
-
-            // Remove fully faded-out slots — but only once any cross-fade transition
-            // is also idle.  Removing a color changes currentCount, which changes the
-            // regionId % currentCount mapping in the shader and causes a visible snap
-            // if a transition is still in flight.  Leaving the entry in the list while
-            // its w=0.0 is harmless (it contributes no color) and keeps the mapping
-            // stable until the cross-fade completes.
-            bool anyRemoved = false;
-            for (int i = _effectiveColors.Count - 1; i >= 0; i--)
-            {
-                var e = _effectiveColors[i];
-                if (e.RemovedTime > double.NegativeInfinity && (elapsed - e.RemovedTime) >= COLOR_FADE_DURATION_SECS)
-                {
-                    float currentTransitionT = (float)Math.Clamp(
-                        (elapsed - _transitionStart) / COLOR_FADE_DURATION_SECS, 0.0, 0.999);
-                    bool transitionIdle = currentTransitionT >= 0.999f || _snapshotColors.Count == 0;
-
-                    if (!transitionIdle)
-                        continue; // cross-fade still running — defer removal to avoid region snap
-
-                    if (!anyRemoved)
-                    {
-                        _snapshotColors = BuildCurrentColorVectors(elapsed);
-                        _transitionStart = elapsed;
-                    }
-                    anyRemoved = true;
-                    _effectiveColors.RemoveAt(i);
-                }
-            }
-
-            // Add newly appeared colors — take a single snapshot before any additions
-            bool anyAdded = false;
-            for (int j = 0; j < targetColors.Length; j++)
-            {
-                var c = targetColors[j];
-                bool alreadyTracked = false;
-                for (int i = 0; i < _effectiveColors.Count; i++)
-                    if (_effectiveColors[i].Color == c && _effectiveColors[i].RemovedTime <= double.NegativeInfinity)
-                    { alreadyTracked = true; break; }
-
-                if (!alreadyTracked)
-                {
-                    // Re-add a color that's still fading out — rehabilitate it
-                    bool rehabilitated = false;
-                    for (int i = 0; i < _effectiveColors.Count; i++)
-                    {
-                        var e = _effectiveColors[i];
-                        if (e.Color == c && e.RemovedTime > double.NegativeInfinity)
-                        {
-                            // Adjust AddedTime so fade-in continues from current fade-out level
-                            double currentFadeOut = Math.Clamp(1.0 - (elapsed - e.RemovedTime) / COLOR_FADE_DURATION_SECS, 0.0, 1.0);
-                            double equivalentFadeInAge = currentFadeOut * COLOR_FADE_DURATION_SECS;
-                            _effectiveColors[i] = new EffectiveColor
-                            {
-                                Color = c,
-                                AddedTime = elapsed - equivalentFadeInAge,
-                                RemovedTime = double.NegativeInfinity
-                            };
-                            rehabilitated = true;
-                            break;
-                        }
-                    }
-
-                    if (!rehabilitated)
-                    {
-                        if (!anyAdded && !anyRemoved)
-                        {
-                            float T = (float)Math.Clamp(
-                                (elapsed - _transitionStart) / COLOR_FADE_DURATION_SECS, 0.0, 1.0);
-
-                            // If the last snapshot was taken very recently (T < 15% ≈ 300ms),
-                            // skip resetting the snapshot and let this color join the existing
-                            // cross-fade. This batches rapid simultaneous additions (e.g. four
-                            // pad presses at once) into one smooth transition instead of causing
-                            // four cascading sector reshuffles.
-                            bool shouldSnapshot = _snapshotColors.Count == 0 || T >= 0.15f;
-                            if (shouldSnapshot)
-                            {
-                                // Snapshot the visually-blended state rather than raw weights.
-                                // If a cross-fade is in progress, the shader shows:
-                                //   mix(snapshot[R % prevCount], current[R % currCount], T)
-                                // Taking a raw snapshot and resetting T=0 would snap each region
-                                // to its raw weight, diverging from the blended display.
-                                // Evaluate the blend per-slot so T=0 is visually continuous.
-                                var raw = BuildCurrentColorVectors(elapsed);
-                                if (_snapshotColors.Count > 0 && T < 0.999f)
-                                {
-                                    var blendedSnap = new List<Vector4>(raw.Count);
-                                    for (int s = 0; s < raw.Count; s++)
-                                    {
-                                        var prev = _snapshotColors[s % _snapshotColors.Count];
-                                        var cur  = raw[s];
-                                        blendedSnap.Add(new Vector4(
-                                            prev.X + (cur.X - prev.X) * T,
-                                            prev.Y + (cur.Y - prev.Y) * T,
-                                            prev.Z + (cur.Z - prev.Z) * T,
-                                            prev.W + (cur.W - prev.W) * T));
-                                    }
-                                    _snapshotColors = blendedSnap;
-                                }
-                                else
-                                {
-                                    _snapshotColors = raw;
-                                }
-                                _transitionStart = elapsed;
-                            }
-                        }
-                        anyAdded = true;
-                        _effectiveColors.Add(new EffectiveColor { Color = c, AddedTime = elapsed, RemovedTime = double.NegativeInfinity });
-                    }
-                }
-            }
-
-            // Build current color vectors for SSBO
-            var currentColors = BuildCurrentColorVectors(elapsed);
-
-            float transitionT = (float)Math.Clamp(
-                (elapsed - _transitionStart) / COLOR_FADE_DURATION_SECS, 0.0, 0.999);
-
-            // Write SSBO for this frame slot
-            WriteSsboData(_currentFrame, currentColors, _snapshotColors, transitionT);
-
-            // Bind SSBO descriptor set
-            fixed (DescriptorSet* pSet = &_ssboSets[_currentFrame])
-                _vk.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _pipelineLayout,
-                    0, 1, pSet, 0, null);
-
+            // Push data is built before the render pass because a compute prelude (a
+            // simulation stage shipped with the active shader) consumes the same block.
             var audio = Volatile.Read(ref _audioLite).Value;
             PushData pc = new()
             {
@@ -2525,6 +2939,45 @@ namespace ShowControl.Graphics
                 AudioMotion = audio.Motion,
                 AudioSpread = audio.Spread,
             };
+
+            // Upload the newest spectrum for this frame slot (shaders that don't declare
+            // binding 1 never read it), then record the active shader's compute prelude —
+            // its barriers must sit OUTSIDE the render pass. Record runs several ping-pong
+            // substeps and returns the LAST substep's parity: that parity's descriptor set
+            // has binding 3 pointing at the buffer the final substep wrote, which is what
+            // the graphics pass must read.
+            UpdateColorState(elapsed);
+            WriteSpectrumData(_currentFrame);
+            int preludeParity = 0;
+            if (_computePrelude != null && _shader == _computePreludeShader)
+            {
+                preludeParity = _computePrelude.Record(cmd, in pc,
+                    _frameSets[_currentFrame * 2],
+                    _frameSets[_currentFrame * 2 + 1]);
+            }
+
+            // --- Off-screen render pass ---
+            var clear = new ClearValue(new ClearColorValue(0.1f, 0.1f, 0.1f, 1f));
+            RenderPassBeginInfo rpBegin = new()
+            {
+                SType = StructureType.RenderPassBeginInfo,
+                RenderPass = _offscreenRenderPass,
+                Framebuffer = _offscreenFramebuffer,
+                RenderArea = new Rect2D(new Offset2D(0, 0), _offscreenExtent),
+                ClearValueCount = 1,
+                PClearValues = &clear
+            };
+
+            _vk.CmdBeginRenderPass(cmd, &rpBegin, SubpassContents.Inline);
+            _vk.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, _pipeline);
+
+            // Bind this frame's descriptor set (parity-matched to the compute prelude
+            // when one ran; parity 0 otherwise — same set layout, so the set is
+            // compatible with both pipeline layouts).
+            fixed (DescriptorSet* pSet = &_frameSets[_currentFrame * 2 + preludeParity])
+                _vk.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, _pipelineLayout,
+                    0, 1, pSet, 0, null);
+
             _vk.CmdPushConstants(cmd, _pipelineLayout, ShaderStageFlags.FragmentBit,
                 0, (uint)Unsafe.SizeOf<PushData>(), &pc);
 

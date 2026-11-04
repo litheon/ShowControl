@@ -65,6 +65,82 @@ namespace ShowControl.Tests
         }
 
         [Fact]
+        public void CurrentSpectrum_IsValidInsidePublishHandlerAndLocatesATone()
+        {
+            // A 1 kHz sine at 48 kHz with a 2048-point window lands its energy at
+            // bin round(1000 * 2048 / 48000) = 43. The spectrum span must be readable
+            // inside the handler (the documented validity window) with 1024 bins.
+            var engine = new AudioAnalysisEngine();
+            int observedLength = 0;
+            int observedArgmax = -1;
+            engine.SnapshotPublished += _ =>
+            {
+                var spectrum = engine.CurrentSpectrum;
+                observedLength = spectrum.Length;
+                float best = -1f;
+                for (int i = 1; i < spectrum.Length; i++)
+                {
+                    if (spectrum[i] > best) { best = spectrum[i]; observedArgmax = i; }
+                }
+            };
+
+            const double freq = 1000.0;
+            var block = new float[48_000];
+            for (int i = 0; i < block.Length; i++)
+            {
+                block[i] = (float)Math.Sin(2 * Math.PI * freq * i / 48_000.0);
+            }
+            engine.Submit(block, 0);
+            engine.ProcessPending();
+
+            Assert.Equal(1024, observedLength);
+            Assert.InRange(observedArgmax, 41, 45);
+        }
+
+        [Fact]
+        public void APadPressedAndHeld_InSilence_FloodsTheInjectionTableWithinASecond()
+        {
+            var engine = new AudioAnalysisEngine();
+            var pulseAtHop = new List<float>();
+            engine.SnapshotPublished += _ => pulseAtHop.Add(
+                engine.CurrentInjectionTable.Slice(InjectionHistory.BandCount * 3, InjectionHistory.BandCount).ToArray().Max());
+            // A second of silence first: the baseline is all there is.
+            engine.Submit(new float[48_000], 0);
+            engine.ProcessPending();
+            float baseline = pulseAtHop[^1];
+            Assert.InRange(baseline, 0f, 0.3f);
+
+            // Press and hold: every hop from here sees the pad down.
+            engine.PadPressed(0);
+            engine.SetHeldDiscs(1);
+            int before = pulseAtHop.Count;
+            engine.Submit(new float[48_000], 1.0);
+            engine.ProcessPending();
+            var held = pulseAtHop.Skip(before).ToList();
+            int hopsPerSecond = held.Count;
+            Assert.InRange(hopsPerSecond, 80, 100);
+            // Full within 0.7s (the flood's attack), still full at the end of the second.
+            Assert.True(held[(int)(hopsPerSecond * 0.7)] > 0.95f, $"at 0.7s: {held[(int)(hopsPerSecond * 0.7)]}");
+            Assert.True(held[^1] > 0.95f);
+        }
+
+        [Fact]
+        public void CurrentSpectrum_IsSilentForSilence()
+        {
+            var engine = new AudioAnalysisEngine();
+            float observedMax = -1f;
+            engine.SnapshotPublished += _ =>
+            {
+                float max = 0f;
+                foreach (var v in engine.CurrentSpectrum) max = Math.Max(max, v);
+                observedMax = max;
+            };
+            engine.Submit(new float[48_000], 0);
+            engine.ProcessPending();
+            Assert.InRange(observedMax, 0f, 1e-6f);
+        }
+
+        [Fact]
         public void Engine_PublishesAtHopRate()
         {
             var (engine, published) = CreateEngine();

@@ -47,6 +47,16 @@ namespace ShowControl.PixelMapping
         PixelMapLayout CurrentLayout { get; }
 
         PixelMapSummary CurrentSummary { get; }
+
+        /// <summary>
+        /// What the output shows instead of the animation — a test pattern, a soloed fixture —
+        /// for checking the wiring. Session state, never saved with the map. Read once per
+        /// frame by the render path and compiled against the current layout there.
+        /// </summary>
+        PixelOutputOverrideRequest CurrentOutputOverride { get; }
+
+        /// <summary>Raised on whatever thread set the override; the render path only reads the property.</summary>
+        event EventHandler? OutputOverrideChanged;
     }
 
     /// <summary>Write side, consumed by the editor UI.</summary>
@@ -85,5 +95,10 @@ namespace ShowControl.PixelMapping
 
         /// <summary>Throws away recovered edits and reloads the last saved file, or the default map.</summary>
         void DiscardRecoveredWork();
+
+        /// <summary>Sets what the output shows instead of the animation. Not validated against the
+        /// map: a solo of a fixture that no longer exists simply blanks everything, which is the
+        /// honest result, and the editor clears it on leaving edit mode.</summary>
+        void SetOutputOverride(PixelOutputOverrideRequest request);
     }
 }

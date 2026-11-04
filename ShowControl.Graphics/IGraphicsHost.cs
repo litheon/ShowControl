@@ -12,6 +12,10 @@ namespace ShowControl.Graphics
         public const string Geometry = "geometry";
         public const string Clown = "clown";
         public const string AudioLite = "audiolite";
+
+        /// <summary>Two-stage fluid flow-field visualization: a compute prelude
+        /// (fluid.comp) simulates a spectrum-fed field, fluid.frag renders it.</summary>
+        public const string Fluid = "fluid";
     }
 
     /// <summary>
@@ -93,12 +97,44 @@ namespace ShowControl.Graphics
         event Action? SwapChainRecreatedEvent;
     }
 
+    /// <summary>
+    /// Which of the fluid's injection discs a control-surface pad belongs to. Every pad
+    /// has its own disc, so pressing another pad floods another point; with more pads
+    /// than discs they share round-robin. The analysis floods by this (RenderService →
+    /// AudioAnalysisEngine) and the host colours by it (ShaderAnimation → GraphicsHost),
+    /// so the one function keeps the two in step.
+    /// </summary>
+    public static class InjectionDiscs
+    {
+        public const int Count = 5;   // GraphicsHost.InjectionSites, InjectionHistory.BandCount
+
+        public static int Of(int pad) => ((pad % Count) + Count) % Count;
+    }
+
+    /// <summary>A held pad's colour on the injection disc it belongs to.</summary>
+    public readonly record struct PadColor(int Disc, System.Drawing.Color Color);
+
     public interface IGraphicsHost
     {
         public RenderedImageHandle<byte> GetRenderedImage();
         public int Width { get;  }
         public int Height { get; }
+        /// <summary>The colours of the pads held on the control surface, for the
+        /// sector/ring regions the shaders paint in them — drawn only while
+        /// <see cref="ColorRegions"/> is on.</summary>
         public System.Drawing.Color[] Colors { get; set; }
+
+        /// <summary>The held pads' colours by injection disc (<see cref="InjectionDiscs"/>):
+        /// while a pad is down its disc injects in its colour, and the flood a press fires
+        /// through the analysis comes out of that disc in that colour. A disc not listed
+        /// injects the analysis palette's hue. Replaced whole on every press and release;
+        /// read once per frame.</summary>
+        public PadColor[] PadColors { get; set; }
+
+        /// <summary>Whether <see cref="Colors"/> reach the shaders' colour buffer, i.e.
+        /// whether the pad-colour regions (the kaleidoscope's spiral bias, the fluid's
+        /// overlay) are drawn. Off, the shaders see no held colours; the injection still does.</summary>
+        public bool ColorRegions { get; set; }
         public void SetShader(string fragmentShaderResource);
 
         /// <summary>Global distortion strength driven by rotary 1.</summary>
@@ -120,6 +156,38 @@ namespace ShowControl.Graphics
         /// Independent of the active shader — audio state flows whatever is on screen.
         /// </summary>
         void SetAudio(in AudioLitePush audio);
+
+        /// <summary>
+        /// Publishes the current FFT spectrum (magnitudes, DC first; 1024 bins expected,
+        /// longer input is truncated and shorter is zero-padded). Callable from any thread;
+        /// latest-wins, copied immediately — the caller's span is not retained. The render
+        /// thread uploads the newest spectrum once per frame for shaders that declare the
+        /// spectrum storage buffer (binding 1).
+        /// <paramref name="injectionTable"/> rides in the same buffer after the bins: for
+        /// each of 5 log-spaced bands of the spectrum, where in the plane that band
+        /// currently enters and in what color — 5 positions across, 5 depths, then 5
+        /// hues, each 0..1 — then how hard each is injecting dye (5 pulses, 0..1: a
+        /// constant baseline, over which the occasional hit at the loudest of the last
+        /// few minutes fires a one-shot envelope to 1) —
+        /// followed by the field's sideways bias as two speeds, of
+        /// which at most one is nonzero: the drift of all the fluid (+ right, − left,
+        /// plane widths per second), and the injection points' left/right emission —
+        /// then how marbled the dye is shown, 0..1, how firmly the control surface's
+        /// pads hold the colours (the host's own slot), and last how hard the hits are
+        /// stirring the flow, 0..1 (see InjectionHistory, InjectionPalette,
+        /// InjectionPulses and FlowBias in ShowControl.AudioAnalysis).
+        /// Any other length falls back to plain frequency order along the top, one hue
+        /// per band, nothing injecting, no bias, fully marbled, nothing stirring.
+        /// </summary>
+        void SetAudioSpectrum(ReadOnlySpan<float> magnitudes, ReadOnlySpan<float> injectionTable);
+
+        /// <summary>
+        /// Publishes the drop signal for shaders: positive = seconds until the nearest
+        /// announced or waveform-predicted drop, negative = seconds since one just fired
+        /// (a short post-hit window), and ≥900 = no drop known. Callable from any thread;
+        /// latest-wins. Uploaded in the spectrum buffer's header once per frame.
+        /// </summary>
+        void SetDropSignal(float signedSeconds);
 
         /// <summary>
         /// Event raised when the graphics host wants a preview window to be opened.

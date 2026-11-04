@@ -25,6 +25,11 @@ namespace ShowControl.Tests
             Assert.Contains("Blades", vm.Text);
             Assert.Contains("Dot Radius", vm.Text);
             Assert.DoesNotContain("Spiral Twist", vm.Text);
+
+            vm.Update("fluid", 0.5f, 0.4f, 1f, 1f, 1f);
+            Assert.Contains("Decay", vm.Text);
+            Assert.Contains("Depth", vm.Text);
+            Assert.DoesNotContain("Blades", vm.Text);
         }
 
         /// <summary>A shader nobody has named knobs for still shows its numbers.</summary>

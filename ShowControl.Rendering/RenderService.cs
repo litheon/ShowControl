@@ -50,6 +50,17 @@ namespace ShowControl.Rendering
         private byte[] _targetVector;
         private bool _loggedFrameSizeMismatch;
 
+        // The wiring-check override (a test pattern, a soloed strip), compiled on the render thread
+        // the first frame after the request or the layout changes, and the frame copy it is applied
+        // to — the animation's own frame is its state and is not written to. It compiles against
+        // the LATEST published layout, not the active one: a drag publishes as a geometry change,
+        // which never replaces _activeLayout, and the diagonals pattern is drawn from positions.
+        private PixelMapLayout _latestLayout;
+        private PixelMapLayout _outputOverrideLayout;
+        private PixelOutputOverride _outputOverride;
+        private Pixel[] _overrideFrame = Array.Empty<Pixel>();
+        private readonly Stopwatch _overrideClock = Stopwatch.StartNew();
+
         private IRenderSurface _pixelChannels;
         private readonly IRenderSurface _parChannels;
 
@@ -200,6 +211,7 @@ namespace ShowControl.Rendering
 
             // The pixel surface is built from the saved map, not from a hardcoded pixel count.
             _activeLayout = _pixelMapSource.CurrentLayout;
+            _latestLayout = _activeLayout;
             _pixelChannels = PixelMapSurfaceBuilder.Build(_activeLayout, _pixelTypes, new RenderSettings(255));
 
             if (_pixelMapSource is IPixelMapEditor editor)
@@ -288,6 +300,12 @@ namespace ShowControl.Rendering
         /// </summary>
         private void _inputService_OnInputDeviceReconnected(object sender, EventArgs e)
         {
+            // A surface that went away took its releases with it.
+            lock (_heldPads)
+            {
+                _heldPads.Clear();
+                _audioLiteBridge?.SetHeldDiscs(0);
+            }
             lock (_navigationLock)
             {
                 if (ReferenceEquals(_inputDevice, AbsentMidiInputDevice.Instance))
@@ -425,6 +443,13 @@ namespace ShowControl.Rendering
             {
                 navigationLevel = _navigationLevel;
             }
+            if (e.EventType == DeviceInputEventType.Pad)
+            {
+                // Whatever level the pads are navigating, a pad is also a cue to the fluid —
+                // this used to sit in ProcessPadPressed, which only runs at Root, and the rig
+                // runs at KeyAnimation from startup, so no press ever flooded.
+                CuePadForAnalysis(e.ButtonDirection, e.PadNumber.Value);
+            }
             if (e.EventType == DeviceInputEventType.Navigation)
             {
                 ProcessNavigationButtonPressed(e.ButtonDirection, e.NavigationDirection);
@@ -486,8 +511,49 @@ namespace ShowControl.Rendering
             RenderOperatatorTimer.Change(TimeSpan.FromSeconds(5), RenderDelayTime);
         }
 
+        // The pads down right now, for the analysis: a set rather than a count, so a release
+        // that arrives twice (or a press that never gets its release) cannot leave it wrong.
+        private readonly HashSet<byte> _heldPads = new HashSet<byte>();
+
+        /// <summary>The pad as a cue to the fluid, at every navigation level: a press floods
+        /// its injection disc (<see cref="InjectionDiscs"/>) with dye, and held, keeps that
+        /// disc's dye coming at full.</summary>
+        private void CuePadForAnalysis(ButtonDirection direction, byte padNumber)
+        {
+            int disc = InjectionDiscs.Of(padNumber);
+            if (direction == ButtonDirection.Press)
+            {
+                _logger.LogDebug("[Pads] Pad {Pad} pressed: cueing the analysis on disc {Disc} (bridge {Bridge}).", padNumber, disc, _audioLiteBridge == null ? "absent" : "present");
+                _audioLiteBridge?.PadPressed(disc);
+                lock (_heldPads)
+                {
+                    _heldPads.Add(padNumber);
+                    _audioLiteBridge?.SetHeldDiscs(HeldDiscMask());
+                }
+            }
+            else if (direction == ButtonDirection.Release)
+            {
+                lock (_heldPads)
+                {
+                    _heldPads.Remove(padNumber);
+                    _audioLiteBridge?.SetHeldDiscs(HeldDiscMask());
+                }
+            }
+        }
+
+        /// <summary>One bit per injection disc with a held pad on it. Under the _heldPads lock.</summary>
+        private int HeldDiscMask()
+        {
+            int mask = 0;
+            foreach (var pad in _heldPads)
+            {
+                mask |= 1 << InjectionDiscs.Of(pad);
+            }
+            return mask;
+        }
+
         private void ProcessPadPressed(ButtonDirection direction, byte padNumber)
-        {   
+        {
             if (direction == ButtonDirection.Press)
             {
                 if (padNumber < _padTransitionStartIndex)
@@ -641,6 +707,7 @@ namespace ShowControl.Rendering
         /// </summary>
         private void PixelMap_Changed(object sender, PixelMapChangedEventArgs e)
         {
+            Volatile.Write(ref _latestLayout, e.Layout);     // for the override; the rig's own rebuild is below
             if (e.Kind == PixelMapChangeKind.Geometry)
             {
                 lock (_navigationLock)
@@ -660,6 +727,55 @@ namespace ShowControl.Rendering
             }
 
             Volatile.Write(ref _pendingLayout, e.Layout);
+        }
+
+        /// <summary>
+        /// The frame with the wiring-check override applied, or the frame itself when there is
+        /// none. Render thread only. Recompiles when the request or the published layout has
+        /// changed — a drag publishes a layout per pointer move, so while a pattern is on that is a
+        /// compile per move, a few thousand array writes — and otherwise costs a copy and a lookup
+        /// per pixel while an override is on, and a single read when it is off (the common case).
+        /// </summary>
+        private Pixel[] ApplyOutputOverride(Pixel[] frame)
+        {
+            var request = _pixelMapSource.CurrentOutputOverride;
+            if (!request.IsActive)
+            {
+                _outputOverride = null;
+                _outputOverrideLayout = null;
+                return frame;
+            }
+
+            var layout = Volatile.Read(ref _latestLayout) ?? _activeLayout;
+            var compiled = _outputOverride;
+            if (compiled == null || compiled.Request != request || !ReferenceEquals(_outputOverrideLayout, layout))
+            {
+                compiled = PixelOutputOverride.Compile(layout, request);
+                _outputOverride = compiled;
+                _outputOverrideLayout = layout;
+            }
+            if (frame.Length != compiled.PixelCount)
+            {
+                // A structural publish the rebuild below has not applied yet (or the mismatch
+                // guard's case); the override catches up on the frame after the rebuild.
+                return frame;
+            }
+
+            if (_overrideFrame.Length != frame.Length)
+            {
+                _overrideFrame = new Pixel[frame.Length];
+            }
+            Array.Copy(frame, _overrideFrame, frame.Length);
+            double seconds = _overrideClock.Elapsed.TotalSeconds;
+            for (int i = 0; i < _overrideFrame.Length; i++)
+            {
+                if (compiled.Replaces(i))
+                {
+                    var c = compiled.ColorOf(i, seconds);
+                    _overrideFrame[i].Color = Color.FromArgb(0, c.R, c.G, c.B);
+                }
+            }
+            return _overrideFrame;
         }
 
         /// <summary>
@@ -816,6 +932,8 @@ namespace ShowControl.Rendering
                 //     Color.FromArgb(255, 74, 0),
                 //     Color.FromArgb(9, 254, 182)
                 // }),
+                // Index 0 is the startup shader (runtime SetShader is avoided on MoltenVK).
+                new ShaderAnimation(_pixelMapSource.CurrentSampleMap, _graphicsHost, Shaders.Fluid, frequentWarmColdRoygviv, _logger),
                 new ShaderAnimation(_pixelMapSource.CurrentSampleMap, _graphicsHost, Shaders.Kaleidoscope, frequentWarmColdRoygviv, _logger),
                 // new ShaderAnimation(_pixelMapSource.CurrentSampleMap, _graphicsHost, Shaders.Clown, new Color[]
                 // {
@@ -975,6 +1093,7 @@ namespace ShowControl.Rendering
                     {
                         frame = transformAnimation.GetNextFrame(frame);
                     }
+                    frame = ApplyOutputOverride(frame);
                     var frameSpan = frame.AsSpan();
                     var surface = _pixelChannels;
 

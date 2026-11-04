@@ -60,6 +60,24 @@ namespace ShowControl.PixelMapping
 
         public event EventHandler<PixelMapChangedEventArgs>? Changed;
 
+        // Boxed: the request is wider than a word, and the render thread reads it while the
+        // editor writes it, so the publish has to be one reference write.
+        private object _outputOverride = PixelOutputOverrideRequest.Nothing;
+
+        public PixelOutputOverrideRequest CurrentOutputOverride => (PixelOutputOverrideRequest)Volatile.Read(ref _outputOverride);
+
+        public event EventHandler? OutputOverrideChanged;
+
+        public void SetOutputOverride(PixelOutputOverrideRequest request)
+        {
+            if (CurrentOutputOverride == request)
+            {
+                return;
+            }
+            Volatile.Write(ref _outputOverride, request);
+            OutputOverrideChanged?.Invoke(this, EventArgs.Empty);
+        }
+
         /// <summary>
         /// Resolves which map to run with, preferring unsaved work the user was never given a
         /// chance to keep. Each fallback is logged, and a corrupt, missing or unreadable file at

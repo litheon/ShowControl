@@ -24,6 +24,21 @@ public sealed class AudioAnalysisEngine : IDisposable
     private readonly OnsetDetector _onsets;
     private readonly TempoPll _pll;
     private readonly SectionTracker _sections;
+    private readonly InjectionHistory _injection;
+    private readonly AutoGain _autoGain;
+    private readonly InjectionPalette _palette = new();
+    private readonly FlowBias _flow = new();
+    private readonly InjectionPulses _pulses;
+    private int _pressedDiscs;
+    private int _heldDiscs;
+    // The pad-hold slot is the graphics host's: how firmly the control surface's pads
+    // are holding the colors (0 here; the host fills it in).
+    private readonly float[] _injectionTable = new float[InjectionHistory.BandCount * 4 + 5];
+    /// <summary>How long after the first sample the injection pulses may start firing on
+    /// ratios — the history's usual level takes about this long to mean anything.</summary>
+    internal const double PulseWarmupSeconds = 3.0;
+    private readonly float[] _zeroRatios = new float[InjectionHistory.BandCount];
+    private Section _previousSection = Section.Steady;
     private readonly IBeatMetadataSource? _beatMetadata;
     private readonly float[] _previousMagnitudes;
     private int _onsetsSinceLastHop;
@@ -52,6 +67,10 @@ public sealed class AudioAnalysisEngine : IDisposable
         _stft = new Stft(_settings.FftWindowSize, _settings.HopSize);
         _composer = new AudioLiteComposer(_settings);
         _bands = new BandAnalyzer(_settings);
+        _injection = new InjectionHistory(_settings);
+        _pulses = new InjectionPulses(_settings);
+        _autoGain = new AutoGain(_settings);
+        _palette.MarbleAlways = _settings.MarbleAlways;
         _onsets = new OnsetDetector(_settings.SampleRate);
         _pll = new TempoPll(new PllSettings
         {
@@ -76,9 +95,39 @@ public sealed class AudioAnalysisEngine : IDisposable
 
     public AnalysisSettings Settings => _settings;
 
+    /// <summary>The automatic input gain currently applied to the capture, and the peak
+    /// it is referenced to (see <see cref="AutoGain"/>). Analysis thread only.</summary>
+    public float AutoGainValue => _autoGain.Gain;
+    public float AutoGainWindowPeak => _autoGain.WindowPeak;
+
     /// <summary>The most recent published frame; never null, valid during silence and
     /// before the first publish.</summary>
     public AnalysisSnapshot Latest => Volatile.Read(ref _latest);
+
+    /// <summary>
+    /// The current hop's STFT magnitudes (1024 bins, DC first, 1/N-scaled). This is the
+    /// explicit spectrum channel for renderers — snapshots stay allocation-free. Valid
+    /// ONLY while a <see cref="SnapshotPublished"/> handler is running (same thread; the
+    /// buffer is overwritten on the next hop): copy it there, never retain the span.
+    /// </summary>
+    public ReadOnlySpan<float> CurrentSpectrum => _stft.Magnitudes;
+
+    /// <summary>
+    /// How each of <see cref="InjectionHistory.BandCount"/> log-spaced bands of the
+    /// spectrum currently enters a visualization: the bands' positions across (home
+    /// columns carried by the bias), then their depths (decided by the last minute of
+    /// audio — see <see cref="InjectionHistory"/>), then their hues (see <see cref="InjectionPalette"/>),
+    /// every value 0..1, then their pulses — how hard each is injecting dye right now,
+    /// as one-shot envelopes the loudest hits fire (see <see cref="InjectionPulses"/>) —
+    /// then the field's sideways bias: its drift of all the fluid
+    /// (the positions across already include the travel it gives the points), then its
+    /// left/right emission at the injection points (see <see cref="FlowBias"/>) — then
+    /// how marbled the dye is shown, 0..1 (see <see cref="InjectionPalette.Marble"/>),
+    /// the pad hold (the host's), and last how hard the hits are stirring the flow,
+    /// 0..1 (see <see cref="InjectionPulses.Turbulence"/>). Same validity window as
+    /// <see cref="CurrentSpectrum"/>: copy it inside the publish handler.
+    /// </summary>
+    public ReadOnlySpan<float> CurrentInjectionTable => _injectionTable;
 
     /// <summary>Raised on the analysis thread (or the ProcessPending caller) once per
     /// published frame. Handlers must be cheap and must not retain the snapshot's arrays
@@ -101,6 +150,22 @@ public sealed class AudioAnalysisEngine : IDisposable
         _blocks.Enqueue((buffer, samples.Length, captureTimeSeconds));
         _blockAvailable.Set();
     }
+
+    /// <summary>A pad press on the control surface: floods the fluid with dye from
+    /// injection disc <paramref name="disc"/> at the next hop — a full injection envelope,
+    /// every press, whatever the audio's accent is doing (see <see cref="InjectionPulses"/>).
+    /// Callable from any thread; the press is consumed by the analysis thread with the next
+    /// block of audio, so it needs capture running.</summary>
+    public void PadPressed(int disc)
+    {
+        int bit = 1 << Math.Clamp(disc, 0, InjectionHistory.BandCount - 1);
+        Interlocked.Or(ref _pressedDiscs, bit);
+    }
+
+    /// <summary>Which injection discs have a pad down on them, one bit per disc. Held
+    /// past half a second, a disc injects at full for as long as its pad is (see
+    /// <see cref="InjectionPulses"/>). Callable from any thread; takes effect at the next hop.</summary>
+    public void SetHeldDiscs(int discMask) => Volatile.Write(ref _heldDiscs, discMask);
 
     /// <summary>Starts the background analysis thread. Idempotent. Tests skip this and
     /// call <see cref="ProcessPending"/> instead.</summary>
@@ -134,13 +199,17 @@ public sealed class AudioAnalysisEngine : IDisposable
         }
     }
 
-    private void ProcessBlock(ReadOnlySpan<float> samples, double captureTime)
+    private void ProcessBlock(Span<float> samples, double captureTime)
     {
         if (!_anchored)
         {
             _timeAnchor = double.IsFinite(captureTime) ? captureTime : 0;
             _anchored = true;
         }
+
+        // Auto gain first: everything below reads the scaled signal. The block is our
+        // own pooled copy, so scaling in place is free.
+        _autoGain.Process(samples, (double)samples.Length / _settings.SampleRate);
 
         // Transient path first: sub-hop-precision onset timestamps into the PLL, at full
         // capture rate, no FFT.
@@ -192,6 +261,16 @@ public sealed class AudioAnalysisEngine : IDisposable
         double displayBarPhase = _pll.BarPhase(time + LatencyModel.PipelineSeconds);
 
         _bands.Analyze(magnitudes, dt);
+        _injection.Advance(magnitudes, dt);
+        // The pulses fire on ratios to each band's usual level, and for the first seconds
+        // there is no usual: the history starts from nothing, so every hop stands at many
+        // times "usual" and every band fires — a cold start used to open with an accent
+        // on room noise, every disc swelling at once. Levels still flow (the baseline and
+        // the references warm up on them); only the firing waits.
+        bool warm = time - _timeAnchor >= PulseWarmupSeconds;
+        _pulses.Advance(warm ? _injection.Ratios : _zeroRatios, _injection.Levels, dt,
+            pressedDiscs: Interlocked.Exchange(ref _pressedDiscs, 0),
+            heldDiscs: Volatile.Read(ref _heldDiscs));
         var bandEnergy = new float[AnalysisSnapshot.BandCount];
         var bandFlux = new float[AnalysisSnapshot.BandCount];
         _bands.BandEnergy.CopyTo(bandEnergy);
@@ -226,6 +305,33 @@ public sealed class AudioAnalysisEngine : IDisposable
 
         var predictions = SectionPredictionsAt(time);
         var derivedPredictions = DerivedPredictionsAt(time);
+        var dropIn = double.PositiveInfinity;
+        if (predictions.NextDropIn >= 0) dropIn = predictions.NextDropIn;
+        if (derivedPredictions.NextPredictedDropIn >= 0) dropIn = Math.Min(dropIn, derivedPredictions.NextPredictedDropIn);
+
+        bool dropFired = _sections.Section == Section.Drop && _previousSection != Section.Drop;
+        _previousSection = _sections.Section;
+        _palette.Advance(dt, lite.Energy, lite.Tension, dropFired);
+        _injection.Sites.CopyTo(_injectionTable);
+        _palette.Hues.CopyTo(_injectionTable.AsSpan(InjectionHistory.BandCount * 2));
+        _pulses.Pulses.CopyTo(_injectionTable.AsSpan(InjectionHistory.BandCount * 3));
+        _flow.Advance(dt, lite.Energy, lite.Tension,
+            double.IsPositiveInfinity(dropIn) ? -1 : dropIn, dropFired);
+        // Across, the bias alone places the injection points: each sits at its home
+        // column carried by the bias, wrapping around the sides. The history's own
+        // travel across is deliberately NOT added — it is many times faster than the
+        // bias and runs both ways, so with it the points visibly changed direction
+        // between drops. The history still sets each point's depth.
+        for (int band = 0; band < InjectionHistory.BandCount; band++)
+        {
+            _injectionTable[band] = AudioMath.SanitizePhase(
+                InjectionHistory.HomeSite(band) + (double)_flow.Offset);
+        }
+        _injectionTable[InjectionHistory.BandCount * 4] = _flow.Field;
+        _injectionTable[InjectionHistory.BandCount * 4 + 1] = _flow.Split;
+        _injectionTable[InjectionHistory.BandCount * 4 + 2] = _palette.Marble;
+        _injectionTable[InjectionHistory.BandCount * 4 + 4] = _pulses.Turbulence;
+
         var snapshot = new AnalysisSnapshot
         {
             Time = time,
