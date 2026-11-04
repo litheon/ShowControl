@@ -38,7 +38,77 @@ Mac Catalyst app in `ShowControl.ControlPanel.Maui`.
 >   Art-Net/DDP replies without authentication, as those protocols require. Run it on an
 >   isolated show network only.
 >
-> If any of that is a problem for your use, do not use this code.
+> If any of that is a problem for your use, do not use this code. If you intend to run
+> it in front of people, read **What controlling lights makes you responsible for**
+> below first — it is not optional reading.
+
+## What controlling lights makes you responsible for
+
+Running this software makes **you the lighting operator** for whatever is on the other
+end of the cable. That is a role with real duties, and none of them transfer to the
+code or its author. Before you plug anything in, be sure you understand and accept
+the following.
+
+**People in the beam are your responsibility.**
+- *Photosensitive epilepsy.* Roughly 1 in 4,000 people is photosensitive, and flashing
+  between about 3 and 60 Hz — especially bright, full-field, red-heavy flashes — can
+  trigger seizures. Audio-reactive effects here will flash on every transient at
+  whatever rate the music supplies, the measurement mode goes full white on every beat,
+  and several supported DMX fixtures expose a hardware strobe channel. Keep sustained
+  flash rates below 3 Hz where you can, post strobe warnings at entrances where you
+  cannot, know how to stop it instantly, and follow your venue's and jurisdiction's
+  rules (e.g. the Harding/Ofcom guidance, local licensing conditions).
+- *Performers and crew.* Fixtures aimed into eyes blind people who are walking on
+  stages, ladders and truss. Agree focus with the stage manager; never re-aim or
+  re-level live without warning.
+- *Egress and emergency lighting.* Exit signs, house lights and emergency lighting are
+  life-safety systems. Do not patch them into a universe this software drives, do not
+  blackout a room in a way that defeats them, and know how to bring the house lights up
+  independently of anything running on this machine.
+
+**Everything on the DMX / Art-Net / DDP network is in reach — not just your fixtures.**
+A universe is shared. A wrong start address or universe number in the pixel map can
+drive someone else's moving heads, hazers, or — on badly segregated rigs — relays,
+motors and pyro controllers that should never share a data line with effects
+lighting. Confirm the patch against the venue's plot, never put this software on a
+universe that carries anything but lighting, and treat an unreviewed pixel map as a
+loaded instrument.
+
+**Fixtures, power and heat are physical.** LED pixel strips at full white draw their
+rated maximum; a saturated audio-reactive frame will hold them there. Make sure
+supplies, injection points, fusing and heat dissipation are rated for 100 % duty, not
+for the average of a tasteful look. The software has no notion of thermal or
+electrical limits and will not protect hardware from itself.
+
+**Know this rig's failure modes and have a manual way out.** This code is written to
+keep the lights running through its own faults, which also means its faults can be
+*silent*:
+- There is **no blackout, kill or master-dim control** in the software. On shutdown
+  it stops animating and closes its sockets; it does not send a dark frame first.
+  Strips and fixtures that hold their last value will **stay lit at whatever was last
+  sent** until something else addresses them or they are powered down.
+- A lost GPU device, a stalled render loop or a frozen staging frame leaves the rig
+  **holding its last picture indefinitely** rather than going dark (see `CLAUDE.md`,
+  *Graphics host*). A frozen frame at full intensity looks identical to a working
+  show from the booth.
+- Output devices back off and retry while a controller is unreachable; a strip that
+  drops off the network and returns will **snap straight to the live frame**, not
+  fade in.
+- The audio engine drives effects from whatever the input hears. Feedback, a dropped
+  microphone, or a DJ's test tone will be rendered faithfully.
+
+So: run it alongside a hardware console, a DMX merger with a master, or at minimum a
+power switch you can reach, and rehearse the blackout you will use when the software
+is not the thing you can trust. Watch the rig, not the screen.
+
+**Legal and venue obligations are yours too.** Operating lighting at a public event
+can bring licensing conditions, fire-marshal sign-off, insurance requirements and
+accessibility obligations that vary by jurisdiction. Publishing this code is not
+advice on any of them, and using it does not satisfy any of them.
+
+If you are not prepared to take on all of the above, use a commercial console with a
+support contract instead. That is a reasonable choice, and it is the one this
+repository's warranty disclaimer is pointing you toward.
 
 ## Layout
 
