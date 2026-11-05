@@ -1,0 +1,22 @@
+Copyright (c) 2021-2026 James Pfaff. All rights reserved.
+
+This source code is published for viewing and reference. No licence is granted
+to use, copy, modify, merge, publish, distribute, sublicense or sell this
+software or any part of it, and no rights are granted under any patent,
+trademark or other intellectual property, except as set out below or as
+required by applicable law.
+
+You may build and run the software on your own equipment to evaluate it, for
+private and non-commercial purposes only, and entirely at your own risk. Read
+README.md first: the software drives real lighting fixtures over the network
+as soon as it starts.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+The third-party libraries under external/ are separate works distributed
+under their own licences, which this notice does not affect.

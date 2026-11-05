@@ -98,5 +98,6 @@ not a warning, so stale shaders can't ship silently.
 
 ## Licence
 
-No licence is granted yet — all rights reserved for now. The submodules under
-`external/` carry their own licences.
+All rights reserved — see [LICENSE](LICENSE). You may build and run it on your own gear
+to evaluate it; nothing beyond that is granted. The submodules under `external/` carry
+their own licences.
