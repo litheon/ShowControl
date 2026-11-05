@@ -1,7 +1,7 @@
 # Audio reactivity → shader pipeline: architecture review
 
 **Date:** 2026-11-04
-**Branch reviewed:** `djlink_beat_metadata` (working tree, uncommitted changes included)
+**Branch reviewed:** `main`, then named `djlink_beat_metadata` (working tree, uncommitted changes included)
 **Scope:** capture (`ShowControl.Devices.Audio`), analysis (`ShowControl.AudioAnalysis`),
 the bridge (`ShowControl.Rendering/AudioLiteBridge.cs`), the graphics host's audio
 paths (`ShowControl.Graphics/GraphicsHost.cs`, `FluidSimulationPass.cs`), and the
