@@ -17,3 +17,6 @@
 [submodule "external/ArtNetSharp"]
 	path = external/ArtNetSharp
 	url = https://github.com/litheon/ArtNetSharp.git
+[submodule "external/BeatLinkNet"]
+	path = external/BeatLinkNet
+	url = https://github.com/litheon/BeatLinkNet.git

@@ -8,10 +8,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
-    <!-- The native Pro DJ Link port (BeatLinkNet, our C# port of Deep Symmetry's beat-link)
-         lives in its own repository beside this one; once it has a remote it should become a
-         submodule under external/ like the other vendored libraries. -->
-    <ProjectReference Include="..\..\Beat Link Net\src\BeatLinkNet\BeatLinkNet.csproj" />
+    <!-- The native Pro DJ Link port (BeatLinkNet, our C# port of Deep Symmetry's beat-link),
+         vendored as a submodule under external/ like the other libraries. -->
+    <ProjectReference Include="..\external\BeatLinkNet\src\BeatLinkNet\BeatLinkNet.csproj" />
     <ProjectReference Include="..\ShowControl.AudioAnalysis\ShowControl.AudioAnalysis.csproj" />
   </ItemGroup>
   <ItemGroup>
