@@ -84,6 +84,18 @@ dotnet test ShowControl.Tests/ShowControl.Tests.csproj
 ShowControl.ControlPanel.Maui/build  # publishes the Mac Catalyst app
 ```
 
+**One dependency isn't in this repo yet.** `ShowControl.Devices.ProDjLink` references
+BeatLinkNet, a C# port of Deep Symmetry's [beat-link](https://github.com/Deep-Symmetry/beat-link)
+(EPL-2.0), by relative path: the solution expects it checked out beside this one as
+`../Beat Link Net`. That port hasn't been published yet, so until it is, the Pro DJ Link
+project, the test project and the app won't build from a fresh clone. The plan is to
+bring it in as a submodule under `external/` like the other vendored libraries; the
+`.csproj` comment marks the spot.
+
+You also need the .NET MAUI workload and `glslc` on your PATH (LunarG Vulkan SDK or
+Homebrew; on Windows the build reads `$(VulkanSDK)`). A missing `glslc` is a build error,
+not a warning, so stale shaders can't ship silently.
+
 ## Licence
 
 No licence is granted yet — all rights reserved for now. The submodules under

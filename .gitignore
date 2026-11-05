@@ -353,3 +353,6 @@ build.log
 
 # Claude Code local settings
 .claude/
+
+# Per-machine editor settings (absolute SDK paths); launch.json stays tracked
+.vscode/settings.json
